@@ -208,7 +208,9 @@ export function pluginMcpServers(): McpServerDef[] {
           args: cfg.args,
           env: cfg.env,
           url: cfg.url,
-          enabled: true
+          // Plugin-provided connectors often need auth/keys — never auto-connect
+          // them at startup; the user enables what they need in the MCP panel.
+          enabled: false
         })
       }
     } catch {

@@ -235,7 +235,7 @@ async function runAutomationNow(a: AutomationDef, emit: (e: AgentEvent) => void)
   const session: Session = {
     id: randomUUID(),
     title: `[auto] ${a.name}`,
-    cwd: validDir(a.cwd) || settings.defaultCwd || homedir(),
+    cwd: validDir(a.cwd) || validDir(settings.defaultCwd) || homedir(),
     createdAt: Date.now(),
     updatedAt: Date.now(),
     messages: [],

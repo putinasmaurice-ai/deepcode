@@ -496,9 +496,13 @@ export class AgentEngine {
         name: tc.name,
         arguments: tc.arguments || '{}'
       }))
+      assistantMsg.finishReason = result.finishReason
+      if (result.usage) assistantMsg.usage = this.costOf(result.usage)
       messages.push(assistantMsg)
       finalText = result.content || finalText
 
+      // If the response was truncated, don't execute possibly-incomplete tool calls.
+      if (result.finishReason === 'length') break
       if (!assistantMsg.toolCalls.length) break
 
       for (const call of assistantMsg.toolCalls) {

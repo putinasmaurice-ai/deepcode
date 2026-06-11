@@ -61,6 +61,9 @@ export const MessageView = memo(MessageViewImpl, (prev, next) => {
     a.reasoning !== b.reasoning ||
     a.finishReason !== b.finishReason ||
     a.usage?.totalTokens !== b.usage?.totalTokens ||
+    a.usage?.cost !== b.usage?.cost ||
+    a.usage?.promptTokens !== b.usage?.promptTokens ||
+    a.usage?.completionTokens !== b.usage?.completionTokens ||
     (a.toolCalls?.length ?? 0) !== (b.toolCalls?.length ?? 0)
   )
     return false
