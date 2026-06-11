@@ -17,11 +17,14 @@ import { pluginSkills, pluginSubagents, pluginHooks } from '../systems/plugins'
 import { loadHooks, runHooks } from '../systems/hooks'
 import { mcpManager } from '../systems/mcp'
 import { saveSession } from '../store'
+import { getProject } from '../projects'
+import { recordSnapshot } from '../checkpoints'
 
 type Emit = (e: AgentEvent) => void
 // 'interactive' = ask the user; 'safe' = deny anything not pre-approved (headless);
-// 'full' = auto-approve everything (opted-in automations).
-type ApprovalPolicy = 'interactive' | 'safe' | 'full'
+// 'full' = auto-approve everything; 'plan' = read-only — write/shell tools are
+// refused so the agent investigates and proposes instead of changing anything.
+export type ApprovalPolicy = 'interactive' | 'safe' | 'full' | 'plan'
 
 const MAX_STEPS = 60
 
@@ -194,20 +197,38 @@ export class AgentEngine {
       }
 
       const skills = this.collectSkills(session.cwd)
+      const project = session.projectId ? getProject(session.projectId) : null
+
+      // Project trust level can relax or tighten the interactive default.
+      if (policy === 'interactive' && project?.trustLevel === 'trusted') policy = 'full'
+      if (policy !== 'plan' && project?.trustLevel === 'restricted') policy = 'safe'
+
       const system = buildSystemPrompt({
         cwd: session.cwd,
         skills,
-        customInstructions: this.settings.customInstructions
+        customInstructions: this.settings.customInstructions,
+        project: project
+          ? { name: project.name, instructions: project.instructions, goal: project.goal }
+          : null,
+        sessionGoal: session.goal,
+        planMode: policy === 'plan'
       })
 
       const tools = this.buildTools(session.cwd)
       const apiTools = toApiTools(tools)
 
+      const turnTag = String(Date.now())
       const ctx: ToolContext = {
         cwd: session.cwd,
         signal,
         confineToCwd: this.settings.confineToCwd,
         emitStatus: (m) => emit({ type: 'status', message: m }),
+        snapshot: (absPath) => recordSnapshot(session.id, turnTag, absPath),
+        emitTodos: (todos) => {
+          session.todos = todos
+          saveSession(session)
+          emit({ type: 'todos', sessionId: session.id, todos })
+        },
         spawnSubagent: (agent, prompt) => this.runSubagent(agent, prompt, session.cwd, emit, signal)
       }
 
@@ -293,7 +314,10 @@ export class AgentEngine {
             // approval gate
             let approved = this.autoApproved(tool)
             const dangerous = call.name === 'run_command' && isDangerousCommand(parsedArgs.command)
-            if (policy === 'full') {
+            const mutating = tool.permission === 'write' || tool.permission === 'bash'
+            if (policy === 'plan' && mutating) {
+              approved = false // plan mode: investigate + propose only, never modify
+            } else if (policy === 'full') {
               approved = true
             } else if (!approved || dangerous) {
               if (policy === 'safe') {
@@ -306,9 +330,11 @@ export class AgentEngine {
               const res: ToolResult = {
                 ok: false,
                 content:
-                  policy === 'safe'
-                    ? `Skipped "${call.name}" — not permitted in unattended (safe) mode.`
-                    : 'Tool call was denied by the user.'
+                  policy === 'plan' && mutating
+                    ? `Plan mode: "${call.name}" was NOT executed. Describe this change as part of your plan instead.`
+                    : policy === 'safe'
+                      ? `Skipped "${call.name}" — not permitted in unattended (safe) mode.`
+                      : 'Tool call was denied by the user.'
               }
               resultMsg = this.toolResultMessage(call.id, call.name, res)
               session.messages.push(resultMsg)

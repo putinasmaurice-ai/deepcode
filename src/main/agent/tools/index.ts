@@ -3,6 +3,8 @@ import { fsTools } from './fs'
 import { bashTool } from './bash'
 import { makeTaskTool } from './task'
 import { makeSkillTool } from './skill'
+import { todoTool } from './todo'
+import { webFetchTool } from './web'
 import { SubagentDef, SkillDef } from '@shared/types'
 import { ApiToolDef } from '../deepseek'
 
@@ -16,7 +18,7 @@ export function buildToolset(opts: {
   includeTask?: boolean // false for subagents (no recursive delegation)
   allow?: string[] // restrict to these tool names ("*" = all); used by subagents
 }): Tool[] {
-  let tools: Tool[] = [...fsTools, bashTool]
+  let tools: Tool[] = [...fsTools, bashTool, webFetchTool, todoTool]
   if (opts.includeTask !== false) tools.push(makeTaskTool(opts.subagents))
   if (opts.skills?.length) tools.push(makeSkillTool(opts.skills))
   if (opts.mcpTools?.length) tools = tools.concat(opts.mcpTools)

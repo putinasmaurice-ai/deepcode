@@ -8,6 +8,10 @@ export interface ToolContext {
   // Allows a tool (e.g. the subagent/Task tool) to call back into the agent engine.
   spawnSubagent?: (agentName: string, prompt: string) => Promise<string>
   emitStatus?: (msg: string) => void
+  // Checkpoint hook: called with the absolute path BEFORE a file is modified.
+  snapshot?: (absPath: string) => void
+  // Todo-list hook: the todo_write tool reports the agent's plan/progress here.
+  emitTodos?: (todos: { text: string; status: 'open' | 'doing' | 'done' }[]) => void
 }
 
 export interface Tool {

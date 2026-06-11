@@ -34,6 +34,27 @@ export interface ChatMessage {
   meta?: Record<string, unknown> // tool result metadata (diff, paths, counts…)
 }
 
+export interface ProjectDef {
+  id: string
+  name: string
+  cwd: string
+  // always-on instructions for every session in this project
+  instructions?: string
+  // the active goal (set via /goal) — injected into the system prompt
+  goal?: string
+  goalSetAt?: number
+  color?: string // accent dot in the sidebar
+  // trusted = auto-approve everything in this project; restricted = read-only unattended
+  trustLevel?: 'interactive' | 'trusted' | 'restricted'
+  createdAt: number
+  updatedAt: number
+}
+
+export interface TodoItem {
+  text: string
+  status: 'open' | 'doing' | 'done'
+}
+
 export interface Session {
   id: string
   title: string
@@ -42,6 +63,28 @@ export interface Session {
   updatedAt: number
   messages: ChatMessage[]
   model?: string
+  projectId?: string
+  goal?: string // session-level goal when no project is assigned
+  todos?: TodoItem[] // agent task list (todo_write tool)
+}
+
+export interface UsageSummary {
+  total: { tokens: number; cost: number; sessions: number }
+  perProject: {
+    projectId: string
+    name: string
+    tokens: number
+    cost: number
+    sessions: number
+  }[]
+  perSession: {
+    id: string
+    title: string
+    projectId?: string
+    tokens: number
+    cost: number
+    updatedAt: number
+  }[]
 }
 
 export interface ProviderSettings {
@@ -125,6 +168,7 @@ export type AgentEvent =
   | { type: 'tool_result'; callId: string; name: string; result: ToolResult }
   | { type: 'message_done'; message: ChatMessage }
   | { type: 'usage'; messageId: string; usage: TokenUsage }
+  | { type: 'todos'; sessionId: string; todos: TodoItem[] }
   | { type: 'turn_done'; sessionId: string }
   | { type: 'error'; message: string }
   | { type: 'status'; message: string }

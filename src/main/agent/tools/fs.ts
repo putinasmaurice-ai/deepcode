@@ -182,6 +182,7 @@ export const writeTool: Tool = {
       return fail('Content too large (>10MB). Split it into multiple files.')
     const existed = existsSync(p)
     const before = existed ? readFileSync(p, 'utf8') : ''
+    ctx.snapshot?.(p)
     mkdirSync(dirname(p), { recursive: true })
     writeFileSync(p, content, 'utf8')
     const lines = content.split('\n').length
@@ -226,6 +227,7 @@ export const editTool: Tool = {
     const next = args.replace_all
       ? text.split(args.old_string).join(args.new_string)
       : text.replace(args.old_string, args.new_string)
+    ctx.snapshot?.(p)
     writeFileSync(p, next, 'utf8')
     const d = lineDiff(text, next)
     return ok(`Edited ${args.path} (${count} replacement${count > 1 ? 's' : ''}).`, {
@@ -412,6 +414,7 @@ export const applyPatchTool: Tool = {
     try {
       for (const op of ops) {
         const p = resolvePath(ctx.cwd, op.path)
+        ctx.snapshot?.(p)
         if (op.type === 'create') {
           mkdirSync(dirname(p), { recursive: true })
           writeFileSync(p, op.content, 'utf8')

@@ -23,7 +23,19 @@ export function Composer({
   const [attachments, setAttachments] = useState<string[]>([])
   const [commands, setCommands] = useState<SlashCommandDef[]>([])
   const [sel, setSel] = useState(0)
+  const [files, setFiles] = useState<string[]>([])
+  const [dragOver, setDragOver] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
+
+  // focus the input on mount and whenever the session/cwd changes
+  useEffect(() => {
+    ref.current?.focus()
+  }, [cwd])
+
+  // file list for @-mentions (lazy, refreshed per cwd)
+  useEffect(() => {
+    if (cwd) api.listFiles(cwd).then((f: string[]) => setFiles(f ?? []))
+  }, [cwd])
 
   async function addFiles(): Promise<void> {
     const files = (await api.pickFiles()) as string[]
@@ -59,10 +71,27 @@ export function Composer({
     ? commands.filter((c) => c.name.toLowerCase().startsWith(query))
     : []
 
+  // @-file mention: active while the text ends in @<partial-path>
+  const atMatch = !showSlash && !dismissed ? text.match(/@([\w./\\-]*)$/) : null
+  const atQuery = atMatch ? atMatch[1].toLowerCase() : null
+  const fileMatches =
+    atQuery !== null
+      ? files.filter((f) => f.toLowerCase().includes(atQuery)).slice(0, 12)
+      : []
+
+  function pickFileMention(rel: string): void {
+    setText((t) => t.replace(/@([\w./\\-]*)$/, `@${rel} `))
+    if (cwd) {
+      const abs = cwd.replace(/[/\\]+$/, '') + '\\' + rel.replace(/\//g, '\\')
+      setAttachments((a) => Array.from(new Set([...a, abs])))
+    }
+    ref.current?.focus()
+  }
+
   // keep the highlight in range as the match list shrinks
   useEffect(() => {
     setSel(0)
-  }, [query])
+  }, [query, atQuery])
 
   function submit(): void {
     const t = text.trim()
@@ -78,10 +107,27 @@ export function Composer({
   }
 
   function onKey(e: React.KeyboardEvent): void {
-    if (e.key === 'Escape' && showSlash) {
+    if (e.key === 'Escape' && (showSlash || fileMatches.length)) {
       e.preventDefault()
       setDismissed(true)
       return
+    }
+    if (fileMatches.length) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSel((s) => (s + 1) % fileMatches.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSel((s) => (s - 1 + fileMatches.length) % fileMatches.length)
+        return
+      }
+      if (e.key === 'Tab') {
+        e.preventDefault()
+        pickFileMention(fileMatches[Math.min(sel, fileMatches.length - 1)])
+        return
+      }
     }
     if (matches.length && showSlash) {
       if (e.key === 'ArrowDown') {
@@ -106,9 +152,40 @@ export function Composer({
     }
   }
 
+  function onDrop(e: React.DragEvent): void {
+    e.preventDefault()
+    setDragOver(false)
+    const dropped = Array.from(e.dataTransfer.files)
+      .map((f) => (f as File & { path?: string }).path)
+      .filter((p): p is string => !!p)
+    if (dropped.length) setAttachments((a) => Array.from(new Set([...a, ...dropped])))
+  }
+
   return (
-    <div className="composer">
+    <div
+      className={'composer' + (dragOver ? ' drag-over' : '')}
+      onDragOver={(e) => {
+        e.preventDefault()
+        setDragOver(true)
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={onDrop}
+    >
       <div className="composer-inner">
+        {fileMatches.length > 0 && (
+          <div className="slash-menu">
+            {fileMatches.map((f, i) => (
+              <div
+                key={f}
+                className={'slash-item' + (i === sel ? ' sel' : '')}
+                onClick={() => pickFileMention(f)}
+                onMouseEnter={() => setSel(i)}
+              >
+                <span className="cmd">📄 {f}</span>
+              </div>
+            ))}
+          </div>
+        )}
         {showSlash && matches.length > 0 && (
           <div className="slash-menu">
             {matches.map((c, i) => (
@@ -150,9 +227,8 @@ export function Composer({
           value={text}
           placeholder="Ask DeepCode to build, fix, explain, or refactor…  (/ for commands, Enter to send, Shift+Enter for newline)"
           onChange={(e) => {
-            const v = e.target.value
-            setText(v)
-            if (!v.startsWith('/')) setDismissed(false)
+            setText(e.target.value)
+            setDismissed(false)
           }}
           onKeyDown={onKey}
           rows={1}

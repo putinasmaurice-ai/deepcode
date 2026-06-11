@@ -3,11 +3,17 @@ import type {
   AgentEvent,
   AppSettings,
   ChatMessage,
+  ProjectDef,
   Session,
+  TodoItem,
   ToolResult
 } from '../../shared/types'
+
+export type AgentMode = 'interactive' | 'plan' | 'full'
 import { Composer } from './components/Composer'
 import { MessageView } from './components/MessageView'
+import { ProjectsPanel } from './components/ProjectsPanel'
+import { UsagePanel } from './components/UsagePanel'
 import {
   SettingsPanel,
   SkillsPanel,
@@ -24,6 +30,8 @@ const api = window.deepcode
 
 export type View =
   | 'chat'
+  | 'projects'
+  | 'usage'
   | 'settings'
   | 'skills'
   | 'commands'
@@ -43,6 +51,8 @@ export interface ToolState {
 
 const NAV: { view: View; icon: string; label: string }[] = [
   { view: 'chat', icon: '💬', label: 'Chat' },
+  { view: 'projects', icon: '📂', label: 'Projekte' },
+  { view: 'usage', icon: '💰', label: 'Kosten' },
   { view: 'skills', icon: '📘', label: 'Skills' },
   { view: 'commands', icon: '/', label: 'Slash Commands' },
   { view: 'subagents', icon: '🤖', label: 'Subagents' },
@@ -68,14 +78,56 @@ export function App(): JSX.Element {
     tokens: 0,
     cost: 0
   })
+  const [projects, setProjects] = useState<ProjectDef[]>([])
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
+  const [gitBranch, setGitBranch] = useState<string | null>(null)
+  const [mode, setMode] = useState<AgentMode>('interactive')
+  const [todos, setTodos] = useState<TodoItem[]>([])
+  const [sessionFilter, setSessionFilter] = useState('')
+  const [showJump, setShowJump] = useState(false)
   const chatRef = useRef<HTMLDivElement>(null)
   const nearBottomRef = useRef(true)
+
+  const activeProject = projects.find((p) => p.id === (session?.projectId ?? activeProjectId)) ?? null
+
+  async function refreshProjects(): Promise<void> {
+    setProjects(await api.listProjects())
+  }
+
+  // git branch for the current working dir
+  useEffect(() => {
+    if (!session?.cwd) return
+    api.getCwdInfo(session.cwd).then((info: { gitBranch?: string | null }) => {
+      setGitBranch(info?.gitBranch ?? null)
+    })
+  }, [session?.cwd])
+
+  // global shortcuts: Ctrl+N new chat, Ctrl+K focus composer, Esc cancel turn
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.ctrlKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault()
+        newSession()
+      } else if (e.ctrlKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setView('chat')
+        setTimeout(() => document.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus(), 50)
+      } else if (e.key === 'Escape' && busy && session) {
+        api.cancelTurn(session.id)
+        setBusy(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProjectId, settings, busy, session])
 
   // ---- bootstrap ----
   useEffect(() => {
     ;(async () => {
       const s = await api.getSettings()
       setSettings(s)
+      setProjects(await api.listProjects())
       const list = await api.listSessions()
       setSessions(list)
       if (list.length) await openSession(list[0].id)
@@ -83,6 +135,11 @@ export function App(): JSX.Element {
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // refresh projects when returning to chat (panel edits may have changed them)
+  useEffect(() => {
+    if (view === 'chat') refreshProjects()
+  }, [view])
 
   // ---- agent event stream ----
   useEffect(() => {
@@ -93,6 +150,11 @@ export function App(): JSX.Element {
 
   const handleEvent = useCallback((e: AgentEvent) => {
     switch (e.type) {
+      case 'session':
+        // pushed after /compact: replace the transcript with the updated session
+        setMessages(e.session.messages.filter((m) => m.role !== 'tool'))
+        setToolState(deriveToolState(e.session.messages))
+        break
       case 'message_start':
         setMessages((m) => [...m, e.message])
         break
@@ -134,6 +196,9 @@ export function App(): JSX.Element {
           cost: u.cost + e.usage.cost
         }))
         break
+      case 'todos':
+        setTodos(e.todos)
+        break
       case 'status':
         setStatus(e.message)
         break
@@ -161,7 +226,9 @@ export function App(): JSX.Element {
   function onChatScroll(): void {
     const el = chatRef.current
     if (!el) return
-    nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+    nearBottomRef.current = near
+    setShowJump(!near)
   }
 
   async function refreshSessions(): Promise<void> {
@@ -201,15 +268,17 @@ export function App(): JSX.Element {
     setMessages(s.messages.filter((m) => m.role !== 'tool'))
     setToolState(deriveToolState(s.messages))
     setSessionUsage(computeUsage(s.messages))
+    setTodos(s.todos ?? [])
     setView('chat')
     setError('')
     nearBottomRef.current = true
     scrollDown()
   }
 
-  async function newSession(s?: AppSettings | null): Promise<void> {
-    const cwd = (s ?? settings)?.defaultCwd
-    const created = await api.createSession(cwd || undefined)
+  async function newSession(s?: AppSettings | null, projectId?: string | null): Promise<void> {
+    const pid = projectId !== undefined ? projectId : activeProjectId
+    const cwd = pid ? undefined : (s ?? settings)?.defaultCwd
+    const created = await api.createSession(cwd || undefined, pid || undefined)
     setSessions((list) => [created, ...list])
     setSession(created)
     setMessages([])
@@ -217,6 +286,17 @@ export function App(): JSX.Element {
     setSessionUsage({ tokens: 0, cost: 0 })
     setView('chat')
     setError('')
+  }
+
+  async function exportChat(): Promise<void> {
+    if (!session) return
+    try {
+      const path = (await api.exportSession(session.id)) as string
+      setStatus(`Exportiert: ${path}`)
+      setTimeout(() => setStatus(''), 5000)
+    } catch (err) {
+      setError((err as Error).message)
+    }
   }
 
   async function changeModel(model: string): Promise<void> {
@@ -260,11 +340,36 @@ export function App(): JSX.Element {
     nearBottomRef.current = true
     scrollDown()
     try {
-      await api.sendMessage(session.id, text, attachments)
+      await api.sendMessage(session.id, text, attachments, mode)
     } catch (err) {
       setError((err as Error).message)
       setBusy(false)
     }
+  }
+
+  async function regenerate(): Promise<void> {
+    if (!session || busy) return
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user' && !m.id.startsWith('local-'))
+    if (!lastUser) return
+    setBusy(true)
+    try {
+      await api.resendMessage(session.id, lastUser.id, undefined, mode)
+    } catch (err) {
+      setError((err as Error).message)
+      setBusy(false)
+    }
+  }
+
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameText, setRenameText] = useState('')
+
+  async function commitRename(): Promise<void> {
+    if (renamingId && renameText.trim()) {
+      await api.renameSession(renamingId, renameText.trim())
+      setSessions((list) => list.map((x) => (x.id === renamingId ? { ...x, title: renameText.trim() } : x)))
+      if (session?.id === renamingId) setSession({ ...session, title: renameText.trim() })
+    }
+    setRenamingId(null)
   }
 
   const approve = useCallback((callId: string, approved: boolean): void => {
@@ -319,31 +424,92 @@ export function App(): JSX.Element {
         </div>
         <div className="nav-sep" />
         <div className="nav">
-          <button onClick={() => newSession()}>
-            <span className="ic">＋</span> New session
+          <button onClick={() => newSession()} title="Strg+N">
+            <span className="ic">＋</span> Neuer Chat {activeProject ? `in ${activeProject.name}` : ''}
           </button>
         </div>
         <div className="sessions">
-          <h4>Sessions</h4>
-          {sessions.map((s) => (
+          {projects.length > 0 && (
+            <>
+              <h4>Projekte</h4>
+              <div
+                className={'session-item' + (activeProjectId === null ? ' active' : '')}
+                onClick={() => setActiveProjectId(null)}
+              >
+                <span>Alle Chats</span>
+              </div>
+              {projects.map((p) => (
+                <div
+                  key={p.id}
+                  className={'session-item' + (activeProjectId === p.id ? ' active' : '')}
+                  onClick={() => {
+                    setActiveProjectId(p.id)
+                    setView('chat')
+                  }}
+                  title={p.cwd}
+                >
+                  <span>
+                    <span className="proj-dot" style={{ background: p.color || 'var(--accent)' }} />
+                    {p.name}
+                  </span>
+                </div>
+              ))}
+            </>
+          )}
+          <h4>Chats</h4>
+          <input
+            className="session-search"
+            placeholder="Suchen…"
+            value={sessionFilter}
+            onChange={(e) => setSessionFilter(e.target.value)}
+          />
+          {sessions
+            .filter((s) => !activeProjectId || s.projectId === activeProjectId)
+            .filter(
+              (s) =>
+                !sessionFilter ||
+                (s.title || '').toLowerCase().includes(sessionFilter.toLowerCase()) ||
+                s.cwd.toLowerCase().includes(sessionFilter.toLowerCase())
+            )
+            .map((s) => (
             <div
               key={s.id}
               className={'session-item' + (session?.id === s.id ? ' active' : '')}
               onClick={() => openSession(s.id)}
-              title={s.cwd}
+              onDoubleClick={() => {
+                setRenamingId(s.id)
+                setRenameText(s.title || '')
+              }}
+              title={s.cwd + ' (Doppelklick: umbenennen)'}
             >
-              <div style={{ minWidth: 0, overflow: 'hidden' }}>
-                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {s.title || 'Untitled'}
+              {renamingId === s.id ? (
+                <input
+                  className="rename-input"
+                  value={renameText}
+                  autoFocus
+                  onChange={(e) => setRenameText(e.target.value)}
+                  onBlur={commitRename}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitRename()
+                    if (e.key === 'Escape') setRenamingId(null)
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {s.title || 'Untitled'}
+                  </div>
+                  <div className="session-meta">
+                    {basename(s.cwd)} · {relTime(s.updatedAt)}
+                  </div>
                 </div>
-                <div className="session-meta">
-                  {basename(s.cwd)} · {relTime(s.updatedAt)}
-                </div>
-              </div>
+              )}
               <span
                 className="x"
                 onClick={async (ev) => {
                   ev.stopPropagation()
+                  if (!window.confirm(`Chat „${s.title || 'Untitled'}" wirklich löschen?`)) return
                   await api.deleteSession(s.id)
                   const list = await api.listSessions()
                   setSessions(list)
@@ -367,7 +533,32 @@ export function App(): JSX.Element {
               <div className="cwd" onClick={pickCwd} title="Click to change the working directory">
                 📁 {session.cwd}
               </div>
+              {gitBranch && <span className="pill branch-pill">⎇ {gitBranch}</span>}
+              {(activeProject?.goal || session.goal) && (
+                <span
+                  className="pill goal-pill"
+                  title={activeProject?.goal || session.goal}
+                  onClick={() => setView('projects')}
+                >
+                  🎯 {(activeProject?.goal || session.goal || '').slice(0, 40)}
+                  {(activeProject?.goal || session.goal || '').length > 40 ? '…' : ''}
+                </span>
+              )}
               <div className="spacer" />
+              <select
+                className={'model-select mode-' + mode}
+                value={mode}
+                onChange={(e) => setMode(e.target.value as AgentMode)}
+                title="Arbeitsmodus: Interaktiv fragt bei Änderungen, Plan ist read-only, Auto genehmigt alles"
+              >
+                <option value="interactive">🔵 Interaktiv</option>
+                <option value="plan">📋 Plan</option>
+                <option value="full">⚡ Auto</option>
+              </select>
+              <ContextPill messages={messages} maxTokens={64000} />
+              <button className="btn ghost sm" onClick={exportChat} title="Chat als Markdown exportieren">
+                Export
+              </button>
               {sessionUsage.tokens > 0 && (
                 <span className="pill" title="Tokens / estimated cost this session">
                   {sessionUsage.tokens.toLocaleString()} tok
@@ -435,14 +626,91 @@ export function App(): JSX.Element {
                   />
                 ))}
                 {busy && status && <div className="msg"><div className="role">working</div><div style={{ color: 'var(--text-faint)', fontSize: 13 }}>{status}</div></div>}
+                {!busy && status && <div style={{ color: 'var(--text-faint)', fontSize: 12 }}>{status}</div>}
+                {!busy &&
+                  transcript.length > 0 &&
+                  transcript[transcript.length - 1].role === 'assistant' &&
+                  transcript[transcript.length - 1].finishReason === 'length' && (
+                    <button className="btn ghost sm" onClick={() => send('Bitte fahre genau dort fort, wo du aufgehört hast.')}>
+                      ▸ Weiter generieren
+                    </button>
+                  )}
+                {!busy && transcript.some((m) => m.role === 'assistant') && (
+                  <div className="msg-actions-row">
+                    <button className="attach-btn" onClick={regenerate} title="Letzte Antwort neu generieren">
+                      🔄 Neu generieren
+                    </button>
+                  </div>
+                )}
               </div>
+              {showJump && (
+                <button
+                  className="jump-fab"
+                  onClick={() => {
+                    nearBottomRef.current = true
+                    setShowJump(false)
+                    scrollDown()
+                  }}
+                >
+                  ↓
+                </button>
+              )}
             </div>
+            {todos.length > 0 && <TodoStrip todos={todos} onClear={() => setTodos([])} />}
             <Composer busy={busy} onSend={send} onStop={stop} cwd={session?.cwd} />
           </>
+        ) : view === 'projects' ? (
+          <ProjectsPanel
+            onOpenProject={(pid) => {
+              setActiveProjectId(pid)
+              refreshProjects()
+              newSession(undefined, pid)
+            }}
+          />
+        ) : view === 'usage' ? (
+          <UsagePanel />
         ) : (
           <Panel view={view} settings={settings} onSettings={setSettings} cwd={session?.cwd} />
         )}
       </main>
+    </div>
+  )
+}
+
+// Context-window usage (~4 chars/token), warns as the conversation grows.
+function ContextPill({ messages, maxTokens }: { messages: ChatMessage[]; maxTokens: number }): JSX.Element | null {
+  let chars = 0
+  for (const m of messages) chars += (m.content?.length ?? 0) + (m.reasoning?.length ?? 0)
+  const tokens = Math.ceil(chars / 4)
+  const pct = Math.min(100, Math.round((tokens / maxTokens) * 100))
+  if (pct < 5) return null
+  const color = pct > 80 ? 'var(--red)' : pct > 60 ? 'var(--yellow)' : 'var(--text-dim)'
+  return (
+    <span className="pill" style={{ color }} title={`~${tokens.toLocaleString()} Tokens Kontext (von ~${maxTokens.toLocaleString()}). Bei >80% lohnt sich Compact.`}>
+      ⛁ {pct}%
+    </span>
+  )
+}
+
+function TodoStrip({ todos, onClear }: { todos: TodoItem[]; onClear: () => void }): JSX.Element {
+  const done = todos.filter((t) => t.status === 'done').length
+  return (
+    <div className="todo-strip">
+      <div className="todo-head">
+        <span>
+          📋 Aufgaben <b>{done}/{todos.length}</b>
+        </span>
+        <span className="todo-clear" onClick={onClear}>
+          ausblenden
+        </span>
+      </div>
+      <div className="todo-items">
+        {todos.map((t, i) => (
+          <span key={i} className={'todo-item ' + t.status}>
+            {t.status === 'done' ? '✓' : t.status === 'doing' ? '◐' : '○'} {t.text}
+          </span>
+        ))}
+      </div>
     </div>
   )
 }

@@ -39,6 +39,13 @@ function walk(dir: string, out: string[], max = 800): void {
   }
 }
 
+// Flat file listing of the working dir (relative paths) for @-mention autocomplete.
+export function listProjectFiles(cwd: string, max = 2000): string[] {
+  const files: string[] = []
+  walk(cwd, files, max)
+  return files.map((f) => relative(cwd, f).split(sep).join('/')).sort()
+}
+
 export function buildAttachmentContext(paths: string[], cwd: string): string {
   if (!paths || !paths.length) return ''
   const parts: string[] = []

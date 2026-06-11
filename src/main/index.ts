@@ -2,9 +2,37 @@ import { app, shell, dialog, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { fileURLToPath } from 'url'
 import { dirname } from 'path'
-import { ensureConfigDirs } from './paths'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { ensureConfigDirs, PATHS } from './paths'
 import { seedStarterContent } from './seed'
 import { registerIpc, bootstrapMcp } from './ipc'
+
+// Window bounds persistence (~/.deepcode/window.json)
+interface WinState {
+  width: number
+  height: number
+  x?: number
+  y?: number
+  maximized?: boolean
+}
+const WIN_FILE = (): string => join(PATHS.root, 'window.json')
+function loadWinState(): WinState {
+  try {
+    if (existsSync(WIN_FILE())) return JSON.parse(readFileSync(WIN_FILE(), 'utf8'))
+  } catch {
+    /* ignore */
+  }
+  return { width: 1320, height: 860 }
+}
+function saveWinState(win: BrowserWindow): void {
+  try {
+    const b = win.getBounds()
+    const state: WinState = { ...b, maximized: win.isMaximized() }
+    writeFileSync(WIN_FILE(), JSON.stringify(state), 'utf8')
+  } catch {
+    /* ignore */
+  }
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -16,14 +44,17 @@ process.on('unhandledRejection', (reason) => {
 })
 
 function createWindow(): void {
+  const state = loadWinState()
   const win = new BrowserWindow({
-    width: 1320,
-    height: 860,
+    width: state.width,
+    height: state.height,
+    x: state.x,
+    y: state.y,
     minWidth: 940,
     minHeight: 600,
     show: false,
     title: 'DeepCode',
-    backgroundColor: '#0f1115',
+    backgroundColor: '#0a0f1a',
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
@@ -33,7 +64,11 @@ function createWindow(): void {
     }
   })
 
-  win.on('ready-to-show', () => win.show())
+  win.on('ready-to-show', () => {
+    if (state.maximized) win.maximize()
+    win.show()
+  })
+  win.on('close', () => saveWinState(win))
 
   win.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)

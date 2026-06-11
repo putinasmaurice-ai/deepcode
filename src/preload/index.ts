@@ -10,13 +10,26 @@ const api = {
   // sessions
   listSessions: () => ipcRenderer.invoke(IPC.listSessions),
   getSession: (id: string) => ipcRenderer.invoke(IPC.getSession, id),
-  createSession: (cwd?: string) => ipcRenderer.invoke(IPC.createSession, cwd),
+  createSession: (cwd?: string, projectId?: string) =>
+    ipcRenderer.invoke(IPC.createSession, cwd, projectId),
   deleteSession: (id: string) => ipcRenderer.invoke(IPC.deleteSession, id),
   renameSession: (id: string, title: string) => ipcRenderer.invoke(IPC.renameSession, id, title),
+  exportSession: (id: string) => ipcRenderer.invoke(IPC.exportSession, id),
+
+  // projects
+  listProjects: () => ipcRenderer.invoke(IPC.listProjects),
+  saveProject: (p: unknown) => ipcRenderer.invoke(IPC.saveProject, p),
+  deleteProject: (id: string) => ipcRenderer.invoke(IPC.deleteProject, id),
+
+  // usage
+  usageSummary: () => ipcRenderer.invoke(IPC.usageSummary),
 
   // agent
-  sendMessage: (sessionId: string, text: string, attachments?: string[]) =>
-    ipcRenderer.invoke(IPC.sendMessage, sessionId, text, attachments),
+  sendMessage: (sessionId: string, text: string, attachments?: string[], mode?: string) =>
+    ipcRenderer.invoke(IPC.sendMessage, sessionId, text, attachments, mode),
+  resendMessage: (sessionId: string, messageId: string, newText?: string, mode?: string) =>
+    ipcRenderer.invoke(IPC.resendMessage, sessionId, messageId, newText, mode),
+  listFiles: (cwd: string) => ipcRenderer.invoke(IPC.listFiles, cwd),
   cancelTurn: (sessionId: string) => ipcRenderer.invoke(IPC.cancelTurn, sessionId),
   approveTool: (callId: string, approved: boolean) =>
     ipcRenderer.invoke(IPC.approveTool, callId, approved),

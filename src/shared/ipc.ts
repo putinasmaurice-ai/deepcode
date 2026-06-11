@@ -11,6 +11,15 @@ export const IPC = {
   createSession: 'sessions:create',
   deleteSession: 'sessions:delete',
   renameSession: 'sessions:rename',
+  exportSession: 'sessions:export',
+
+  // projects
+  listProjects: 'projects:list',
+  saveProject: 'projects:save',
+  deleteProject: 'projects:delete',
+
+  // usage / costs
+  usageSummary: 'usage:summary',
 
   // agent turn
   sendMessage: 'agent:send',
@@ -18,8 +27,10 @@ export const IPC = {
   approveTool: 'agent:approveTool',
   agentEvent: 'agent:event', // main -> renderer push channel
   compactSession: 'agent:compact',
+  resendMessage: 'agent:resend',
   updateSessionModel: 'sessions:setModel',
   changeCwd: 'sessions:setCwd',
+  listFiles: 'fs:listFiles',
 
   // feature systems
   listSkills: 'skills:list',

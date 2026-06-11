@@ -27,7 +27,18 @@ function MessageViewImpl({
 
   return (
     <div className="msg assistant">
-      <div className="role">DeepCode</div>
+      <div className="role">
+        DeepCode
+        {message.content && (
+          <span
+            className="copy-btn"
+            title="Antwort kopieren"
+            onClick={() => navigator.clipboard.writeText(message.content)}
+          >
+            ⧉
+          </span>
+        )}
+      </div>
       {message.reasoning && <Reasoning text={message.reasoning} />}
       {message.content && (
         <div className="bubble" dangerouslySetInnerHTML={{ __html: renderMd(message.content) }} />
@@ -230,6 +241,11 @@ function renderMd(text: string): string {
     esc(s)
       .replace(/`([^`]+)`/g, '<code>$1</code>')
       .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+      // [text](https://url) → external link (window-open handler routes to the browser)
+      .replace(
+        /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+        '<a href="$2" target="_blank" rel="noopener">$1</a>'
+      )
 
   const out: string[] = []
   const segments = text.split(/```/)
