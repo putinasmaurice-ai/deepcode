@@ -1,0 +1,48 @@
+// Tiny YAML-ish frontmatter parser. Supports the subset we need:
+// top-level key: value, and key: [a, b, c] arrays. Good enough for
+// SKILL.md / command / agent definition files.
+
+export interface Parsed {
+  data: Record<string, string | string[]>
+  body: string
+}
+
+export function parseFrontmatter(text: string): Parsed {
+  const normalized = text.replace(/\r\n/g, '\n')
+  if (!normalized.startsWith('---\n')) {
+    return { data: {}, body: normalized }
+  }
+  const end = normalized.indexOf('\n---', 4)
+  if (end === -1) return { data: {}, body: normalized }
+  const raw = normalized.slice(4, end)
+  const body = normalized.slice(end + 4).replace(/^\n/, '')
+  const data: Record<string, string | string[]> = {}
+  for (const line of raw.split('\n')) {
+    const m = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/)
+    if (!m) continue
+    const key = m[1].trim()
+    let val: string | string[] = m[2].trim()
+    if (val.startsWith('[') && val.endsWith(']')) {
+      val = val
+        .slice(1, -1)
+        .split(',')
+        .map((s) => s.trim().replace(/^["']|["']$/g, ''))
+        .filter(Boolean)
+    } else {
+      val = val.replace(/^["']|["']$/g, '')
+    }
+    data[key] = val
+  }
+  return { data, body }
+}
+
+export function str(v: string | string[] | undefined, fallback = ''): string {
+  if (Array.isArray(v)) return v.join(', ')
+  return v ?? fallback
+}
+
+export function arr(v: string | string[] | undefined): string[] {
+  if (Array.isArray(v)) return v
+  if (typeof v === 'string' && v.trim()) return v.split(',').map((s) => s.trim())
+  return []
+}
