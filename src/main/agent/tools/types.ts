@@ -3,6 +3,8 @@ import { ToolResult } from '@shared/types'
 export interface ToolContext {
   cwd: string
   signal: AbortSignal
+  // When true, file tools refuse paths that resolve outside the working directory.
+  confineToCwd?: boolean
   // Allows a tool (e.g. the subagent/Task tool) to call back into the agent engine.
   spawnSubagent?: (agentName: string, prompt: string) => Promise<string>
   emitStatus?: (msg: string) => void

@@ -20,6 +20,10 @@ const api = {
   cancelTurn: (sessionId: string) => ipcRenderer.invoke(IPC.cancelTurn, sessionId),
   approveTool: (callId: string, approved: boolean) =>
     ipcRenderer.invoke(IPC.approveTool, callId, approved),
+  compactSession: (sessionId: string) => ipcRenderer.invoke(IPC.compactSession, sessionId),
+  updateSessionModel: (id: string, model: string) =>
+    ipcRenderer.invoke(IPC.updateSessionModel, id, model),
+  changeCwd: (id: string, cwd: string) => ipcRenderer.invoke(IPC.changeCwd, id, cwd),
   onAgentEvent: (cb: (e: AgentEvent) => void): (() => void) => {
     const listener = (_e: unknown, ev: AgentEvent): void => cb(ev)
     ipcRenderer.on(IPC.agentEvent, listener)

@@ -64,7 +64,12 @@ export function App(): JSX.Element {
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
   const [view, setView] = useState<View>('chat')
+  const [sessionUsage, setSessionUsage] = useState<{ tokens: number; cost: number }>({
+    tokens: 0,
+    cost: 0
+  })
   const chatRef = useRef<HTMLDivElement>(null)
+  const nearBottomRef = useRef(true)
 
   // ---- bootstrap ----
   useEffect(() => {
@@ -123,6 +128,12 @@ export function App(): JSX.Element {
         }))
         scrollDown()
         break
+      case 'usage':
+        setSessionUsage((u) => ({
+          tokens: u.tokens + e.usage.totalTokens,
+          cost: u.cost + e.usage.cost
+        }))
+        break
       case 'status':
         setStatus(e.message)
         break
@@ -137,11 +148,20 @@ export function App(): JSX.Element {
     }
   }, [])
 
+  // Only autoscroll when the user is already near the bottom, so we don't yank
+  // the view while they're reading earlier output.
   const scrollDown = (): void => {
+    if (!nearBottomRef.current) return
     requestAnimationFrame(() => {
       const el = chatRef.current
       if (el) el.scrollTop = el.scrollHeight
     })
+  }
+
+  function onChatScroll(): void {
+    const el = chatRef.current
+    if (!el) return
+    nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
   }
 
   async function refreshSessions(): Promise<void> {
@@ -153,7 +173,7 @@ export function App(): JSX.Element {
     for (const m of msgs) {
       if (m.role === 'tool' && m.toolCallId) {
         ts[m.toolCallId] = {
-          result: { ok: !m.error, content: m.content },
+          result: { ok: !m.error, content: m.content, meta: m.meta },
           name: m.toolName,
           pending: false
         }
@@ -162,14 +182,28 @@ export function App(): JSX.Element {
     return ts
   }
 
+  function computeUsage(msgs: ChatMessage[]): { tokens: number; cost: number } {
+    let tokens = 0
+    let cost = 0
+    for (const m of msgs) {
+      if (m.usage) {
+        tokens += m.usage.totalTokens
+        cost += m.usage.cost
+      }
+    }
+    return { tokens, cost }
+  }
+
   async function openSession(id: string): Promise<void> {
     const s = (await api.getSession(id)) as Session | null
     if (!s) return
     setSession(s)
     setMessages(s.messages.filter((m) => m.role !== 'tool'))
     setToolState(deriveToolState(s.messages))
+    setSessionUsage(computeUsage(s.messages))
     setView('chat')
     setError('')
+    nearBottomRef.current = true
     scrollDown()
   }
 
@@ -180,8 +214,30 @@ export function App(): JSX.Element {
     setSession(created)
     setMessages([])
     setToolState({})
+    setSessionUsage({ tokens: 0, cost: 0 })
     setView('chat')
     setError('')
+  }
+
+  async function changeModel(model: string): Promise<void> {
+    if (!session) return
+    await api.updateSessionModel(session.id, model)
+    setSession({ ...session, model })
+    setSessions((list) => list.map((x) => (x.id === session.id ? { ...x, model } : x)))
+  }
+
+  async function compact(): Promise<void> {
+    if (!session || busy) return
+    setBusy(true)
+    try {
+      const updated = (await api.compactSession(session.id)) as Session
+      if (updated) {
+        setMessages(updated.messages.filter((m) => m.role !== 'tool'))
+        setToolState(deriveToolState(updated.messages))
+      }
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function send(text: string): Promise<void> {
@@ -204,10 +260,10 @@ export function App(): JSX.Element {
     }
   }
 
-  function approve(callId: string, approved: boolean): void {
+  const approve = useCallback((callId: string, approved: boolean): void => {
     api.approveTool(callId, approved)
     setToolState((t) => ({ ...t, [callId]: { ...t[callId], pending: false } }))
-  }
+  }, [])
 
   function stop(): void {
     if (session) api.cancelTurn(session.id)
@@ -215,22 +271,25 @@ export function App(): JSX.Element {
   }
 
   async function pickCwd(): Promise<void> {
+    if (!session) return
     const dir = await api.pickDirectory()
     if (!dir) return
-    // Open a fresh session rooted at the chosen working directory.
-    const created = await api.createSession(dir)
-    setSessions((list) => [created, ...list])
-    setSession(created)
-    setMessages([])
-    setToolState({})
-    setView('chat')
+    // Change the current session's working directory in place (keeps the chat).
+    try {
+      const updated = (await api.changeCwd(session.id, dir)) as Session
+      setSession(updated)
+      setSessions((list) => list.map((x) => (x.id === updated.id ? { ...x, cwd: dir } : x)))
+    } catch (err) {
+      setError((err as Error).message)
+    }
   }
 
   const apiKeyMissing = settings && !settings.provider.apiKey
 
   const transcript = useMemo(() => messages.filter((m) => !m.hidden), [messages])
 
-  if (!settings) return <div className="welcome">Loading…</div>
+  if (!settings) return <div className="spinner" />
+
 
   return (
     <div className="app">
@@ -266,7 +325,14 @@ export function App(): JSX.Element {
               onClick={() => openSession(s.id)}
               title={s.cwd}
             >
-              <span>{s.title || 'Untitled'}</span>
+              <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {s.title || 'Untitled'}
+                </div>
+                <div className="session-meta">
+                  {basename(s.cwd)} · {relTime(s.updatedAt)}
+                </div>
+              </div>
               <span
                 className="x"
                 onClick={async (ev) => {
@@ -291,11 +357,42 @@ export function App(): JSX.Element {
         <div className="topbar">
           {view === 'chat' && session && (
             <>
-              <div className="cwd" onClick={pickCwd} title="Click to choose working directory">
+              <div className="cwd" onClick={pickCwd} title="Click to change the working directory">
                 📁 {session.cwd}
               </div>
               <div className="spacer" />
-              <span className="pill">{session.model || settings.provider.model}</span>
+              {sessionUsage.tokens > 0 && (
+                <span className="pill" title="Tokens / estimated cost this session">
+                  {sessionUsage.tokens.toLocaleString()} tok
+                  {sessionUsage.cost > 0 ? ` · $${sessionUsage.cost.toFixed(4)}` : ''}
+                </span>
+              )}
+              <button
+                className="btn ghost sm"
+                onClick={compact}
+                disabled={busy}
+                title="Summarize older turns to free up context"
+              >
+                Compact
+              </button>
+              <select
+                className="model-select"
+                value={session.model || settings.provider.model}
+                onChange={(e) => changeModel(e.target.value)}
+                title="Model for this session"
+              >
+                {Array.from(
+                  new Set([
+                    settings.provider.model,
+                    settings.provider.reasonerModel,
+                    session.model || settings.provider.model
+                  ])
+                ).map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
             </>
           )}
           {view !== 'chat' && (
@@ -311,7 +408,7 @@ export function App(): JSX.Element {
 
         {view === 'chat' ? (
           <>
-            <div className="chat" ref={chatRef}>
+            <div className="chat" ref={chatRef} onScroll={onChatScroll}>
               <div className="chat-inner">
                 {apiKeyMissing && (
                   <div className="banner">
@@ -341,6 +438,22 @@ export function App(): JSX.Element {
       </main>
     </div>
   )
+}
+
+function basename(p: string): string {
+  if (!p) return '~'
+  const parts = p.replace(/[/\\]+$/, '').split(/[/\\]/)
+  return parts[parts.length - 1] || p
+}
+
+function relTime(ts: number): string {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000))
+  if (s < 60) return 'just now'
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  return `${Math.floor(h / 24)}d ago`
 }
 
 function Welcome({ onPick }: { onPick: (t: string) => void }): JSX.Element {

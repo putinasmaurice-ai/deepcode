@@ -4,7 +4,8 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
-  statSync
+  statSync,
+  rmSync
 } from 'fs'
 import { join, resolve, relative, dirname, isAbsolute, sep } from 'path'
 import { Tool, ok, fail } from './types'
@@ -13,6 +14,47 @@ const NUL = String.fromCharCode(0)
 
 function resolvePath(cwd: string, p: string): string {
   return isAbsolute(p) ? p : resolve(cwd, p)
+}
+
+// Throws if `confine` is on and the resolved path escapes the working directory.
+function ensureInside(resolved: string, cwd: string, confine?: boolean): void {
+  if (!confine) return
+  const rel = relative(cwd, resolved)
+  if (rel === '' ) return
+  if (rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error(
+      `Path is outside the working directory and access is confined to it. Disable "Confine to working directory" in Settings to allow this.`
+    )
+  }
+}
+
+// Compact unified-ish line diff for the UI. Not a real LCS — good enough to show
+// what changed for a write/edit.
+function lineDiff(before: string, after: string): { diff: string; added: number; removed: number } {
+  const a = before.length ? before.split('\n') : []
+  const b = after.split('\n')
+  // find common prefix/suffix to keep the diff focused
+  let start = 0
+  while (start < a.length && start < b.length && a[start] === b[start]) start++
+  let endA = a.length
+  let endB = b.length
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA--
+    endB--
+  }
+  const removedLines = a.slice(start, endA)
+  const addedLines = b.slice(start, endB)
+  const out: string[] = []
+  const ctxStart = Math.max(0, start - 2)
+  for (let i = ctxStart; i < start; i++) out.push('  ' + a[i])
+  for (const l of removedLines) out.push('- ' + l)
+  for (const l of addedLines) out.push('+ ' + l)
+  for (let i = endA; i < Math.min(a.length, endA + 2); i++) out.push('  ' + a[i])
+  return {
+    diff: out.join('\n').slice(0, 8000),
+    added: addedLines.length,
+    removed: removedLines.length
+  }
 }
 
 const IGNORE_DIRS = new Set([
@@ -45,6 +87,12 @@ function globToRegex(glob: string): RegExp {
       re += '[^/\\\\]'
     } else if (c === '{') {
       const end = glob.indexOf('}', i)
+      if (end === -1) {
+        // unclosed brace: treat as a literal '{' (avoids an infinite loop)
+        re += '\\{'
+        i++
+        continue
+      }
       const opts = glob.slice(i + 1, end).split(',')
       re += '(' + opts.map((o) => o.replace(/[.+^${}()|[\]\\]/g, '\\$&')).join('|') + ')'
       i = end + 1
@@ -97,6 +145,7 @@ export const readTool: Tool = {
   summarize: (a) => `Read ${a.path}`,
   async execute(args, ctx) {
     const p = resolvePath(ctx.cwd, args.path)
+    ensureInside(p, ctx.cwd, ctx.confineToCwd)
     if (!existsSync(p)) return fail(`File not found: ${args.path}`)
     const st = statSync(p)
     if (st.isDirectory()) return fail(`${args.path} is a directory. Use list_dir.`)
@@ -127,14 +176,23 @@ export const writeTool: Tool = {
   summarize: (a) => `Write ${a.path}`,
   async execute(args, ctx) {
     const p = resolvePath(ctx.cwd, args.path)
+    ensureInside(p, ctx.cwd, ctx.confineToCwd)
+    const content = String(args.content ?? '')
+    if (content.length > 10_000_000)
+      return fail('Content too large (>10MB). Split it into multiple files.')
     const existed = existsSync(p)
+    const before = existed ? readFileSync(p, 'utf8') : ''
     mkdirSync(dirname(p), { recursive: true })
-    writeFileSync(p, args.content, 'utf8')
-    const lines = String(args.content).split('\n').length
+    writeFileSync(p, content, 'utf8')
+    const lines = content.split('\n').length
+    const d = lineDiff(before, content)
     return ok(`${existed ? 'Overwrote' : 'Created'} ${args.path} (${lines} lines).`, {
       path: p,
       created: !existed,
-      content: args.content
+      content,
+      diff: d.diff,
+      linesAdded: d.added,
+      linesRemoved: d.removed
     })
   }
 }
@@ -157,6 +215,7 @@ export const editTool: Tool = {
   summarize: (a) => `Edit ${a.path}`,
   async execute(args, ctx) {
     const p = resolvePath(ctx.cwd, args.path)
+    ensureInside(p, ctx.cwd, ctx.confineToCwd)
     if (!existsSync(p)) return fail(`File not found: ${args.path}`)
     const text = readFileSync(p, 'utf8')
     if (args.old_string === args.new_string) return fail('old_string and new_string are identical.')
@@ -168,11 +227,15 @@ export const editTool: Tool = {
       ? text.split(args.old_string).join(args.new_string)
       : text.replace(args.old_string, args.new_string)
     writeFileSync(p, next, 'utf8')
+    const d = lineDiff(text, next)
     return ok(`Edited ${args.path} (${count} replacement${count > 1 ? 's' : ''}).`, {
       path: p,
       oldString: args.old_string,
       newString: args.new_string,
-      content: next
+      content: next,
+      diff: d.diff,
+      linesAdded: d.added,
+      linesRemoved: d.removed
     })
   }
 }
@@ -190,6 +253,7 @@ export const listTool: Tool = {
   summarize: (a) => `List ${a.path ?? '.'}`,
   async execute(args, ctx) {
     const p = resolvePath(ctx.cwd, args.path ?? '.')
+    ensureInside(p, ctx.cwd, ctx.confineToCwd)
     if (!existsSync(p)) return fail(`Not found: ${args.path ?? '.'}`)
     const entries = readdirSync(p, { withFileTypes: true })
     const lines = entries
@@ -215,6 +279,7 @@ export const globTool: Tool = {
   summarize: (a) => `Glob ${a.pattern}`,
   async execute(args, ctx) {
     const base = resolvePath(ctx.cwd, args.path ?? '.')
+    ensureInside(base, ctx.cwd, ctx.confineToCwd)
     const files: string[] = []
     walk(base, files)
     const re = globToRegex(args.pattern)
@@ -244,6 +309,7 @@ export const grepTool: Tool = {
   summarize: (a) => `Grep ${a.pattern}`,
   async execute(args, ctx) {
     const base = resolvePath(ctx.cwd, args.path ?? '.')
+    ensureInside(base, ctx.cwd, ctx.confineToCwd)
     let re: RegExp
     try {
       re = new RegExp(args.pattern, args.ignore_case ? 'i' : '')
@@ -281,4 +347,110 @@ export const grepTool: Tool = {
   }
 }
 
-export const fsTools: Tool[] = [readTool, writeTool, editTool, listTool, globTool, grepTool]
+// Apply several file operations atomically: validate all, snapshot prior state,
+// apply, and roll back everything if any step fails. Use for multi-file refactors.
+export const applyPatchTool: Tool = {
+  name: 'apply_patch',
+  description:
+    'Apply multiple file operations atomically (all-or-nothing). Each op is create (full content), ' +
+    'edit (old_string -> new_string), or delete. If any op fails, all changes are rolled back. ' +
+    'Use this for coordinated multi-file changes instead of many separate edits.',
+  permission: 'write',
+  parameters: {
+    type: 'object',
+    properties: {
+      ops: {
+        type: 'array',
+        description: 'List of file operations to apply in order.',
+        items: {
+          type: 'object',
+          properties: {
+            path: { type: 'string' },
+            type: { type: 'string', enum: ['create', 'edit', 'delete'] },
+            content: { type: 'string', description: 'for create: full file content' },
+            old_string: { type: 'string', description: 'for edit: exact text to replace' },
+            new_string: { type: 'string', description: 'for edit: replacement text' },
+            replace_all: { type: 'boolean' }
+          },
+          required: ['path', 'type']
+        }
+      }
+    },
+    required: ['ops']
+  },
+  summarize: (a) => `Apply patch (${(a.ops ?? []).length} ops)`,
+  async execute(args, ctx) {
+    const ops = Array.isArray(args.ops) ? args.ops : []
+    if (!ops.length) return fail('No operations provided.')
+
+    // 1) validate + snapshot
+    const snapshots: { path: string; existed: boolean; prev: string }[] = []
+    for (const op of ops) {
+      const p = resolvePath(ctx.cwd, op.path)
+      try {
+        ensureInside(p, ctx.cwd, ctx.confineToCwd)
+      } catch (e) {
+        return fail((e as Error).message)
+      }
+      const existed = existsSync(p)
+      if (op.type === 'edit' && !existed) return fail(`edit failed: ${op.path} does not exist.`)
+      if (op.type === 'edit') {
+        const text = readFileSync(p, 'utf8')
+        const count = text.split(op.old_string ?? '').length - 1
+        if (!op.old_string || count === 0)
+          return fail(`edit failed: old_string not found in ${op.path}.`)
+        if (count > 1 && !op.replace_all)
+          return fail(`edit failed: old_string appears ${count}x in ${op.path}; set replace_all.`)
+      }
+      if (op.type === 'create' && typeof op.content !== 'string')
+        return fail(`create failed: missing content for ${op.path}.`)
+      snapshots.push({ path: p, existed, prev: existed ? readFileSync(p, 'utf8') : '' })
+    }
+
+    // 2) apply, rolling back on any error
+    const done: string[] = []
+    try {
+      for (const op of ops) {
+        const p = resolvePath(ctx.cwd, op.path)
+        if (op.type === 'create') {
+          mkdirSync(dirname(p), { recursive: true })
+          writeFileSync(p, op.content, 'utf8')
+        } else if (op.type === 'edit') {
+          const text = readFileSync(p, 'utf8')
+          const next = op.replace_all
+            ? text.split(op.old_string).join(op.new_string ?? '')
+            : text.replace(op.old_string, op.new_string ?? '')
+          writeFileSync(p, next, 'utf8')
+        } else if (op.type === 'delete') {
+          if (existsSync(p)) rmSync(p)
+        }
+        done.push(`${op.type} ${op.path}`)
+      }
+    } catch (e) {
+      // rollback
+      for (const s of snapshots) {
+        try {
+          if (s.existed) writeFileSync(s.path, s.prev, 'utf8')
+          else if (existsSync(s.path)) rmSync(s.path)
+        } catch {
+          /* best effort */
+        }
+      }
+      return fail(`apply_patch failed and was rolled back: ${(e as Error).message}`)
+    }
+
+    return ok(`Applied ${done.length} operations atomically:\n${done.join('\n')}`, {
+      ops: done.length
+    })
+  }
+}
+
+export const fsTools: Tool[] = [
+  readTool,
+  writeTool,
+  editTool,
+  applyPatchTool,
+  listTool,
+  globTool,
+  grepTool
+]

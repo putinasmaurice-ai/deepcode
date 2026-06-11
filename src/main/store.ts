@@ -1,23 +1,40 @@
 import { existsSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
+import { safeStorage } from 'electron'
 import { PATHS, ensureConfigDirs } from './paths'
 import { AppSettings, DEFAULT_SETTINGS, Session } from '@shared/types'
 
 // ---- Settings ----
+
+function encryptionOk(): boolean {
+  try {
+    return safeStorage.isEncryptionAvailable()
+  } catch {
+    return false
+  }
+}
 
 export function loadSettings(): AppSettings {
   ensureConfigDirs()
   try {
     if (existsSync(PATHS.settings)) {
       const raw = JSON.parse(readFileSync(PATHS.settings, 'utf8'))
-      // deep-merge over defaults so new fields are filled in
-      return {
+      const merged: AppSettings = {
         ...DEFAULT_SETTINGS,
         ...raw,
         provider: { ...DEFAULT_SETTINGS.provider, ...(raw.provider ?? {}) },
         autoApprove: { ...DEFAULT_SETTINGS.autoApprove, ...(raw.autoApprove ?? {}) }
       }
+      // Decrypt the API key from OS secure storage if present.
+      if (raw._apiKeyEnc && encryptionOk()) {
+        try {
+          merged.provider.apiKey = safeStorage.decryptString(Buffer.from(raw._apiKeyEnc, 'base64'))
+        } catch {
+          /* leave whatever plaintext key may exist */
+        }
+      }
+      return merged
     }
   } catch (err) {
     console.error('Failed to load settings:', err)
@@ -29,7 +46,22 @@ export function loadSettings(): AppSettings {
 
 export function saveSettings(settings: AppSettings): void {
   ensureConfigDirs()
-  writeFileSync(PATHS.settings, JSON.stringify(settings, null, 2), 'utf8')
+  const key = settings.provider.apiKey ?? ''
+  // Persist the key encrypted; never write it in plaintext when encryption works.
+  const onDisk: any = {
+    ...settings,
+    provider: { ...settings.provider, apiKey: '' }
+  }
+  if (key && encryptionOk()) {
+    try {
+      onDisk._apiKeyEnc = safeStorage.encryptString(key).toString('base64')
+    } catch {
+      onDisk.provider.apiKey = key // fall back to plaintext if encryption fails
+    }
+  } else if (key) {
+    onDisk.provider.apiKey = key // encryption unavailable on this platform
+  }
+  writeFileSync(PATHS.settings, JSON.stringify(onDisk, null, 2), 'utf8')
 }
 
 // ---- Sessions ----

@@ -1,6 +1,7 @@
 import { spawn } from 'child_process'
 import { platform } from 'os'
 import { Tool, ok, fail } from './types'
+import { auditLog } from '../../audit'
 
 const isWin = platform() === 'win32'
 
@@ -26,6 +27,7 @@ export const bashTool: Tool = {
   async execute(args, ctx) {
     const timeout = Math.min(args.timeout_ms ?? 120_000, 600_000)
     const cwd = args.cwd || ctx.cwd
+    auditLog('run_command', `${cwd} :: ${args.command}`)
     const shell = isWin ? 'powershell.exe' : '/bin/bash'
     const shellArgs = isWin
       ? ['-NoProfile', '-NonInteractive', '-Command', args.command]

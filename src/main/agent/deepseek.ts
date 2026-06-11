@@ -35,11 +35,39 @@ export interface StreamCallbacks {
   onDone?: (finishReason: string) => void
 }
 
+export interface RawUsage {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+}
+
 export interface StreamResult {
   content: string
   reasoning: string
   toolCalls: { id: string; name: string; arguments: string }[]
   finishReason: string
+  usage?: RawUsage
+}
+
+const RETRYABLE = new Set([408, 409, 425, 429, 500, 502, 503, 504])
+const MAX_RETRIES = 3
+
+function isReasoner(model: string): boolean {
+  return /reason/i.test(model)
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(resolve, ms)
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(t)
+        reject(new DOMException('Aborted', 'AbortError'))
+      },
+      { once: true }
+    )
+  })
 }
 
 export class DeepSeekClient {
@@ -56,35 +84,68 @@ export class DeepSeekClient {
     signal: AbortSignal,
     modelOverride?: string
   ): Promise<StreamResult> {
+    if (!this.settings.apiKey || !this.settings.apiKey.trim()) {
+      throw new Error('DeepSeek API key is not configured. Add it in Settings.')
+    }
+
     const model = modelOverride || this.settings.model
+    const reasoner = isReasoner(model)
     const url = `${this.settings.baseUrl.replace(/\/$/, '')}/chat/completions`
 
     const body: Record<string, unknown> = {
       model,
       messages,
       stream: true,
-      temperature: this.settings.temperature,
+      stream_options: { include_usage: true },
       max_tokens: this.settings.maxTokens
     }
-    if (tools.length > 0) {
-      body.tools = tools
-      body.tool_choice = 'auto'
+    // deepseek-reasoner rejects temperature/top_p/tool params — only send them otherwise.
+    if (!reasoner) {
+      body.temperature = this.settings.temperature
+      if (tools.length > 0) {
+        body.tools = tools
+        body.tool_choice = 'auto'
+      }
     }
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.settings.apiKey}`
-      },
-      body: JSON.stringify(body),
-      signal
-    })
+    // Establish the connection with retry/backoff. We only retry BEFORE streaming
+    // begins — once bytes flow, retrying would duplicate output.
+    let res: Response | null = null
+    let lastErr = ''
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+      try {
+        res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.settings.apiKey}`
+          },
+          body: JSON.stringify(body),
+          signal
+        })
+      } catch (e) {
+        if ((e as Error).name === 'AbortError') throw e
+        lastErr = (e as Error).message
+        if (attempt < MAX_RETRIES) {
+          await sleep(backoff(attempt), signal)
+          continue
+        }
+        throw new Error(`Network error reaching DeepSeek: ${lastErr}`)
+      }
 
-    if (!res.ok || !res.body) {
+      if (res.ok && res.body) break
+
       const text = await res.text().catch(() => '')
-      throw new Error(`DeepSeek API error ${res.status}: ${text || res.statusText}`)
+      lastErr = `DeepSeek API error ${res.status}: ${text || res.statusText}`
+      if (RETRYABLE.has(res.status) && attempt < MAX_RETRIES) {
+        await sleep(backoff(attempt), signal)
+        res = null
+        continue
+      }
+      throw new Error(lastErr)
     }
+    if (!res || !res.body) throw new Error(lastErr || 'DeepSeek API: no response body')
 
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
@@ -93,53 +154,69 @@ export class DeepSeekClient {
     let content = ''
     let reasoning = ''
     let finishReason = 'stop'
-    // accumulate tool calls by index
+    let usage: RawUsage | undefined
     const toolAcc: Map<number, { id: string; name: string; arguments: string }> = new Map()
+
+    const handleData = (data: string): void => {
+      if (data === '[DONE]' || !data) return
+      let json: any
+      try {
+        json = JSON.parse(data)
+      } catch {
+        return
+      }
+      if (json.usage) {
+        usage = {
+          promptTokens: json.usage.prompt_tokens ?? 0,
+          completionTokens: json.usage.completion_tokens ?? 0,
+          totalTokens: json.usage.total_tokens ?? 0
+        }
+      }
+      const choice = json.choices?.[0]
+      if (!choice) return
+      const delta = choice.delta ?? {}
+      if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
+        reasoning += delta.reasoning_content
+        callbacks.onReasoning?.(delta.reasoning_content)
+      }
+      if (typeof delta.content === 'string' && delta.content) {
+        content += delta.content
+        callbacks.onContent?.(delta.content)
+      }
+      if (Array.isArray(delta.tool_calls)) {
+        for (const tc of delta.tool_calls) {
+          const idx = tc.index ?? 0
+          const cur = toolAcc.get(idx) ?? { id: '', name: '', arguments: '' }
+          if (tc.id) cur.id = tc.id
+          if (tc.function?.name) cur.name = tc.function.name
+          if (tc.function?.arguments) cur.arguments += tc.function.arguments
+          toolAcc.set(idx, cur)
+          callbacks.onToolCallDelta?.(idx, tc.id, tc.function?.name, tc.function?.arguments ?? '')
+        }
+      }
+      if (choice.finish_reason) finishReason = choice.finish_reason
+    }
+
+    const drainLines = (): void => {
+      let nl: number
+      while ((nl = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, nl).trim()
+        buffer = buffer.slice(nl + 1)
+        if (line.startsWith('data:')) handleData(line.slice(5).trim())
+      }
+    }
 
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
       buffer += decoder.decode(value, { stream: true })
-
-      let nl: number
-      while ((nl = buffer.indexOf('\n')) !== -1) {
-        const line = buffer.slice(0, nl).trim()
-        buffer = buffer.slice(nl + 1)
-        if (!line.startsWith('data:')) continue
-        const data = line.slice(5).trim()
-        if (data === '[DONE]') continue
-        let json: any
-        try {
-          json = JSON.parse(data)
-        } catch {
-          continue
-        }
-        const choice = json.choices?.[0]
-        if (!choice) continue
-        const delta = choice.delta ?? {}
-
-        if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
-          reasoning += delta.reasoning_content
-          callbacks.onReasoning?.(delta.reasoning_content)
-        }
-        if (typeof delta.content === 'string' && delta.content) {
-          content += delta.content
-          callbacks.onContent?.(delta.content)
-        }
-        if (Array.isArray(delta.tool_calls)) {
-          for (const tc of delta.tool_calls) {
-            const idx = tc.index ?? 0
-            const cur = toolAcc.get(idx) ?? { id: '', name: '', arguments: '' }
-            if (tc.id) cur.id = tc.id
-            if (tc.function?.name) cur.name = tc.function.name
-            if (tc.function?.arguments) cur.arguments += tc.function.arguments
-            toolAcc.set(idx, cur)
-            callbacks.onToolCallDelta?.(idx, tc.id, tc.function?.name, tc.function?.arguments ?? '')
-          }
-        }
-        if (choice.finish_reason) finishReason = choice.finish_reason
-      }
+      drainLines()
     }
+    // Flush any incomplete multi-byte sequence and the final newline-less line.
+    buffer += decoder.decode()
+    drainLines()
+    const tail = buffer.trim()
+    if (tail.startsWith('data:')) handleData(tail.slice(5).trim())
 
     const toolCalls = [...toolAcc.entries()]
       .sort((a, b) => a[0] - b[0])
@@ -147,6 +224,11 @@ export class DeepSeekClient {
       .filter((t) => t.name)
 
     callbacks.onDone?.(finishReason)
-    return { content, reasoning, toolCalls, finishReason }
+    return { content, reasoning, toolCalls, finishReason, usage }
   }
+}
+
+function backoff(attempt: number): number {
+  const base = Math.min(1000 * 2 ** attempt, 30_000)
+  return base + Math.floor((attempt * 137 + 250) % 500) // small deterministic jitter
 }

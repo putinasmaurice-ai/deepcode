@@ -17,6 +17,9 @@ export const IPC = {
   cancelTurn: 'agent:cancel',
   approveTool: 'agent:approveTool',
   agentEvent: 'agent:event', // main -> renderer push channel
+  compactSession: 'agent:compact',
+  updateSessionModel: 'sessions:setModel',
+  changeCwd: 'sessions:setCwd',
 
   // feature systems
   listSkills: 'skills:list',

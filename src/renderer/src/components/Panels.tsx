@@ -119,6 +119,26 @@ export function SettingsPanel({
             />
           </div>
         </div>
+        <div className="row">
+          <div className="field">
+            <label>Price / 1M input tokens ($)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={p.pricePerMillionInput}
+              onChange={(e) => updateProvider({ pricePerMillionInput: Number(e.target.value) })}
+            />
+          </div>
+          <div className="field">
+            <label>Price / 1M output tokens ($)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={p.pricePerMillionOutput}
+              onChange={(e) => updateProvider({ pricePerMillionOutput: Number(e.target.value) })}
+            />
+          </div>
+        </div>
       </div>
 
       <div className="card">
@@ -137,6 +157,25 @@ export function SettingsPanel({
             <Switch on={s.autoApprove.bash} onClick={() => update({ autoApprove: { ...s.autoApprove, bash: !s.autoApprove.bash } })} />
             Auto-approve <b>shell commands</b> (run_command)
           </label>
+        </div>
+      </div>
+
+      <div className="card">
+        <h3>Safety</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
+          <label className="toggle">
+            <Switch on={s.confineToCwd} onClick={() => update({ confineToCwd: !s.confineToCwd })} />
+            Confine file tools to the working directory (block <code style={{ fontFamily: 'var(--mono)' }}>../</code> escapes)
+          </label>
+        </div>
+        <div className="field" style={{ marginTop: 14 }}>
+          <label>Auto-compact threshold (tokens, 0 = off)</label>
+          <input
+            type="number"
+            value={s.compactThreshold}
+            onChange={(e) => update({ compactThreshold: Number(e.target.value) })}
+            placeholder="e.g. 80000"
+          />
         </div>
       </div>
 
@@ -517,6 +556,7 @@ export function AutomationsPanel({ cwd }: { cwd?: string }): JSX.Element {
   const [name, setName] = useState('')
   const [schedule, setSchedule] = useState('0 9 * * *')
   const [prompt, setPrompt] = useState('')
+  const [autonomy, setAutonomy] = useState<'safe' | 'full'>('safe')
 
   async function load(): Promise<void> {
     setItems(await api.listAutomations())
@@ -533,7 +573,8 @@ export function AutomationsPanel({ cwd }: { cwd?: string }): JSX.Element {
       schedule,
       prompt,
       cwd: cwd || '',
-      enabled: true
+      enabled: true,
+      autonomy
     }
     await api.saveAutomation(a)
     setName('')
@@ -562,6 +603,13 @@ export function AutomationsPanel({ cwd }: { cwd?: string }): JSX.Element {
           <label>Prompt</label>
           <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Run the test suite and summarize failures." />
         </div>
+        <div className="field">
+          <label>Autonomy (unattended runs)</label>
+          <select value={autonomy} onChange={(e) => setAutonomy(e.target.value as 'safe' | 'full')}>
+            <option value="safe">Safe — only read-only tools run unattended</option>
+            <option value="full">Full — allow file changes and shell commands</option>
+          </select>
+        </div>
         <button className="btn" onClick={add}>
           Create automation
         </button>
@@ -573,6 +621,9 @@ export function AutomationsPanel({ cwd }: { cwd?: string }): JSX.Element {
           <div className="flex-between">
             <h3>
               {a.name} <span className="badge">{a.schedule}</span>
+              <span className="badge" style={{ color: a.autonomy === 'full' ? 'var(--yellow)' : undefined }}>
+                {a.autonomy === 'full' ? 'full access' : 'safe'}
+              </span>
             </h3>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <Switch

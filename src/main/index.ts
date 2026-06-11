@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, dialog, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { fileURLToPath } from 'url'
 import { dirname } from 'path'
@@ -7,6 +7,13 @@ import { seedStarterContent } from './seed'
 import { registerIpc, bootstrapMcp } from './ipc'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err)
+})
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection:', reason)
+})
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -42,16 +49,27 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
-  ensureConfigDirs()
-  seedStarterContent()
-  createWindow()
-  bootstrapMcp()
+app
+  .whenReady()
+  .then(() => {
+    ensureConfigDirs()
+    seedStarterContent()
+    createWindow()
+    bootstrapMcp()
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
   })
-})
+  .catch((err) => {
+    console.error('App initialization failed:', err)
+    try {
+      dialog.showErrorBox('DeepCode failed to start', String(err?.message ?? err))
+    } catch {
+      /* ignore */
+    }
+    app.quit()
+  })
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

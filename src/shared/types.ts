@@ -8,6 +8,13 @@ export interface ToolCall {
   arguments: string // raw JSON string as returned by the model
 }
 
+export interface TokenUsage {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  cost: number // estimated, in USD
+}
+
 export interface ChatMessage {
   id: string
   role: Role
@@ -22,6 +29,9 @@ export interface ChatMessage {
   reasoning?: string // deepseek-reasoner chain-of-thought
   hidden?: boolean // not shown in transcript (e.g. injected context)
   error?: boolean
+  usage?: TokenUsage // token usage for this assistant turn
+  finishReason?: string // 'stop' | 'length' | 'tool_calls' | ...
+  meta?: Record<string, unknown> // tool result metadata (diff, paths, counts…)
 }
 
 export interface Session {
@@ -41,6 +51,9 @@ export interface ProviderSettings {
   reasonerModel: string
   temperature: number
   maxTokens: number
+  // pricing for cost estimation (USD per 1M tokens)
+  pricePerMillionInput: number
+  pricePerMillionOutput: number
 }
 
 export interface AppSettings {
@@ -55,6 +68,10 @@ export interface AppSettings {
   defaultCwd: string
   // global instructions appended to every system prompt
   customInstructions: string
+  // restrict file tools to the working directory (block ../ escapes & absolute paths outside cwd)
+  confineToCwd: boolean
+  // auto-compact a session once its estimated tokens exceed this (0 = off)
+  compactThreshold: number
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -64,7 +81,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     model: 'deepseek-chat',
     reasonerModel: 'deepseek-reasoner',
     temperature: 0.2,
-    maxTokens: 8192
+    maxTokens: 8192,
+    pricePerMillionInput: 0.27,
+    pricePerMillionOutput: 1.1
   },
   autoApprove: {
     read: true,
@@ -72,7 +91,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     bash: false
   },
   defaultCwd: '',
-  customInstructions: ''
+  customInstructions: '',
+  confineToCwd: true,
+  compactThreshold: 0
 }
 
 // ---- Tool plumbing ----
@@ -103,6 +124,7 @@ export type AgentEvent =
   | { type: 'tool_pending'; callId: string; name: string; args: string }
   | { type: 'tool_result'; callId: string; name: string; result: ToolResult }
   | { type: 'message_done'; message: ChatMessage }
+  | { type: 'usage'; messageId: string; usage: TokenUsage }
   | { type: 'turn_done'; sessionId: string }
   | { type: 'error'; message: string }
   | { type: 'status'; message: string }
@@ -183,6 +205,8 @@ export interface AutomationDef {
   prompt: string
   cwd: string
   enabled: boolean
+  // 'safe' = only auto-approved reads run unattended; 'full' = writes + shell too
+  autonomy?: 'safe' | 'full'
   lastRun?: number
   nextRun?: number
 }

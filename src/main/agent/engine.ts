@@ -4,9 +4,10 @@ import {
   AppSettings,
   ChatMessage,
   Session,
-  ToolResult
+  ToolResult,
+  TokenUsage
 } from '@shared/types'
-import { DeepSeekClient, ApiMessage } from './deepseek'
+import { DeepSeekClient, ApiMessage, RawUsage } from './deepseek'
 import { buildToolset, toApiTools, Tool } from './tools'
 import { ToolContext } from './tools/types'
 import { buildSystemPrompt } from './prompt'
@@ -18,8 +19,29 @@ import { mcpManager } from '../systems/mcp'
 import { saveSession } from '../store'
 
 type Emit = (e: AgentEvent) => void
+// 'interactive' = ask the user; 'safe' = deny anything not pre-approved (headless);
+// 'full' = auto-approve everything (opted-in automations).
+type ApprovalPolicy = 'interactive' | 'safe' | 'full'
 
 const MAX_STEPS = 60
+
+// Commands that can be catastrophic — always require explicit approval, even when
+// shell auto-approve is on. Heuristic, intentionally conservative.
+const DANGER_PATTERNS: RegExp[] = [
+  /\brm\s+(-[a-z]*\s+)*-[a-z]*r[a-z]*f?\b/i,
+  /\brm\s+-rf?\s+[/~]/i,
+  /\b(format|mkfs|fdisk)\b/i,
+  /\bdd\s+if=/i,
+  /\b(Remove-Item|rmdir)\b.*\b-Recurse\b/i,
+  /\b:\(\)\s*\{.*\}\s*;/, // fork bomb
+  />\s*\/dev\/sd[a-z]/i,
+  /\bgit\s+push\b.*--force/i
+]
+
+function isDangerousCommand(cmd: unknown): boolean {
+  if (typeof cmd !== 'string') return false
+  return DANGER_PATTERNS.some((re) => re.test(cmd))
+}
 
 export class AgentEngine {
   private client: DeepSeekClient
@@ -113,11 +135,19 @@ export class AgentEngine {
   }
 
   private autoApproved(tool: Tool): boolean {
-    if (tool.permission === 'none' || tool.permission === 'read')
-      return tool.permission === 'none' ? true : this.settings.autoApprove.read
+    if (tool.permission === 'none') return true
+    if (tool.permission === 'read') return this.settings.autoApprove.read
     if (tool.permission === 'write') return this.settings.autoApprove.write
     if (tool.permission === 'bash') return this.settings.autoApprove.bash
     return false
+  }
+
+  private costOf(usage: RawUsage): TokenUsage {
+    const p = this.settings.provider
+    const cost =
+      (usage.promptTokens / 1_000_000) * (p.pricePerMillionInput || 0) +
+      (usage.completionTokens / 1_000_000) * (p.pricePerMillionOutput || 0)
+    return { ...usage, cost }
   }
 
   private async requestApproval(
@@ -133,7 +163,12 @@ export class AgentEngine {
   }
 
   // --- Main entry: run one user turn to completion ---
-  async runTurn(session: Session, userText: string, emit: Emit): Promise<void> {
+  async runTurn(
+    session: Session,
+    userText: string,
+    emit: Emit,
+    policy: ApprovalPolicy = 'interactive'
+  ): Promise<void> {
     const aborter = new AbortController()
     this.aborters.set(session.id, aborter)
     const signal = aborter.signal
@@ -153,6 +188,11 @@ export class AgentEngine {
       session.messages.push(userMsg)
       saveSession(session)
 
+      // Auto-compact if the session has grown past the configured token threshold.
+      if (this.settings.compactThreshold > 0 && this.estimateTokens(session) > this.settings.compactThreshold) {
+        await this.compactSession(session, emit)
+      }
+
       const skills = this.collectSkills(session.cwd)
       const system = buildSystemPrompt({
         cwd: session.cwd,
@@ -166,6 +206,7 @@ export class AgentEngine {
       const ctx: ToolContext = {
         cwd: session.cwd,
         signal,
+        confineToCwd: this.settings.confineToCwd,
         emitStatus: (m) => emit({ type: 'status', message: m }),
         spawnSubagent: (agent, prompt) => this.runSubagent(agent, prompt, session.cwd, emit, signal)
       }
@@ -195,7 +236,8 @@ export class AgentEngine {
               emit({ type: 'content_delta', messageId: assistantMsg.id, delta: d })
             }
           },
-          signal
+          signal,
+          session.model
         )
 
         assistantMsg.toolCalls = result.toolCalls.map((tc) => ({
@@ -203,11 +245,25 @@ export class AgentEngine {
           name: tc.name,
           arguments: tc.arguments || '{}'
         }))
+        assistantMsg.finishReason = result.finishReason
+        if (result.usage) {
+          assistantMsg.usage = this.costOf(result.usage)
+          emit({ type: 'usage', messageId: assistantMsg.id, usage: assistantMsg.usage })
+        }
         session.messages.push(assistantMsg)
         emit({ type: 'message_done', message: assistantMsg })
         saveSession(session)
 
-        if (!assistantMsg.toolCalls.length) break // no tools -> turn complete
+        if (!assistantMsg.toolCalls.length) {
+          if (result.finishReason === 'length') {
+            emit({
+              type: 'status',
+              message:
+                'Response was cut off at the max-tokens limit. Increase "Max tokens" in Settings for longer answers.'
+            })
+          }
+          break // no tools -> turn complete
+        }
 
         // Execute each tool call sequentially
         for (const call of assistantMsg.toolCalls) {
@@ -236,11 +292,24 @@ export class AgentEngine {
 
             // approval gate
             let approved = this.autoApproved(tool)
-            if (!approved) {
-              approved = await this.requestApproval(emit, call.id, call.name, call.arguments)
+            const dangerous = call.name === 'run_command' && isDangerousCommand(parsedArgs.command)
+            if (policy === 'full') {
+              approved = true
+            } else if (!approved || dangerous) {
+              if (policy === 'safe') {
+                approved = false // headless: never run un-approved/dangerous tools
+              } else {
+                approved = await this.requestApproval(emit, call.id, call.name, call.arguments)
+              }
             }
             if (!approved) {
-              const res: ToolResult = { ok: false, content: 'Tool call was denied by the user.' }
+              const res: ToolResult = {
+                ok: false,
+                content:
+                  policy === 'safe'
+                    ? `Skipped "${call.name}" — not permitted in unattended (safe) mode.`
+                    : 'Tool call was denied by the user.'
+              }
               resultMsg = this.toolResultMessage(call.id, call.name, res)
               session.messages.push(resultMsg)
               emit({ type: 'tool_result', callId: call.id, name: call.name, result: res })
@@ -285,6 +354,73 @@ export class AgentEngine {
     }
   }
 
+  // Rough token estimate (~4 chars/token) used for the auto-compaction trigger.
+  estimateTokens(session: Session): number {
+    let chars = 0
+    for (const m of session.messages) chars += (m.content?.length ?? 0) + (m.reasoning?.length ?? 0)
+    return Math.ceil(chars / 4)
+  }
+
+  // Summarize older turns into one synthetic message to keep context small while
+  // preserving recent turns and tool-call/result pairing.
+  async compactSession(session: Session, emit: Emit): Promise<Session> {
+    const msgs = session.messages
+    if (msgs.length < 8) {
+      emit({ type: 'status', message: 'Nothing to compact yet.' })
+      return session
+    }
+    // Keep the last ~6 messages verbatim; summarize everything before, but never
+    // split an assistant tool_calls block from its tool responses.
+    let cut = Math.max(2, msgs.length - 6)
+    while (cut < msgs.length && msgs[cut].role === 'tool') cut++ // don't start the tail on an orphan tool msg
+    const older = msgs.slice(0, cut)
+    const recent = msgs.slice(cut)
+
+    const transcript = older
+      .map((m) => {
+        if (m.role === 'tool') return `TOOL(${m.toolName}): ${m.content.slice(0, 800)}`
+        const tc = m.toolCalls?.length ? ` [called: ${m.toolCalls.map((t) => t.name).join(', ')}]` : ''
+        return `${m.role.toUpperCase()}: ${m.content.slice(0, 2000)}${tc}`
+      })
+      .join('\n\n')
+
+    emit({ type: 'status', message: 'Compacting conversation…' })
+    const aborter = new AbortController()
+    let summary = ''
+    try {
+      const res = await this.client.streamChat(
+        [
+          {
+            role: 'system',
+            content:
+              'You compress a coding-assistant conversation. Produce a dense summary that preserves: the user goals, decisions made, files created/edited (with paths), key findings, commands run and their outcomes, and any open TODOs. Keep it factual and compact.'
+          },
+          { role: 'user', content: `Summarize this conversation so work can continue:\n\n${transcript}` }
+        ],
+        [],
+        {},
+        aborter.signal,
+        session.model
+      )
+      summary = res.content
+    } catch (e) {
+      emit({ type: 'error', message: `Compaction failed: ${(e as Error).message}` })
+      return session
+    }
+
+    const synthetic: ChatMessage = {
+      id: randomUUID(),
+      role: 'user',
+      content: `<conversation-summary>\n${summary}\n</conversation-summary>`,
+      createdAt: Date.now(),
+      hidden: false
+    }
+    session.messages = [synthetic, ...recent]
+    saveSession(session)
+    emit({ type: 'status', message: `Compacted ${older.length} messages into a summary.` })
+    return session
+  }
+
   private toolResultMessage(callId: string, name: string, res: ToolResult): ChatMessage {
     return {
       id: randomUUID(),
@@ -293,7 +429,8 @@ export class AgentEngine {
       toolCallId: callId,
       toolName: name,
       createdAt: Date.now(),
-      error: !res.ok
+      error: !res.ok,
+      meta: res.meta
     }
   }
 
@@ -321,11 +458,14 @@ export class AgentEngine {
       includeTask: false,
       allow: agent?.tools ?? ['*']
     })
-    const apiTools = toApiTools(tools)
+    // deepseek-reasoner does not support function calling — run it tool-less.
+    const reasonerOnly = !!agent?.model && /reason/i.test(agent.model)
+    const apiTools = reasonerOnly ? [] : toApiTools(tools)
 
     const ctx: ToolContext = {
       cwd,
       signal,
+      confineToCwd: this.settings.confineToCwd,
       emitStatus: (m) => emit({ type: 'status', message: `[${agentName}] ${m}` })
     }
 

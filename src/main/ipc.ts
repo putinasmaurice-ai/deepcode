@@ -7,6 +7,7 @@ import {
   AgentEvent,
   AppSettings,
   AutomationDef,
+  ChatMessage,
   McpServerDef,
   MemoryEntry,
   Session
@@ -35,8 +36,9 @@ import {
   AutomationScheduler
 } from './systems/automations'
 
-let settings: AppSettings = loadSettings()
-const engine = new AgentEngine(settings)
+// Initialized in registerIpc() (after app 'ready', so safeStorage is available).
+let settings: AppSettings
+let engine: AgentEngine
 
 export function getEngine(): AgentEngine {
   return engine
@@ -49,6 +51,8 @@ function emitter(win: BrowserWindow): (e: AgentEvent) => void {
 }
 
 export function registerIpc(win: BrowserWindow): void {
+  settings = loadSettings()
+  engine = new AgentEngine(settings)
   const emit = emitter(win)
 
   // ---- settings ----
@@ -64,11 +68,10 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.listSessions, () => listSessions())
   ipcMain.handle(IPC.getSession, (_e, id: string) => getSession(id))
   ipcMain.handle(IPC.createSession, (_e, cwd?: string) => {
-    const dir = cwd || settings.defaultCwd || homedir()
     const session: Session = {
       id: randomUUID(),
       title: 'New session',
-      cwd: dir,
+      cwd: validDir(cwd) || validDir(settings.defaultCwd) || homedir(),
       createdAt: Date.now(),
       updatedAt: Date.now(),
       messages: [],
@@ -76,6 +79,23 @@ export function registerIpc(win: BrowserWindow): void {
     }
     saveSession(session)
     return session
+  })
+  ipcMain.handle(IPC.changeCwd, (_e, id: string, cwd: string) => {
+    const s = getSession(id)
+    if (!s) throw new Error('Session not found')
+    const dir = validDir(cwd)
+    if (!dir) throw new Error('Not a valid directory: ' + cwd)
+    s.cwd = dir
+    saveSession(s)
+    return s
+  })
+  ipcMain.handle(IPC.updateSessionModel, (_e, id: string, model: string) => {
+    const s = getSession(id)
+    if (s) {
+      s.model = model
+      saveSession(s)
+    }
+    return true
   })
   ipcMain.handle(IPC.deleteSession, (_e, id: string) => {
     deleteSession(id)
@@ -96,15 +116,29 @@ export function registerIpc(win: BrowserWindow): void {
     if (!session) throw new Error('Session not found')
 
     let text = rawText
-    // slash command expansion (file-based commands)
     if (rawText.trim().startsWith('/')) {
-      const [cmd, ...rest] = rawText.trim().slice(1).split(/\s+/)
-      const args = rawText.trim().slice(1 + cmd.length).trim()
-      const expanded = expandCommand(cmd, args, session.cwd)
-      if (expanded) text = expanded
+      const trimmed = rawText.trim()
+      const cmd = trimmed.slice(1).split(/\s+/)[0]
+      const args = trimmed.slice(1 + cmd.length).trim()
+
+      // Built-in commands handled here (no model turn needed for /help).
+      if (cmd === 'help') {
+        emitHelp(emit, session.cwd)
+        emit({ type: 'turn_done', sessionId: session.id })
+        return true
+      }
+      if (cmd === 'init') {
+        text =
+          'Analyze this project: explore the directory structure, identify the tech stack, ' +
+          'entry points, key modules, build/test commands and conventions. Then write a concise ' +
+          'DEEPCODE.md at the project root documenting all of that so future sessions have context. ' +
+          (args ? `Extra guidance: ${args}` : '')
+      } else {
+        const expanded = expandCommand(cmd, args, session.cwd)
+        if (expanded) text = expanded
+      }
     }
 
-    // auto-title from first user message
     if (session.title === 'New session') {
       session.title = rawText.replace(/\s+/g, ' ').slice(0, 50) || 'New session'
       saveSession(session)
@@ -112,6 +146,13 @@ export function registerIpc(win: BrowserWindow): void {
 
     await engine.runTurn(session, text, emit)
     return true
+  })
+  ipcMain.handle(IPC.compactSession, async (_e, sessionId: string) => {
+    const session = getSession(sessionId)
+    if (!session) throw new Error('Session not found')
+    const updated = await engine.compactSession(session, emit)
+    emit({ type: 'turn_done', sessionId: session.id })
+    return updated
   })
   ipcMain.handle(IPC.cancelTurn, (_e, sessionId: string) => {
     engine.cancel(sessionId)
@@ -194,14 +235,55 @@ async function runAutomationNow(a: AutomationDef, emit: (e: AgentEvent) => void)
   const session: Session = {
     id: randomUUID(),
     title: `[auto] ${a.name}`,
-    cwd: a.cwd,
+    cwd: validDir(a.cwd) || settings.defaultCwd || homedir(),
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    messages: []
+    messages: [],
+    model: settings.provider.model
   }
   saveSession(session)
   emit({ type: 'status', message: `Automation "${a.name}" running...` })
-  await engine.runTurn(session, a.prompt, emit)
+  // 'safe' = only auto-approved reads run unattended; 'full' = writes + shell too.
+  const policy = a.autonomy === 'full' ? 'full' : 'safe'
+  await engine.runTurn(session, a.prompt, emit, policy)
+}
+
+function validDir(p?: string): string | null {
+  if (!p) return null
+  try {
+    return existsSync(p) && statSync(p).isDirectory() ? p : null
+  } catch {
+    return null
+  }
+}
+
+// Render the /help output as a synthetic assistant message.
+function emitHelp(emit: (e: AgentEvent) => void, cwd: string): void {
+  const cmds = [...loadCommands(cwd), ...pluginCommands()]
+  const skills = [...loadSkills(cwd), ...pluginSkills()]
+  const agents = [...loadSubagents(cwd), ...pluginSubagents()]
+  const lines: string[] = []
+  lines.push('## DeepCode — quick help\n')
+  lines.push('**What I can do:** understand codebases, read/create/edit files, run shell commands, fix bugs, implement features across a project, run tests, and plan refactors.\n')
+  lines.push('**Built-in tools:** read_file, write_file, edit_file, apply_patch, list_dir, glob, grep, run_command, task (subagents), use_skill, plus any MCP connector tools.\n')
+  lines.push('**Slash commands:**')
+  lines.push('- `/help` — this message')
+  lines.push('- `/init` — analyze the project and write DEEPCODE.md')
+  for (const c of cmds) lines.push(`- \`/${c.name}\` — ${c.description}`)
+  if (skills.length) {
+    lines.push('\n**Skills:** ' + skills.map((s) => s.name).join(', '))
+  }
+  if (agents.length) {
+    lines.push('\n**Subagents:** ' + agents.map((a) => a.name).join(', '))
+  }
+  lines.push('\nManage everything in the left sidebar (Skills, Commands, Subagents, MCP, Hooks, Memory, Automations, Plugins).')
+
+  const id = randomUUID()
+  const message: ChatMessage = { id, role: 'assistant', content: '', createdAt: Date.now() }
+  emit({ type: 'message_start', message })
+  const full = lines.join('\n')
+  emit({ type: 'content_delta', messageId: id, delta: full })
+  emit({ type: 'message_done', message: { ...message, content: full } })
 }
 
 // connect enabled MCP servers in the background after startup

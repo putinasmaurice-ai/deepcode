@@ -36,11 +36,17 @@ export function Composer({
     }
   }, [text])
 
-  const showSlash = text.startsWith('/') && !text.includes('\n')
+  const [dismissed, setDismissed] = useState(false)
+  const showSlash = text.startsWith('/') && !text.includes('\n') && !dismissed
   const query = showSlash ? text.slice(1).split(' ')[0].toLowerCase() : ''
   const matches = showSlash
     ? commands.filter((c) => c.name.toLowerCase().startsWith(query))
     : []
+
+  // keep the highlight in range as the match list shrinks
+  useEffect(() => {
+    setSel(0)
+  }, [query])
 
   function submit(): void {
     const t = text.trim()
@@ -55,6 +61,11 @@ export function Composer({
   }
 
   function onKey(e: React.KeyboardEvent): void {
+    if (e.key === 'Escape' && showSlash) {
+      e.preventDefault()
+      setDismissed(true)
+      return
+    }
     if (matches.length && showSlash) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
@@ -101,7 +112,11 @@ export function Composer({
           ref={ref}
           value={text}
           placeholder="Ask DeepCode to build, fix, explain, or refactor…  (/ for commands, Enter to send, Shift+Enter for newline)"
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            const v = e.target.value
+            setText(v)
+            if (!v.startsWith('/')) setDismissed(false)
+          }}
           onKeyDown={onKey}
           rows={1}
         />

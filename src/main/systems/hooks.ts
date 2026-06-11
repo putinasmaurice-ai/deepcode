@@ -4,6 +4,7 @@ import { platform } from 'os'
 import { join } from 'path'
 import { PATHS, projectConfigDir } from '../paths'
 import { HookDef, HookEvent } from '@shared/types'
+import { auditLog, safeEnv } from '../audit'
 
 // Hooks run shell commands when lifecycle events fire. Config lives in
 // ~/.deepcode/hooks.json (and optionally <project>/.deepcode/hooks.json):
@@ -87,17 +88,18 @@ function runOne(command: string, ctx: HookContext): Promise<string> {
   const shellArgs = isWin
     ? ['-NoProfile', '-NonInteractive', '-Command', command]
     : ['-lc', command]
+  auditLog('hook', `${ctx.cwd} :: ${command}`)
   return new Promise((resolve, reject) => {
     let out = ''
     const child = spawn(shell, shellArgs, {
       cwd: ctx.cwd,
       windowsHide: true,
-      env: {
-        ...process.env,
+      // Hooks run automatically — give them a sanitized env without secrets.
+      env: safeEnv({
         DEEPCODE_TOOL: ctx.toolName ?? '',
         DEEPCODE_PROMPT: ctx.prompt ?? '',
         DEEPCODE_ARGS: ctx.toolArgs ? JSON.stringify(ctx.toolArgs) : ''
-      }
+      })
     })
     const timer = setTimeout(() => child.kill('SIGKILL'), 30_000)
     child.stdout.on('data', (c) => (out += c.toString()))
