@@ -15,14 +15,30 @@ export function Composer({
   cwd
 }: {
   busy: boolean
-  onSend: (text: string) => void
+  onSend: (text: string, attachments?: string[]) => void
   onStop: () => void
   cwd?: string
 }): JSX.Element {
   const [text, setText] = useState('')
+  const [attachments, setAttachments] = useState<string[]>([])
   const [commands, setCommands] = useState<SlashCommandDef[]>([])
   const [sel, setSel] = useState(0)
   const ref = useRef<HTMLTextAreaElement>(null)
+
+  async function addFiles(): Promise<void> {
+    const files = (await api.pickFiles()) as string[]
+    if (files?.length) setAttachments((a) => Array.from(new Set([...a, ...files])))
+  }
+  async function addFolder(): Promise<void> {
+    const dir = (await api.pickDirectory()) as string | null
+    if (dir) setAttachments((a) => Array.from(new Set([...a, dir])))
+  }
+  function removeAttachment(p: string): void {
+    setAttachments((a) => a.filter((x) => x !== p))
+  }
+  function baseName(p: string): string {
+    return p.replace(/[/\\]+$/, '').split(/[/\\]/).pop() || p
+  }
 
   useEffect(() => {
     api.listCommands(cwd).then((c: SlashCommandDef[]) => setCommands([...BUILTIN, ...c]))
@@ -50,9 +66,10 @@ export function Composer({
 
   function submit(): void {
     const t = text.trim()
-    if (!t || busy) return
-    onSend(t)
+    if ((!t && attachments.length === 0) || busy) return
+    onSend(t, attachments.length ? attachments : undefined)
     setText('')
+    setAttachments([])
   }
 
   function pickCommand(c: SlashCommandDef): void {
@@ -108,6 +125,26 @@ export function Composer({
             ))}
           </div>
         )}
+        {attachments.length > 0 && (
+          <div className="attach-chips">
+            {attachments.map((p) => (
+              <span className="chip" key={p} title={p}>
+                {p.match(/\.[a-z0-9]+$/i) ? '📄' : '📁'} {baseName(p)}
+                <span className="chip-x" onClick={() => removeAttachment(p)}>
+                  ✕
+                </span>
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="attach-bar">
+          <button className="attach-btn" onClick={addFiles} title="Dateien anhängen">
+            📎 Datei
+          </button>
+          <button className="attach-btn" onClick={addFolder} title="Ordner anhängen">
+            📁 Ordner
+          </button>
+        </div>
         <textarea
           ref={ref}
           value={text}
@@ -125,7 +162,7 @@ export function Composer({
             Stop
           </button>
         ) : (
-          <button className="send" onClick={submit} disabled={!text.trim()}>
+          <button className="send" onClick={submit} disabled={!text.trim() && attachments.length === 0}>
             Send
           </button>
         )}

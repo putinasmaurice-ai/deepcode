@@ -12,10 +12,14 @@ function MessageViewImpl({
   onApprove: (callId: string, approved: boolean) => void
 }): JSX.Element | null {
   if (message.role === 'user') {
+    // Collapse the verbose <attached-context> block (from attached files/folders).
+    const m = message.content.match(/^<attached-context>[\s\S]*?<\/attached-context>\s*([\s\S]*)$/)
+    const visible = m ? m[1] : message.content
     return (
       <div className="msg user">
         <div className="role">You</div>
-        <div className="bubble">{message.content}</div>
+        {m && <div className="attach-note">📎 Anhänge im Kontext</div>}
+        <div className="bubble">{visible || '(nur Anhänge)'}</div>
       </div>
     )
   }

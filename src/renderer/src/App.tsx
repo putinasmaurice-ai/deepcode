@@ -240,20 +240,27 @@ export function App(): JSX.Element {
     }
   }
 
-  async function send(text: string): Promise<void> {
+  async function send(text: string, attachments?: string[]): Promise<void> {
     if (!session || busy) return
     setError('')
+    const note =
+      attachments && attachments.length
+        ? `\n\n📎 ${attachments.length} ${attachments.length === 1 ? 'Anhang' : 'Anhänge'}: ${attachments
+            .map((p) => p.replace(/[/\\]+$/, '').split(/[/\\]/).pop())
+            .join(', ')}`
+        : ''
     const userMsg: ChatMessage = {
       id: 'local-' + Date.now(),
       role: 'user',
-      content: text,
+      content: text + note,
       createdAt: Date.now()
     }
     setMessages((m) => [...m, userMsg])
     setBusy(true)
+    nearBottomRef.current = true
     scrollDown()
     try {
-      await api.sendMessage(session.id, text)
+      await api.sendMessage(session.id, text, attachments)
     } catch (err) {
       setError((err as Error).message)
       setBusy(false)

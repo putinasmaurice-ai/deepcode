@@ -401,6 +401,56 @@ button {
   display: flex;
   gap: 14px;
 }
+.attach-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.attach-btn {
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+  color: var(--text-dim);
+  border-radius: 7px;
+  padding: 5px 11px;
+  font-size: 12px;
+}
+.attach-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.attach-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+  border-radius: 14px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip-x {
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.chip-x:hover {
+  color: var(--red);
+}
+.attach-note {
+  font-size: 11px;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
 .slash-menu {
   position: absolute;
   bottom: 100%;

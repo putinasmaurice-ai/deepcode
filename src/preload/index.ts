@@ -15,8 +15,8 @@ const api = {
   renameSession: (id: string, title: string) => ipcRenderer.invoke(IPC.renameSession, id, title),
 
   // agent
-  sendMessage: (sessionId: string, text: string) =>
-    ipcRenderer.invoke(IPC.sendMessage, sessionId, text),
+  sendMessage: (sessionId: string, text: string, attachments?: string[]) =>
+    ipcRenderer.invoke(IPC.sendMessage, sessionId, text, attachments),
   cancelTurn: (sessionId: string) => ipcRenderer.invoke(IPC.cancelTurn, sessionId),
   approveTool: (callId: string, approved: boolean) =>
     ipcRenderer.invoke(IPC.approveTool, callId, approved),
@@ -62,6 +62,7 @@ const api = {
 
   // misc
   pickDirectory: () => ipcRenderer.invoke(IPC.pickDirectory),
+  pickFiles: () => ipcRenderer.invoke(IPC.pickFiles),
   openConfigDir: () => ipcRenderer.invoke(IPC.openConfigDir),
   getCwdInfo: (cwd: string) => ipcRenderer.invoke(IPC.getCwdInfo, cwd)
 }

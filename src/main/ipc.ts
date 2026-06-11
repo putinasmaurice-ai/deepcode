@@ -29,6 +29,7 @@ import { pluginSkills, pluginCommands, pluginSubagents, pluginHooks, loadPlugins
 import { loadMemory, saveMemory, deleteMemory } from './systems/memory'
 import { mcpManager } from './systems/mcp'
 import { PATHS } from './paths'
+import { buildAttachmentContext } from './attachments'
 import {
   loadAutomations,
   upsertAutomation,
@@ -111,7 +112,7 @@ export function registerIpc(win: BrowserWindow): void {
   })
 
   // ---- agent turn ----
-  ipcMain.handle(IPC.sendMessage, async (_e, sessionId: string, rawText: string) => {
+  ipcMain.handle(IPC.sendMessage, async (_e, sessionId: string, rawText: string, attachments?: string[]) => {
     const session = getSession(sessionId)
     if (!session) throw new Error('Session not found')
 
@@ -137,6 +138,12 @@ export function registerIpc(win: BrowserWindow): void {
         const expanded = expandCommand(cmd, args, session.cwd)
         if (expanded) text = expanded
       }
+    }
+
+    // Prepend attached files/folders (cheap: files inlined up to a cap, folders as a tree).
+    if (attachments && attachments.length) {
+      const ctx = buildAttachmentContext(attachments, session.cwd)
+      if (ctx) text = `${ctx}\n\n${text}`
     }
 
     if (session.title === 'New session') {
@@ -216,6 +223,12 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.pickDirectory, async () => {
     const res = await dialog.showOpenDialog(win, { properties: ['openDirectory'] })
     return res.canceled ? null : res.filePaths[0]
+  })
+  ipcMain.handle(IPC.pickFiles, async () => {
+    const res = await dialog.showOpenDialog(win, {
+      properties: ['openFile', 'multiSelections']
+    })
+    return res.canceled ? [] : res.filePaths
   })
   ipcMain.handle(IPC.openConfigDir, () => {
     shell.openPath(PATHS.root)
