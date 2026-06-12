@@ -57,6 +57,7 @@ const api: DeepCodeApi = {
     ipcRenderer.invoke(IPC.previewDiff, name, argsJson, cwd),
   installFromGit: (url: string) => ipcRenderer.invoke(IPC.installFromGit, url),
   getAppInfo: () => ipcRenderer.invoke(IPC.getAppInfo),
+  checkUpdates: () => ipcRenderer.invoke(IPC.checkUpdates),
   cancelTurn: (sessionId: string) => ipcRenderer.invoke(IPC.cancelTurn, sessionId),
   approveTool: (callId: string, approved: boolean) =>
     ipcRenderer.invoke(IPC.approveTool, callId, approved),

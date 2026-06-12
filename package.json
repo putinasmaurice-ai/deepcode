@@ -1,6 +1,6 @@
 {
   "name": "deepcode",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "DeepCode — an agentic coding desktop app powered by DeepSeek. A Claude-Code / Codex style assistant with Plugins, Skills, MCP, Subagents, Hooks, Memory, Automations and Slash Commands.",
   "main": "./out/main/index.js",
   "author": "Maurice",
@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
+    "electron-updater": "^6.8.9",
     "highlight.js": "^11.11.1"
   },
   "devDependencies": {
@@ -58,6 +59,13 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "DeepCode"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "GITHUB_OWNER_PLACEHOLDER",
+        "repo": "deepcode"
+      }
+    ]
   }
 }

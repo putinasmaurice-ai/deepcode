@@ -49,6 +49,7 @@ export const IPC = {
   previewDiff: 'fs:previewDiff',
   installFromGit: 'market:installGit',
   getAppInfo: 'app:info',
+  checkUpdates: 'app:checkUpdates',
   updateSessionModel: 'sessions:setModel',
   changeCwd: 'sessions:setCwd',
   listFiles: 'fs:listFiles',

@@ -84,6 +84,7 @@ export interface DeepCodeApi {
   previewDiff(name: string, argsJson: string, cwd: string): Promise<string>
   installFromGit(url: string): Promise<{ ok: boolean; message: string }>
   getAppInfo(): Promise<{ version: string; electron: string }>
+  checkUpdates(): Promise<{ status: string; version?: string; message?: string }>
   onAgentEvent(cb: (e: AgentEvent) => void): () => void
 
   // feature systems

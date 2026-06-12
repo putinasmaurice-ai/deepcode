@@ -8,6 +8,7 @@ import { seedStarterContent } from './seed'
 import { registerIpc, bootstrapMcp } from './ipc'
 import { shutdownJobs } from './jobs'
 import { maybeRunE2E } from './e2e'
+import { autoCheckOnStartup } from './updater'
 
 // Window bounds persistence (~/.deepcode/window.json)
 interface WinState {
@@ -98,6 +99,7 @@ app
     seedStarterContent()
     createWindow()
     bootstrapMcp()
+    autoCheckOnStartup()
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()

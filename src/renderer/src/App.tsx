@@ -19,6 +19,7 @@ import { NightShiftPanel } from './components/NightShiftPanel'
 import { Welcome, TodoStrip, ContextPill, basename, relTime } from './components/ChatExtras'
 import { FirstRunModal } from './components/FirstRunModal'
 import { MarketPanel } from './components/MarketPanel'
+import { Sidebar, NAV } from './components/Sidebar'
 import {
   SettingsPanel,
   SkillsPanel,
@@ -57,28 +58,7 @@ export interface ToolState {
   name?: string
 }
 
-// Primary destinations stay visible; management panels collapse under
-// "Erweitert" so the chat list keeps breathing room.
-const NAV_MAIN: { view: View; icon: string; label: string }[] = [
-  { view: 'chat', icon: '💬', label: 'Chat' },
-  { view: 'projects', icon: '📂', label: 'Projekte' },
-  { view: 'usage', icon: '💰', label: 'Kosten' },
-  { view: 'night', icon: '🌙', label: 'Nachtschicht' },
-  { view: 'settings', icon: '⚙️', label: 'Settings' }
-]
-const NAV_MORE: { view: View; icon: string; label: string }[] = [
-  { view: 'market', icon: '🛒', label: 'Marketplace' },
-  { view: 'skills', icon: '📘', label: 'Skills' },
-  { view: 'commands', icon: '/', label: 'Slash Commands' },
-  { view: 'subagents', icon: '🤖', label: 'Subagents' },
-  { view: 'mcp', icon: '🔌', label: 'MCP / Connectors' },
-  { view: 'hooks', icon: '🪝', label: 'Hooks' },
-  { view: 'memory', icon: '🧠', label: 'Memory' },
-  { view: 'automations', icon: '⏰', label: 'Automations' },
-  { view: 'plugins', icon: '🧩', label: 'Plugins' },
-  { view: 'audit', icon: '🧾', label: 'Audit-Log' }
-]
-const NAV = [...NAV_MAIN, ...NAV_MORE]
+
 
 export function App(): JSX.Element {
   const [settings, setSettings] = useState<AppSettings | null>(null)
@@ -593,6 +573,18 @@ export function App(): JSX.Element {
     setRenamingId(null)
   }
 
+  async function removeSession(id: string): Promise<void> {
+    const s = sessions.find((x) => x.id === id)
+    if (!window.confirm(`Chat „${s?.title || 'Untitled'}" wirklich löschen?`)) return
+    await api.deleteSession(id)
+    const list = await api.listSessions()
+    setSessions(list)
+    if (session?.id === id) {
+      if (list.length) openSession(list[0].id)
+      else newSession()
+    }
+  }
+
   const approve = useCallback((callId: string, approved: boolean): void => {
     api.approveTool(callId, approved)
     setToolState((t) => ({ ...t, [callId]: { ...t[callId], pending: false } }))
@@ -626,169 +618,42 @@ export function App(): JSX.Element {
 
   return (
     <div className="app">
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="dot" />
-          DeepCode <small>· DeepSeek</small>
-          <span className="spacer" />
-          <span
-            className="theme-toggle"
-            onClick={toggleTheme}
-            title={settings?.theme === 'light' ? 'Dark Mode' : 'Light Mode'}
-          >
-            {settings?.theme === 'light' ? '🌙' : '☀️'}
-          </span>
-        </div>
-        <div className="nav">
-          {NAV_MAIN.map((n) => (
-            <button
-              key={n.view}
-              className={view === n.view ? 'active' : ''}
-              onClick={() => setView(n.view)}
-            >
-              <span className="ic">{n.icon}</span>
-              {n.label}
-            </button>
-          ))}
-          <button
-            className={'nav-more' + (NAV_MORE.some((n) => n.view === view) ? ' active' : '')}
-            onClick={() => {
-              const next = !moreOpen
-              setMoreOpen(next)
-              localStorage.setItem('nav-more', next ? '1' : '0')
-            }}
-          >
-            <span className="ic">{moreOpen ? '▾' : '▸'}</span>
-            Erweitert
-          </button>
-          {(moreOpen || NAV_MORE.some((n) => n.view === view)) &&
-            NAV_MORE.map((n) => (
-              <button
-                key={n.view}
-                className={'nav-sub' + (view === n.view ? ' active' : '')}
-                onClick={() => setView(n.view)}
-              >
-                <span className="ic">{n.icon}</span>
-                {n.label}
-              </button>
-            ))}
-        </div>
-        <div className="nav-sep" />
-        <div className="nav">
-          <button onClick={() => newSession()} title="Strg+N">
-            <span className="ic">＋</span> Neuer Chat {activeProject ? `in ${activeProject.name}` : ''}
-          </button>
-        </div>
-        <div className="sessions">
-          {projects.length > 0 && (
-            <>
-              <h4>Projekte</h4>
-              <div
-                className={'session-item' + (activeProjectId === null ? ' active' : '')}
-                onClick={() => setActiveProjectId(null)}
-              >
-                <span>Alle Chats</span>
-              </div>
-              {projects.map((p) => (
-                <div
-                  key={p.id}
-                  className={'session-item' + (activeProjectId === p.id ? ' active' : '')}
-                  onClick={() => {
-                    setActiveProjectId(p.id)
-                    setView('chat')
-                  }}
-                  title={p.cwd}
-                >
-                  <span>
-                    <span className="proj-dot" style={{ background: p.color || 'var(--accent)' }} />
-                    {p.name}
-                  </span>
-                </div>
-              ))}
-            </>
-          )}
-          <h4>Chats</h4>
-          <input
-            className="session-search"
-            placeholder="Suchen (auch im Verlauf)…"
-            value={sessionFilter}
-            onChange={(e) => setSessionFilter(e.target.value)}
-          />
-          {contentHits.length > 0 && (
-            <>
-              <h4>Treffer im Verlauf</h4>
-              {contentHits.map((h) => (
-                <div key={h.sessionId} className="session-item" onClick={() => openSession(h.sessionId)}>
-                  <div style={{ minWidth: 0, overflow: 'hidden' }}>
-                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.title}</div>
-                    <div className="session-meta">{h.snippet.slice(0, 60)}</div>
-                  </div>
-                </div>
-              ))}
-            </>
-          )}
-          {sessions
-            .filter((s) => !activeProjectId || s.projectId === activeProjectId)
-            .filter(
-              (s) =>
-                !sessionFilter ||
-                (s.title || '').toLowerCase().includes(sessionFilter.toLowerCase()) ||
-                s.cwd.toLowerCase().includes(sessionFilter.toLowerCase())
-            )
-            .map((s) => (
-            <div
-              key={s.id}
-              className={'session-item' + (session?.id === s.id ? ' active' : '')}
-              onClick={() => openSession(s.id)}
-              onDoubleClick={() => {
-                setRenamingId(s.id)
-                setRenameText(s.title || '')
-              }}
-              title={s.cwd + ' (Doppelklick: umbenennen)'}
-            >
-              {renamingId === s.id ? (
-                <input
-                  className="rename-input"
-                  value={renameText}
-                  autoFocus
-                  onChange={(e) => setRenameText(e.target.value)}
-                  onBlur={commitRename}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') commitRename()
-                    if (e.key === 'Escape') setRenamingId(null)
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              ) : (
-                <div style={{ minWidth: 0, overflow: 'hidden' }}>
-                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {s.title || 'Untitled'}
-                  </div>
-                  <div className="session-meta">
-                    {basename(s.cwd)} · {relTime(s.updatedAt)}
-                  </div>
-                </div>
-              )}
-              <span
-                className="x"
-                onClick={async (ev) => {
-                  ev.stopPropagation()
-                  if (!window.confirm(`Chat „${s.title || 'Untitled'}" wirklich löschen?`)) return
-                  await api.deleteSession(s.id)
-                  const list = await api.listSessions()
-                  setSessions(list)
-                  if (session?.id === s.id) {
-                    if (list.length) openSession(list[0].id)
-                    else newSession()
-                  }
-                }}
-              >
-                ✕
-              </span>
-            </div>
-          ))}
-        </div>
-      </aside>
+      <Sidebar
+        settings={settings}
+        view={view}
+        onView={setView}
+        moreOpen={moreOpen}
+        onToggleMore={() => {
+          const next = !moreOpen
+          setMoreOpen(next)
+          localStorage.setItem('nav-more', next ? '1' : '0')
+        }}
+        onToggleTheme={toggleTheme}
+        projects={projects}
+        activeProject={activeProject}
+        activeProjectId={activeProjectId}
+        onSelectProject={(id) => {
+          setActiveProjectId(id)
+          if (id) setView('chat')
+        }}
+        sessions={sessions}
+        activeSessionId={session?.id ?? null}
+        onOpenSession={openSession}
+        onDeleteSession={removeSession}
+        onNewSession={() => newSession()}
+        sessionFilter={sessionFilter}
+        onFilter={setSessionFilter}
+        contentHits={contentHits}
+        renamingId={renamingId}
+        renameText={renameText}
+        onRenameText={setRenameText}
+        onStartRename={(id, title) => {
+          setRenamingId(id)
+          setRenameText(title)
+        }}
+        onCommitRename={commitRename}
+        onCancelRename={() => setRenamingId(null)}
+      />
 
       <main className="main">
         <div className="topbar">

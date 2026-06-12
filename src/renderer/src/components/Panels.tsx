@@ -238,9 +238,23 @@ export function SettingsPanel({
 function AboutCard(): JSX.Element {
   const [info, setInfo] = useState<{ version: string; electron: string } | null>(null)
   const [checkMsg, setCheckMsg] = useState<string | null>(null)
+  const [checking, setChecking] = useState(false)
   useEffect(() => {
     api.getAppInfo().then(setInfo)
   }, [])
+  async function check(): Promise<void> {
+    setChecking(true)
+    setCheckMsg(null)
+    try {
+      const r = await api.checkUpdates()
+      setCheckMsg(
+        (r.status === 'available' ? '⬇ ' : r.status === 'uptodate' ? '✅ ' : r.status === 'dev' ? 'ℹ ' : '⚠ ') +
+          (r.message ?? r.status)
+      )
+    } finally {
+      setChecking(false)
+    }
+  }
   return (
     <div className="card" style={{ marginTop: 18 }}>
       <h3>🐋 Über DeepCode</h3>
@@ -248,15 +262,8 @@ function AboutCard(): JSX.Element {
         Version {info?.version ?? '…'} · Electron {info?.electron ?? '…'} · DeepSeek-powered
       </p>
       <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
-        <button
-          className="btn ghost sm"
-          onClick={() =>
-            setCheckMsg(
-              'Auto-Updates brauchen einen Release-Kanal (z.B. GitHub Releases). Sobald das Projekt ein Repo hat, richte ich electron-updater ein — bis dahin: START_DEEPCODE.bat läuft immer auf dem neuesten Quellstand.'
-            )
-          }
-        >
-          Auf Updates prüfen
+        <button className="btn ghost sm" onClick={check} disabled={checking}>
+          {checking ? 'Prüfe…' : 'Auf Updates prüfen'}
         </button>
       </div>
       {checkMsg && <p style={{ marginTop: 10 }}>{checkMsg}</p>}

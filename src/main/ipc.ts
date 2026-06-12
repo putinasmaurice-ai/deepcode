@@ -1,5 +1,6 @@
 import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron'
 import { previewToolDiff } from './preview-diff'
+import { checkForUpdates } from './updater'
 import { randomUUID } from 'crypto'
 import { homedir } from 'os'
 import { existsSync, statSync, readFileSync } from 'fs'
@@ -291,6 +292,7 @@ export function registerIpc(win: BrowserWindow): void {
     version: app.getVersion(),
     electron: process.versions.electron
   }))
+  ipcMain.handle(IPC.checkUpdates, () => checkForUpdates())
   // Marketplace: install a plugin/skill bundle by cloning a git repo into
   // ~/.deepcode/plugins/<repo>. Shallow clone, 60s cap.
   ipcMain.handle(IPC.installFromGit, async (_e, url: string) => {
