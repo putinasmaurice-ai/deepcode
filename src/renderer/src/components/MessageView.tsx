@@ -317,8 +317,32 @@ function renderMd(text: string): string {
     }
     const lines = segments[i].split('\n')
     let inList = false
+    let tableBuf: string[] = []
+    const flushTable = (): void => {
+      if (!tableBuf.length) return
+      const rows = tableBuf.filter((r) => !/^\s*\|[\s:|-]+\|\s*$/.test(r)) // drop separator row
+      const html = rows
+        .map((r, ri) => {
+          const cells = r.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|')
+          const tag = ri === 0 ? 'th' : 'td'
+          return `<tr>${cells.map((c) => `<${tag}>${inline(c.trim())}</${tag}>`).join('')}</tr>`
+        })
+        .join('')
+      out.push(`<table class="md-table">${html}</table>`)
+      tableBuf = []
+    }
     for (const raw of lines) {
       const line = raw.replace(/\s+$/, '')
+      // markdown table rows: |…|…|
+      if (/^\s*\|.*\|\s*$/.test(line)) {
+        if (inList) {
+          out.push('</ul>')
+          inList = false
+        }
+        tableBuf.push(line)
+        continue
+      }
+      flushTable()
       const h = line.match(/^(#{1,4})\s+(.*)$/)
       const li = line.match(/^\s*[-*]\s+(.*)$/)
       if (h) {
@@ -342,6 +366,7 @@ function renderMd(text: string): string {
         out.push(line ? `<div>${inline(line)}</div>` : '<div class="md-sp"></div>')
       }
     }
+    flushTable()
     if (inList) out.push('</ul>')
   }
   return out.join('')

@@ -37,6 +37,7 @@ import { execFile } from 'child_process'
 import type { ApprovalPolicy } from './agent/engine'
 import { loadProjects, getProject, upsertProject, deleteProject as removeProject } from './projects'
 import { computeUsageSummary, usageSummaryText } from './usage'
+import { listAudit, searchSessions } from './history'
 import { exportSessionMarkdown } from './export'
 import { ProjectDef } from '@shared/types'
 import {
@@ -104,6 +105,8 @@ export function registerIpc(win: BrowserWindow): void {
 
   // ---- usage / export ----
   ipcMain.handle(IPC.usageSummary, () => computeUsageSummary())
+  ipcMain.handle(IPC.listAudit, () => listAudit())
+  ipcMain.handle(IPC.searchSessions, (_e, q: string) => searchSessions(q))
   ipcMain.handle(IPC.exportSession, (_e, id: string) => {
     const s = getSession(id)
     if (!s) throw new Error('Session not found')

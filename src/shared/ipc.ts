@@ -21,6 +21,10 @@ export const IPC = {
   // usage / costs
   usageSummary: 'usage:summary',
 
+  // audit + history search
+  listAudit: 'audit:list',
+  searchSessions: 'sessions:search',
+
   // agent turn
   sendMessage: 'agent:send',
   cancelTurn: 'agent:cancel',

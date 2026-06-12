@@ -1157,6 +1157,122 @@ button {
   border-color: var(--accent);
 }
 
+/* toasts */
+.toasts {
+  position: fixed;
+  bottom: 18px;
+  right: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 100;
+  max-width: 380px;
+}
+.toast {
+  background: var(--bg-elev);
+  border: 1px solid var(--border-2);
+  border-left: 3px solid var(--accent);
+  border-radius: 9px;
+  padding: 10px 14px;
+  font-size: 13px;
+  box-shadow: var(--shadow-pop);
+  animation: msgIn 0.2s ease;
+  word-break: break-word;
+}
+.toast.error {
+  border-left-color: var(--red);
+  color: #ffb4ae;
+}
+
+/* queued messages strip */
+.queue-strip {
+  border-top: 1px solid var(--border);
+  background: var(--bg-2);
+  padding: 8px 24px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* welcome checklist */
+.checklist {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 18px auto 4px;
+  max-width: 560px;
+}
+.check {
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border-2);
+  background: var(--bg-2);
+  color: var(--text-dim);
+}
+.check.ok {
+  color: var(--green);
+  border-color: rgba(63, 208, 104, 0.35);
+}
+.check.todo {
+  color: var(--yellow);
+  border-color: rgba(227, 179, 65, 0.4);
+  cursor: pointer;
+}
+.check.todo:hover {
+  background: var(--bg-3);
+}
+.check.dim {
+  cursor: pointer;
+}
+
+/* audit log */
+.audit-row {
+  display: flex;
+  gap: 12px;
+  padding: 7px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  align-items: baseline;
+}
+.audit-time {
+  color: var(--text-faint);
+  font-family: var(--mono);
+  flex: 0 0 140px;
+}
+.audit-kind {
+  color: var(--accent);
+  flex: 0 0 130px;
+}
+.audit-detail {
+  color: var(--text-dim);
+  font-family: var(--mono);
+  word-break: break-all;
+}
+
+/* markdown tables */
+.md-table {
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 13px;
+  width: 100%;
+}
+.md-table th,
+.md-table td {
+  border: 1px solid var(--border-2);
+  padding: 6px 10px;
+  text-align: left;
+}
+.md-table th {
+  background: var(--bg-3);
+  color: var(--text);
+  font-weight: 600;
+}
+.md-table tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
 /* ocean syntax theme (highlight.js) */
 .hljs {
   color: var(--text);

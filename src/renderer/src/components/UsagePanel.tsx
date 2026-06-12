@@ -8,14 +8,18 @@ const fmtTok = (t: number): string => t.toLocaleString()
 
 export function UsagePanel(): JSX.Element {
   const [usage, setUsage] = useState<UsageSummary | null>(null)
+  const [budget, setBudget] = useState(0)
 
   useEffect(() => {
     api.usageSummary().then(setUsage)
+    api.getSettings().then((s: { monthlyBudget?: number }) => setBudget(s?.monthlyBudget ?? 0))
   }, [])
 
   if (!usage) return <div className="spinner" />
 
   const maxProjCost = Math.max(0.000001, ...usage.perProject.map((p) => p.cost))
+  const budgetPct = budget > 0 ? Math.min(100, (usage.month.cost / budget) * 100) : 0
+  const overBudget = budget > 0 && usage.month.cost > budget
 
   return (
     <div className="panel">
@@ -29,6 +33,12 @@ export function UsagePanel(): JSX.Element {
             <div className="stat-label">Gesamtkosten</div>
           </div>
           <div className="stat">
+            <div className="stat-value" style={overBudget ? { color: 'var(--red)', WebkitTextFillColor: 'var(--red)' } : undefined}>
+              {fmtCost(usage.month.cost)}
+            </div>
+            <div className="stat-label">Dieser Monat</div>
+          </div>
+          <div className="stat">
             <div className="stat-value">{fmtTok(usage.total.tokens)}</div>
             <div className="stat-label">Tokens gesamt</div>
           </div>
@@ -37,6 +47,30 @@ export function UsagePanel(): JSX.Element {
             <div className="stat-label">Chats</div>
           </div>
         </div>
+
+        {budget > 0 && (
+          <div className="card">
+            <h3>Monatsbudget</h3>
+            <div className="usage-row" style={{ marginTop: 10 }}>
+              <div className="usage-head">
+                <span>
+                  {fmtCost(usage.month.cost)} von ${budget.toFixed(2)}
+                  {overBudget ? ' — überschritten!' : ''}
+                </span>
+                <span className="meta">{budgetPct.toFixed(0)}%</span>
+              </div>
+              <div className="usage-bar">
+                <div
+                  className="usage-fill"
+                  style={{
+                    width: `${Math.max(2, budgetPct)}%`,
+                    background: overBudget ? 'var(--red)' : budgetPct > 75 ? 'var(--yellow)' : undefined
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="card">
           <h3>Pro Projekt</h3>

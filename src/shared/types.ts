@@ -70,6 +70,7 @@ export interface Session {
 
 export interface UsageSummary {
   total: { tokens: number; cost: number; sessions: number }
+  month: { tokens: number; cost: number } // current calendar month
   perProject: {
     projectId: string
     name: string
@@ -115,6 +116,8 @@ export interface AppSettings {
   confineToCwd: boolean
   // auto-compact a session once its estimated tokens exceed this (0 = off)
   compactThreshold: number
+  // monthly cost budget in USD (0 = off); the usage panel warns when exceeded
+  monthlyBudget: number
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -136,7 +139,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultCwd: '',
   customInstructions: '',
   confineToCwd: true,
-  compactThreshold: 0
+  compactThreshold: 0,
+  monthlyBudget: 0
 }
 
 // ---- Tool plumbing ----

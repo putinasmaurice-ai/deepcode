@@ -23,6 +23,8 @@ const api = {
 
   // usage
   usageSummary: () => ipcRenderer.invoke(IPC.usageSummary),
+  listAudit: () => ipcRenderer.invoke(IPC.listAudit),
+  searchSessions: (q: string) => ipcRenderer.invoke(IPC.searchSessions, q),
 
   // agent
   sendMessage: (sessionId: string, text: string, attachments?: string[], mode?: string) =>

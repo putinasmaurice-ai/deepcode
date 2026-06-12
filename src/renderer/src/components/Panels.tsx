@@ -177,6 +177,16 @@ export function SettingsPanel({
             placeholder="e.g. 80000"
           />
         </div>
+        <div className="field">
+          <label>Monatsbudget in $ (0 = aus) — Warnung im Kosten-Panel bei Überschreitung</label>
+          <input
+            type="number"
+            step="0.5"
+            value={s.monthlyBudget ?? 0}
+            onChange={(e) => update({ monthlyBudget: Number(e.target.value) })}
+            placeholder="z.B. 5"
+          />
+        </div>
       </div>
 
       <div className="card">

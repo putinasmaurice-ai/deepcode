@@ -20,6 +20,11 @@ export function computeUsageSummary(): UsageSummary {
     files = []
   }
 
+  const now = new Date()
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
+  let monthTokens = 0
+  let monthCost = 0
+
   for (const f of files) {
     try {
       const s = JSON.parse(readFileSync(join(PATHS.sessions, f), 'utf8')) as Session
@@ -29,6 +34,10 @@ export function computeUsageSummary(): UsageSummary {
         if (m.usage) {
           tokens += m.usage.totalTokens
           cost += m.usage.cost
+          if (m.createdAt >= monthStart) {
+            monthTokens += m.usage.totalTokens
+            monthCost += m.usage.cost
+          }
         }
       }
       perSession.push({
@@ -70,6 +79,7 @@ export function computeUsageSummary(): UsageSummary {
 
   return {
     total: { tokens: totalTokens, cost: totalCost, sessions: perSession.length },
+    month: { tokens: monthTokens, cost: monthCost },
     perProject,
     perSession
   }

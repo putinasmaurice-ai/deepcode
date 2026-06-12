@@ -14,6 +14,7 @@ import { Composer } from './components/Composer'
 import { MessageView } from './components/MessageView'
 import { ProjectsPanel } from './components/ProjectsPanel'
 import { UsagePanel } from './components/UsagePanel'
+import { AuditPanel } from './components/AuditPanel'
 import {
   SettingsPanel,
   SkillsPanel,
@@ -32,6 +33,7 @@ export type View =
   | 'chat'
   | 'projects'
   | 'usage'
+  | 'audit'
   | 'settings'
   | 'skills'
   | 'commands'
@@ -61,6 +63,7 @@ const NAV: { view: View; icon: string; label: string }[] = [
   { view: 'memory', icon: '🧠', label: 'Memory' },
   { view: 'automations', icon: '⏰', label: 'Automations' },
   { view: 'plugins', icon: '🧩', label: 'Plugins' },
+  { view: 'audit', icon: '🧾', label: 'Audit-Log' },
   { view: 'settings', icon: '⚙️', label: 'Settings' }
 ]
 
@@ -87,9 +90,19 @@ export function App(): JSX.Element {
   const [showJump, setShowJump] = useState(false)
   const [gitDirty, setGitDirty] = useState(0)
   const [composerPrefill, setComposerPrefill] = useState<string | null>(null)
+  const [toasts, setToasts] = useState<{ id: number; text: string; kind: 'info' | 'error' }[]>([])
+  const [queue, setQueue] = useState<{ text: string; attachments?: string[] }[]>([])
+  const [contentHits, setContentHits] = useState<{ sessionId: string; title: string; snippet: string }[]>([])
   const editTargetRef = useRef<string | null>(null)
+  const toastIdRef = useRef(0)
   const chatRef = useRef<HTMLDivElement>(null)
   const nearBottomRef = useRef(true)
+
+  const addToast = useCallback((text: string, kind: 'info' | 'error' = 'info'): void => {
+    const id = ++toastIdRef.current
+    setToasts((t) => [...t, { id, text, kind }])
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), kind === 'error' ? 8000 : 4000)
+  }, [])
 
   const activeProject = projects.find((p) => p.id === (session?.projectId ?? activeProjectId)) ?? null
 
@@ -112,6 +125,27 @@ export function App(): JSX.Element {
   useEffect(() => {
     if (!busy) refreshGit()
   }, [busy, refreshGit])
+
+  // queued messages (mid-turn steering): auto-send the next one when idle
+  useEffect(() => {
+    if (busy || queue.length === 0) return
+    const [next, ...rest] = queue
+    setQueue(rest)
+    send(next.text, next.attachments)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, queue])
+
+  // full-text history search (debounced) when the sidebar filter has 3+ chars
+  useEffect(() => {
+    if (sessionFilter.trim().length < 3) {
+      setContentHits([])
+      return
+    }
+    const t = setTimeout(() => {
+      api.searchSessions(sessionFilter.trim()).then((hits: typeof contentHits) => setContentHits(hits ?? []))
+    }, 300)
+    return () => clearTimeout(t)
+  }, [sessionFilter])
 
   // global shortcuts: Ctrl+N new chat, Ctrl+K focus composer, Esc cancel turn
   useEffect(() => {
@@ -215,6 +249,7 @@ export function App(): JSX.Element {
         break
       case 'error':
         setError(e.message)
+        addToast(e.message, 'error')
         break
       case 'turn_done':
         setBusy(false)
@@ -311,10 +346,9 @@ export function App(): JSX.Element {
     if (!session) return
     try {
       const path = (await api.exportSession(session.id)) as string
-      setStatus(`Exportiert: ${path}`)
-      setTimeout(() => setStatus(''), 5000)
+      addToast(`Exportiert: ${path}`)
     } catch (err) {
-      setError((err as Error).message)
+      addToast((err as Error).message, 'error')
     }
   }
 
@@ -340,7 +374,13 @@ export function App(): JSX.Element {
   }
 
   async function send(text: string, attachments?: string[]): Promise<void> {
-    if (!session || busy) return
+    if (!session) return
+    // mid-turn steering: queue messages typed while the agent is working
+    if (busy) {
+      setQueue((q) => [...q, { text, attachments }])
+      addToast('In Warteschlange — wird nach diesem Turn gesendet.')
+      return
+    }
     setError('')
     // edit-and-resend: drop the edited message and everything after it locally
     // (the main process truncates its copy too)
@@ -504,10 +544,23 @@ export function App(): JSX.Element {
           <h4>Chats</h4>
           <input
             className="session-search"
-            placeholder="Suchen…"
+            placeholder="Suchen (auch im Verlauf)…"
             value={sessionFilter}
             onChange={(e) => setSessionFilter(e.target.value)}
           />
+          {contentHits.length > 0 && (
+            <>
+              <h4>Treffer im Verlauf</h4>
+              {contentHits.map((h) => (
+                <div key={h.sessionId} className="session-item" onClick={() => openSession(h.sessionId)}>
+                  <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.title}</div>
+                    <div className="session-meta">{h.snippet.slice(0, 60)}</div>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
           {sessions
             .filter((s) => !activeProjectId || s.projectId === activeProjectId)
             .filter(
@@ -665,7 +718,12 @@ export function App(): JSX.Element {
                 )}
                 {error && <div className="banner">{error}</div>}
                 {transcript.length === 0 && (
-                  <Welcome onPick={(t) => send(t)} />
+                  <Welcome
+                    onPick={(t) => send(t)}
+                    settings={settings}
+                    projectCount={projects.length}
+                    onNavigate={setView}
+                  />
                 )}
                 {transcript.map((m) => (
                   <MessageView
@@ -707,6 +765,19 @@ export function App(): JSX.Element {
                 </button>
               )}
             </div>
+            {queue.length > 0 && (
+              <div className="queue-strip">
+                {queue.map((q, i) => (
+                  <span key={i} className="chip" title={q.text}>
+                    ⏭ {q.text.slice(0, 50)}
+                    {q.text.length > 50 ? '…' : ''}
+                    <span className="chip-x" onClick={() => setQueue((list) => list.filter((_, j) => j !== i))}>
+                      ✕
+                    </span>
+                  </span>
+                ))}
+              </div>
+            )}
             {todos.length > 0 && <TodoStrip todos={todos} onClear={() => setTodos([])} />}
             <Composer
               busy={busy}
@@ -727,10 +798,19 @@ export function App(): JSX.Element {
           />
         ) : view === 'usage' ? (
           <UsagePanel />
+        ) : view === 'audit' ? (
+          <AuditPanel />
         ) : (
           <Panel view={view} settings={settings} onSettings={setSettings} cwd={session?.cwd} />
         )}
       </main>
+      <div className="toasts">
+        {toasts.map((t) => (
+          <div key={t.id} className={'toast ' + t.kind}>
+            {t.text}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -789,17 +869,52 @@ function relTime(ts: number): string {
   return `${Math.floor(h / 24)}d ago`
 }
 
-function Welcome({ onPick }: { onPick: (t: string) => void }): JSX.Element {
+function Welcome({
+  onPick,
+  settings,
+  projectCount,
+  onNavigate
+}: {
+  onPick: (t: string) => void
+  settings: AppSettings
+  projectCount: number
+  onNavigate: (v: View) => void
+}): JSX.Element {
+  const [skillCount, setSkillCount] = useState<number | null>(null)
+  const [mcpConnected, setMcpConnected] = useState<number | null>(null)
+  useEffect(() => {
+    api.listSkills().then((s: unknown[]) => setSkillCount(s?.length ?? 0))
+    api
+      .listMcp()
+      .then((m: { status?: string }[]) => setMcpConnected(m?.filter((x) => x.status === 'connected').length ?? 0))
+  }, [])
+
+  const keyOk = !!settings.provider.apiKey
   const examples = [
     'Erkläre mir die Struktur dieses Projekts und die wichtigsten Dateien.',
     'Finde und behebe Bugs in dieser Codebasis. Führe danach die Tests aus.',
     'Implementiere ein neues Feature: …',
-    'Plane ein Refactoring des Moduls … und setze es um.'
+    '/plan Refactoring des Moduls …'
   ]
   return (
     <div className="welcome">
-      <h2>DeepCode</h2>
+      <h2>🐋 DeepCode</h2>
       <p>Dein agentischer Coding-Assistent — powered by DeepSeek.</p>
+      <div className="checklist">
+        <div className={'check ' + (keyOk ? 'ok' : 'todo')} onClick={() => !keyOk && onNavigate('settings')}>
+          {keyOk ? '✓ API-Key eingerichtet' : '○ API-Key fehlt — hier einrichten'}
+        </div>
+        <div
+          className={'check ' + (projectCount > 0 ? 'ok' : 'todo')}
+          onClick={() => projectCount === 0 && onNavigate('projects')}
+        >
+          {projectCount > 0 ? `✓ ${projectCount} Projekt(e)` : '○ Erstes Projekt anlegen'}
+        </div>
+        <div className="check ok">{skillCount === null ? '… Skills' : `✓ ${skillCount} Skills geladen`}</div>
+        <div className={'check ' + ((mcpConnected ?? 0) > 0 ? 'ok' : 'dim')} onClick={() => onNavigate('mcp')}>
+          {mcpConnected === null ? '… MCP' : mcpConnected > 0 ? `✓ ${mcpConnected} MCP verbunden` : '○ MCP-Connectors (optional)'}
+        </div>
+      </div>
       <div className="examples">
         {examples.map((e) => (
           <div className="ex" key={e} onClick={() => onPick(e)}>
@@ -807,6 +922,9 @@ function Welcome({ onPick }: { onPick: (t: string) => void }): JSX.Element {
           </div>
         ))}
       </div>
+      <p style={{ marginTop: 18, fontSize: 12, color: 'var(--text-faint)' }}>
+        Tipp: <b>/help</b> zeigt alle Befehle · <b>Strg+N</b> neuer Chat · <b>@datei</b> hängt Dateien an
+      </p>
     </div>
   )
 }

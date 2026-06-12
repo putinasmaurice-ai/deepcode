@@ -109,7 +109,8 @@ export function Composer({
 
   function submit(): void {
     const t = text.trim()
-    if ((!t && attachments.length === 0) || busy) return
+    if (!t && attachments.length === 0) return
+    // while busy this queues the message (mid-turn steering) — App handles it
     onSend(t, attachments.length ? attachments : undefined)
     setText('')
     setAttachments([])
