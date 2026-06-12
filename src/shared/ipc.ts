@@ -32,6 +32,8 @@ export const IPC = {
   agentEvent: 'agent:event', // main -> renderer push channel
   compactSession: 'agent:compact',
   resendMessage: 'agent:resend',
+  secondOpinion: 'agent:secondOpinion',
+  readFileHead: 'fs:readHead',
   updateSessionModel: 'sessions:setModel',
   changeCwd: 'sessions:setCwd',
   listFiles: 'fs:listFiles',

@@ -561,12 +561,30 @@ export function PluginsPanel(): JSX.Element {
 }
 
 // ---- Automations ----
-export function AutomationsPanel({ cwd }: { cwd?: string }): JSX.Element {
+export function AutomationsPanel({
+  cwd,
+  initialPrompt,
+  onPrefillUsed
+}: {
+  cwd?: string
+  initialPrompt?: string
+  onPrefillUsed?: () => void
+}): JSX.Element {
   const [items, setItems] = useState<AutomationDef[]>([])
   const [name, setName] = useState('')
   const [schedule, setSchedule] = useState('0 9 * * *')
   const [prompt, setPrompt] = useState('')
   const [autonomy, setAutonomy] = useState<'safe' | 'full'>('safe')
+
+  // "Als Automation speichern" from a chat message pre-fills the form
+  useEffect(() => {
+    if (initialPrompt) {
+      setPrompt(initialPrompt)
+      setName(initialPrompt.replace(/\s+/g, ' ').slice(0, 40))
+      onPrefillUsed?.()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPrompt])
 
   async function load(): Promise<void> {
     setItems(await api.listAutomations())

@@ -41,12 +41,14 @@ function MessageViewImpl({
   message,
   toolState,
   onApprove,
-  onEdit
+  onEdit,
+  onAutomate
 }: {
   message: ChatMessage
   toolState: Record<string, ToolState>
   onApprove: (callId: string, approved: boolean) => void
   onEdit?: (messageId: string, content: string) => void
+  onAutomate?: (content: string) => void
 }): JSX.Element | null {
   const bubbleRef = useRef<HTMLDivElement>(null)
   useCodeEnhancer(bubbleRef, message.content)
@@ -68,6 +70,15 @@ function MessageViewImpl({
               ✏️
             </span>
           )}
+          {onAutomate && (
+            <span
+              className="copy-btn"
+              title="Diesen Prompt als Automation (Routine) speichern"
+              onClick={() => onAutomate(visible)}
+            >
+              ⏰
+            </span>
+          )}
         </div>
         {m && <div className="attach-note">📎 Anhänge im Kontext</div>}
         <div className="bubble">{visible || '(nur Anhänge)'}</div>
@@ -77,9 +88,15 @@ function MessageViewImpl({
   if (message.role !== 'assistant') return null
 
   return (
-    <div className="msg assistant">
+    <div className={'msg assistant' + (message.variant === 'second-opinion' ? ' second-opinion' : '')}>
       <div className="role">
-        DeepCode
+        {message.variant === 'second-opinion' ? (
+          <>
+            🧠 Zweitmeinung <span className="badge">{message.variantModel}</span>
+          </>
+        ) : (
+          'DeepCode'
+        )}
         {message.content && (
           <span
             className="copy-btn"
@@ -123,7 +140,8 @@ function MessageViewImpl({
 
 // Re-render only when this message or one of its own tool results changes.
 export const MessageView = memo(MessageViewImpl, (prev, next) => {
-  if (prev.onApprove !== next.onApprove || prev.onEdit !== next.onEdit) return false
+  if (prev.onApprove !== next.onApprove || prev.onEdit !== next.onEdit || prev.onAutomate !== next.onAutomate)
+    return false
   const a = prev.message
   const b = next.message
   if (

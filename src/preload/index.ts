@@ -37,6 +37,9 @@ const api = {
     attachments?: string[]
   ) => ipcRenderer.invoke(IPC.resendMessage, sessionId, messageId, newText, mode, attachments),
   listFiles: (cwd: string) => ipcRenderer.invoke(IPC.listFiles, cwd),
+  secondOpinion: (sessionId: string) => ipcRenderer.invoke(IPC.secondOpinion, sessionId),
+  readFileHead: (path: string, maxChars?: number) =>
+    ipcRenderer.invoke(IPC.readFileHead, path, maxChars),
   cancelTurn: (sessionId: string) => ipcRenderer.invoke(IPC.cancelTurn, sessionId),
   approveTool: (callId: string, approved: boolean) =>
     ipcRenderer.invoke(IPC.approveTool, callId, approved),

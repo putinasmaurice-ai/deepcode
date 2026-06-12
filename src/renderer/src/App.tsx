@@ -186,6 +186,35 @@ export function App(): JSX.Element {
     if (view === 'chat') refreshProjects()
   }, [view])
 
+  // apply the theme to the document root
+  useEffect(() => {
+    document.documentElement.dataset.theme = settings?.theme ?? 'dark'
+  }, [settings?.theme])
+
+  async function toggleTheme(): Promise<void> {
+    if (!settings) return
+    const next = { ...settings, theme: settings.theme === 'light' ? ('dark' as const) : ('light' as const) }
+    setSettings(next)
+    await api.saveSettings(next)
+  }
+
+  async function secondOpinion(): Promise<void> {
+    if (!session || busy) return
+    setBusy(true)
+    try {
+      await api.secondOpinion(session.id)
+    } catch (err) {
+      addToast((err as Error).message, 'error')
+      setBusy(false)
+    }
+  }
+
+  const [automationPrefill, setAutomationPrefill] = useState<string | null>(null)
+  const automateFromChat = useCallback((content: string): void => {
+    setAutomationPrefill(content)
+    setView('automations')
+  }, [])
+
   // ---- agent event stream ----
   useEffect(() => {
     const off = api.onAgentEvent((e: AgentEvent) => handleEvent(e))
@@ -494,6 +523,14 @@ export function App(): JSX.Element {
         <div className="brand">
           <span className="dot" />
           DeepCode <small>· DeepSeek</small>
+          <span className="spacer" />
+          <span
+            className="theme-toggle"
+            onClick={toggleTheme}
+            title={settings?.theme === 'light' ? 'Dark Mode' : 'Light Mode'}
+          >
+            {settings?.theme === 'light' ? '🌙' : '☀️'}
+          </span>
         </div>
         <div className="nav">
           {NAV.map((n) => (
@@ -732,6 +769,7 @@ export function App(): JSX.Element {
                     toolState={toolState}
                     onApprove={approve}
                     onEdit={startEdit}
+                    onAutomate={automateFromChat}
                   />
                 ))}
                 {busy && status && <div className="msg"><div className="role">working</div><div style={{ color: 'var(--text-faint)', fontSize: 13 }}>{status}</div></div>}
@@ -748,6 +786,13 @@ export function App(): JSX.Element {
                   <div className="msg-actions-row">
                     <button className="attach-btn" onClick={regenerate} title="Letzte Antwort neu generieren">
                       🔄 Neu generieren
+                    </button>
+                    <button
+                      className="attach-btn"
+                      onClick={secondOpinion}
+                      title="Das Reasoner-Modell prüft die letzte Antwort unabhängig und gibt eine eigene Einschätzung"
+                    >
+                      🧠 Zweitmeinung
                     </button>
                   </div>
                 )}
@@ -801,7 +846,14 @@ export function App(): JSX.Element {
         ) : view === 'audit' ? (
           <AuditPanel />
         ) : (
-          <Panel view={view} settings={settings} onSettings={setSettings} cwd={session?.cwd} />
+          <Panel
+            view={view}
+            settings={settings}
+            onSettings={setSettings}
+            cwd={session?.cwd}
+            automationPrefill={automationPrefill}
+            onAutomationPrefillUsed={() => setAutomationPrefill(null)}
+          />
         )}
       </main>
       <div className="toasts">
@@ -933,12 +985,16 @@ function Panel({
   view,
   settings,
   onSettings,
-  cwd
+  cwd,
+  automationPrefill,
+  onAutomationPrefillUsed
 }: {
   view: View
   settings: AppSettings
   onSettings: (s: AppSettings) => void
   cwd?: string
+  automationPrefill?: string | null
+  onAutomationPrefillUsed?: () => void
 }): JSX.Element {
   switch (view) {
     case 'settings':
@@ -958,7 +1014,13 @@ function Panel({
     case 'plugins':
       return <PluginsPanel />
     case 'automations':
-      return <AutomationsPanel cwd={cwd} />
+      return (
+        <AutomationsPanel
+          cwd={cwd}
+          initialPrompt={automationPrefill ?? undefined}
+          onPrefillUsed={onAutomationPrefillUsed}
+        />
+      )
     default:
       return <div className="panel" />
   }

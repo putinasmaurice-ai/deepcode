@@ -236,6 +236,24 @@ export function registerIpc(win: BrowserWindow): void {
         emit({ type: 'turn_done', sessionId: session.id })
         return true
       }
+      if (cmd === 'learn') {
+        if (session.messages.filter((m) => m.role === 'assistant').length === 0) {
+          emitInfo(emit, 'Noch nichts zu lernen — führe erst eine Aufgabe in diesem Chat durch, dann destilliere ich daraus einen Skill.')
+        } else {
+          emit({ type: 'status', message: 'Destilliere Skill aus diesem Chat…' })
+          try {
+            const skill = await engine.distillSkill(session, args)
+            emitInfo(
+              emit,
+              `🎓 **Skill gelernt:** \`${skill.name}\`\n\nGespeichert unter \`${skill.path}\`. Ab sofort steht er in jedem Chat zur Verfügung — ich lade ihn automatisch, wenn eine ähnliche Aufgabe kommt. Bearbeiten kannst du ihn im Skills-Panel.`
+            )
+          } catch (e) {
+            emitInfo(emit, `Destillation fehlgeschlagen: ${(e as Error).message}`)
+          }
+        }
+        emit({ type: 'turn_done', sessionId: session.id })
+        return true
+      }
       if (cmd === 'rewind') {
         const restored = rewindLastTurn(session.id)
         emitInfo(
@@ -305,6 +323,23 @@ export function registerIpc(win: BrowserWindow): void {
     }
   )
   ipcMain.handle(IPC.listFiles, (_e, cwd: string) => listProjectFiles(cwd))
+  ipcMain.handle(IPC.secondOpinion, async (_e, sessionId: string) => {
+    const session = getSession(sessionId)
+    if (!session) throw new Error('Session not found')
+    await engine.secondOpinion(session, emit)
+    return true
+  })
+  ipcMain.handle(IPC.readFileHead, (_e, path: string, maxChars?: number) => {
+    try {
+      if (!existsSync(path)) return '(Datei nicht gefunden)'
+      const st = statSync(path)
+      if (st.isDirectory()) return '(Ordner)'
+      if (st.size > 2_000_000) return `(zu groß: ${Math.round(st.size / 1024)} KB)`
+      return readFileSync(path, 'utf8').slice(0, Math.min(maxChars ?? 1500, 8000))
+    } catch (e) {
+      return `(Fehler: ${(e as Error).message})`
+    }
+  })
   ipcMain.handle(IPC.compactSession, async (_e, sessionId: string) => {
     const session = getSession(sessionId)
     if (!session) throw new Error('Session not found')
@@ -472,6 +507,7 @@ function emitHelp(emit: (e: AgentEvent) => void, cwd: string): void {
   lines.push('- `/compact` — ältere Nachrichten zusammenfassen (Kontext sparen)')
   lines.push('- `/rewind` — Datei-Änderungen der letzten Runde rückgängig machen')
   lines.push('- `/jobs [kill <id>]` — Hintergrund-Jobs anzeigen/stoppen')
+  lines.push('- `/learn [Fokus]` — aus diesem Chat einen wiederverwendbaren Skill destillieren')
   if (cmds.length) {
     lines.push('\n**Eigene Befehle:**')
     for (const c of cmds) lines.push(`- \`/${c.name}\` — ${c.description}`)

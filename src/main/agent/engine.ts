@@ -447,6 +447,117 @@ export class AgentEngine {
     return session
   }
 
+  // Second opinion: re-answer the conversation with the reasoner model (no tools)
+  // and stream it as a tagged alternative message. DeepSeek is cheap — exploit it.
+  async secondOpinion(session: Session, emit: Emit): Promise<void> {
+    const aborter = new AbortController()
+    this.aborters.set(session.id, aborter)
+    try {
+      const model = this.settings.provider.reasonerModel || this.settings.provider.model
+      const project = session.projectId ? getProject(session.projectId) : null
+      const system = buildSystemPrompt({
+        cwd: session.cwd,
+        skills: [],
+        customInstructions: this.settings.customInstructions,
+        project: project
+          ? { name: project.name, instructions: project.instructions, goal: project.goal }
+          : null,
+        sessionGoal: session.goal
+      })
+      const apiMessages = this.toApiMessages(
+        system +
+          '\n\n# Second-opinion mode\nReview the conversation and give YOUR OWN independent answer to the last user request. If the previous assistant answer has flaws, point them out concretely; if it is good, say so briefly and add what is missing.',
+        session.messages
+      )
+      const msg: ChatMessage = {
+        id: randomUUID(),
+        role: 'assistant',
+        content: '',
+        createdAt: Date.now(),
+        variant: 'second-opinion',
+        variantModel: model
+      }
+      emit({ type: 'message_start', message: msg })
+      const result = await this.client.streamChat(
+        apiMessages,
+        [],
+        {
+          onReasoning: (d) => {
+            msg.reasoning = (msg.reasoning ?? '') + d
+            emit({ type: 'reasoning_delta', messageId: msg.id, delta: d })
+          },
+          onContent: (d) => {
+            msg.content += d
+            emit({ type: 'content_delta', messageId: msg.id, delta: d })
+          }
+        },
+        aborter.signal,
+        model
+      )
+      msg.finishReason = result.finishReason
+      if (result.usage) {
+        msg.usage = this.costOf(result.usage)
+        emit({ type: 'usage', messageId: msg.id, usage: msg.usage })
+      }
+      session.messages.push(msg)
+      saveSession(session)
+      emit({ type: 'message_done', message: msg })
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') emit({ type: 'error', message: (e as Error).message })
+    } finally {
+      this.aborters.delete(session.id)
+      emit({ type: 'turn_done', sessionId: session.id })
+    }
+  }
+
+  // Distill a session into a reusable skill (~/.deepcode/skills/<slug>/SKILL.md):
+  // the app learns repeatable procedures from real work.
+  async distillSkill(session: Session, hint: string): Promise<{ name: string; path: string }> {
+    const transcript = session.messages
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => {
+        const calls = m.toolCalls?.length ? ` [tools: ${m.toolCalls.map((t) => t.name).join(', ')}]` : ''
+        return `${m.role.toUpperCase()}: ${m.content.slice(0, 1500)}${calls}`
+      })
+      .join('\n\n')
+
+    const aborter = new AbortController()
+    const res = await this.client.streamChat(
+      [
+        {
+          role: 'system',
+          content:
+            'You distill a coding-assistant conversation into a reusable SKILL definition. Output EXACTLY this format, nothing else:\n' +
+            'NAME: <kebab-case-slug>\nDESCRIPTION: <one line, when to use this skill>\nBODY:\n<markdown playbook: numbered, generalized steps to repeat this kind of task — concrete commands/patterns, no session-specific paths unless essential>'
+        },
+        {
+          role: 'user',
+          content: `Distill this session into a skill${hint ? ` (focus: ${hint})` : ''}:\n\n${transcript.slice(0, 24000)}`
+        }
+      ],
+      [],
+      {},
+      aborter.signal
+    )
+    const nameMatch = res.content.match(/NAME:\s*(.+)/)
+    const descMatch = res.content.match(/DESCRIPTION:\s*(.+)/)
+    const bodyMatch = res.content.match(/BODY:\s*\n([\s\S]+)/)
+    if (!nameMatch || !bodyMatch) throw new Error('Distillation produced no usable skill format.')
+    const slug = nameMatch[1].trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50)
+    const { mkdirSync, writeFileSync } = await import('fs')
+    const { join } = await import('path')
+    const { PATHS } = await import('../paths')
+    const dir = join(PATHS.skills, slug)
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, 'SKILL.md')
+    writeFileSync(
+      file,
+      `---\nname: ${slug}\ndescription: ${(descMatch?.[1] ?? '').trim()}\n---\n\n${bodyMatch[1].trim()}\n`,
+      'utf8'
+    )
+    return { name: slug, path: file }
+  }
+
   private toolResultMessage(callId: string, name: string, res: ToolResult): ChatMessage {
     return {
       id: randomUUID(),

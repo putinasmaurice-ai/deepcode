@@ -29,7 +29,17 @@ export function Composer({
   const [sel, setSel] = useState(0)
   const [files, setFiles] = useState<string[]>([])
   const [dragOver, setDragOver] = useState(false)
+  const [preview, setPreview] = useState<{ path: string; text: string } | null>(null)
   const ref = useRef<HTMLTextAreaElement>(null)
+
+  async function togglePreview(p: string): Promise<void> {
+    if (preview?.path === p) {
+      setPreview(null)
+      return
+    }
+    const text = (await api.readFileHead(p, 1500)) as string
+    setPreview({ path: p, text })
+  }
 
   // focus the input on mount and whenever the session/cwd changes
   useEffect(() => {
@@ -217,12 +227,34 @@ export function Composer({
             ))}
           </div>
         )}
+        {preview && (
+          <div className="attach-preview">
+            <div className="attach-preview-head">
+              <span>{baseName(preview.path)}</span>
+              <span className="chip-x" onClick={() => setPreview(null)}>
+                ✕
+              </span>
+            </div>
+            <pre>{preview.text}</pre>
+          </div>
+        )}
         {attachments.length > 0 && (
           <div className="attach-chips">
             {attachments.map((p) => (
-              <span className="chip" key={p} title={p}>
+              <span
+                className="chip clickable"
+                key={p}
+                title={p + ' (Klick: Vorschau)'}
+                onClick={() => togglePreview(p)}
+              >
                 {p.match(/\.[a-z0-9]+$/i) ? '📄' : '📁'} {baseName(p)}
-                <span className="chip-x" onClick={() => removeAttachment(p)}>
+                <span
+                  className="chip-x"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    removeAttachment(p)
+                  }}
+                >
                   ✕
                 </span>
               </span>

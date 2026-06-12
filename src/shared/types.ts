@@ -32,6 +32,8 @@ export interface ChatMessage {
   usage?: TokenUsage // token usage for this assistant turn
   finishReason?: string // 'stop' | 'length' | 'tool_calls' | ...
   meta?: Record<string, unknown> // tool result metadata (diff, paths, counts…)
+  variant?: 'second-opinion' // alternative answer from the reasoner model
+  variantModel?: string
 }
 
 export interface ProjectDef {
@@ -118,6 +120,7 @@ export interface AppSettings {
   compactThreshold: number
   // monthly cost budget in USD (0 = off); the usage panel warns when exceeded
   monthlyBudget: number
+  theme: 'dark' | 'light'
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -140,7 +143,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   customInstructions: '',
   confineToCwd: true,
   compactThreshold: 0,
-  monthlyBudget: 0
+  monthlyBudget: 0,
+  theme: 'dark'
 }
 
 // ---- Tool plumbing ----
