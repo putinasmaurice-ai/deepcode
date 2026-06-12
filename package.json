@@ -63,7 +63,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "GITHUB_OWNER_PLACEHOLDER",
+        "owner": "putinasmaurice-ai",
         "repo": "deepcode"
       }
     ]

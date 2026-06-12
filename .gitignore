@@ -8,3 +8,4 @@ release
 .env.local
 
 *.tsbuildinfo
+tools/
