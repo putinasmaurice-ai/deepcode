@@ -52,8 +52,10 @@ export interface StreamResult {
 const RETRYABLE = new Set([408, 409, 425, 429, 500, 502, 503, 504])
 const MAX_RETRIES = 3
 
-function isReasoner(model: string): boolean {
-  return /reason/i.test(model)
+function isReasonerModel(model: string, configuredReasoner: string): boolean {
+  // explicit config wins; regex covers common reasoning-model families
+  if (configuredReasoner && model === configuredReasoner) return true
+  return /reason|qwq|deepseek-r1|(^|[:/])o[13](-|$)/i.test(model)
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -97,7 +99,7 @@ export class DeepSeekClient {
       throw new Error('DeepSeek API key is not configured. Add it in Settings.')
     }
 
-    const reasoner = isReasoner(model)
+    const reasoner = isReasonerModel(model, this.settings.reasonerModel)
     const url = `${base.replace(/\/$/, '')}/chat/completions`
 
     const body: Record<string, unknown> = {

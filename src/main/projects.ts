@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { PATHS, ensureConfigDirs } from './paths'
 import { ProjectDef } from '@shared/types'
+import { listSessions, deleteSession } from './store'
 
 // Projects are a first-class grouping for sessions: a name + working dir +
 // always-on instructions + the active goal. Stored in ~/.deepcode/projects.json.
@@ -35,5 +36,9 @@ export function upsertProject(p: ProjectDef): ProjectDef[] {
 export function deleteProject(id: string): ProjectDef[] {
   const list = loadProjects().filter((x) => x.id !== id)
   writeFileSync(FILE, JSON.stringify(list, null, 2), 'utf8')
+  // cascade: a project's sessions would otherwise orphan in the usage panel
+  for (const s of listSessions()) {
+    if (s.projectId === id) deleteSession(s.id)
+  }
   return list
 }

@@ -24,7 +24,12 @@ export function UsagePanel(): JSX.Element {
   return (
     <div className="panel">
       <div className="panel-inner">
-        <h1>Kosten & Verbrauch</h1>
+        <div className="flex-between">
+          <h1>Kosten & Verbrauch</h1>
+          <button className="btn ghost sm" onClick={() => api.usageSummary().then(setUsage)}>
+            ↻ Aktualisieren
+          </button>
+        </div>
         <p className="sub">Token-Verbrauch und geschätzte Kosten — pro Chat, pro Projekt und gesamt.</p>
 
         <div className="stat-row">

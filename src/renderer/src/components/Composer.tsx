@@ -148,7 +148,7 @@ export function Composer({
         setSel((s) => (s - 1 + fileMatches.length) % fileMatches.length)
         return
       }
-      if (e.key === 'Tab') {
+      if (e.key === 'Tab' || e.key === 'Enter') {
         e.preventDefault()
         pickFileMention(fileMatches[Math.min(sel, fileMatches.length - 1)])
         return
@@ -165,6 +165,8 @@ export function Composer({
         setSel((s) => (s - 1 + matches.length) % matches.length)
         return
       }
+      // Enter/Tab select the highlighted command while the menu is open;
+      // sending happens on the next Enter (after args are typed or menu closed)
       if (e.key === 'Tab' || (e.key === 'Enter' && text.trim() === '/' + query)) {
         e.preventDefault()
         pickCommand(matches[Math.min(sel, matches.length - 1)])

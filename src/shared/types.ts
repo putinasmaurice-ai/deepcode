@@ -138,6 +138,9 @@ export interface ProviderSettings {
   // pricing for cost estimation (USD per 1M tokens)
   pricePerMillionInput: number
   pricePerMillionOutput: number
+  // separate reasoner pricing (deepseek-reasoner costs more than chat)
+  reasonerPricePerMillionInput: number
+  reasonerPricePerMillionOutput: number
   // OpenAI-compatible endpoint for LOCAL models (Ollama/LM Studio).
   // Models prefixed "local:" are routed here, keyless and free.
   localBaseUrl: string
@@ -178,6 +181,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     maxTokens: 8192,
     pricePerMillionInput: 0.27,
     pricePerMillionOutput: 1.1,
+    reasonerPricePerMillionInput: 0.55,
+    reasonerPricePerMillionOutput: 2.19,
     localBaseUrl: 'http://localhost:11434/v1'
   },
   autoApprove: {

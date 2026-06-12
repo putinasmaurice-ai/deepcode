@@ -34,6 +34,7 @@ const MAX_QUALITY_ROUNDS = 4 // initial pass + self-review + 2 verify fixes
 // in focused modules and receives capabilities via EngineDeps.
 export class AgentEngine {
   private client: DeepSeekClient
+  private sessionsStarted = new Set<string>()
   private pendingApprovals = new Map<string, (approved: boolean) => void>()
   private aborters = new Map<string, AbortController>()
 
@@ -148,6 +149,11 @@ export class AgentEngine {
 
     try {
       const hooks = [...loadHooks(session.cwd), ...pluginHooks()]
+      // SessionStart fires once per session lifetime (first turn)
+      if (!this.sessionsStarted.has(session.id)) {
+        this.sessionsStarted.add(session.id)
+        await runHooks('SessionStart', { cwd: session.cwd }, hooks)
+      }
       const injected = await runHooks('UserPromptSubmit', { prompt: userText, cwd: session.cwd }, hooks)
 
       session.messages.push({

@@ -296,7 +296,8 @@ export const globTool: Tool = {
 export const grepTool: Tool = {
   name: 'grep',
   description:
-    'Search file contents with a regular expression. Returns matching lines as path:line:text. Ignores node_modules/.git/etc.',
+    'Search file contents with a regular expression. Returns matching lines as path:line:text. ' +
+    'Set context>0 to include surrounding lines around each match. Ignores node_modules/.git/etc.',
   permission: 'read',
   parameters: {
     type: 'object',
@@ -304,7 +305,8 @@ export const grepTool: Tool = {
       pattern: { type: 'string', description: 'Regular expression to search for.' },
       path: { type: 'string', description: 'Base directory (default: working dir).' },
       glob: { type: 'string', description: 'Optional file glob filter (e.g. "*.ts").' },
-      ignore_case: { type: 'boolean', description: 'Case-insensitive (default false).' }
+      ignore_case: { type: 'boolean', description: 'Case-insensitive (default false).' },
+      context: { type: 'number', description: 'Lines of context before/after each match (default 0).' }
     },
     required: ['pattern']
   },

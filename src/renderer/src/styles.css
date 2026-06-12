@@ -1137,9 +1137,12 @@ button {
 .copy-btn {
   margin-left: 8px;
   cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
   color: var(--text-faint);
   font-size: 12px;
-  opacity: 0;
+  opacity: 0.35;
   transition: opacity 0.15s;
 }
 .msg:hover .copy-btn {

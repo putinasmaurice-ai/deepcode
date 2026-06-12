@@ -172,7 +172,9 @@ export function NightShiftPanel(): JSX.Element {
 
         {state.lastReportPath && (
           <p className="sub">
-            Letzter Bericht: <code style={{ fontFamily: 'var(--mono)' }}>{state.lastReportPath}</code>
+            <button className="btn ghost sm" onClick={() => api.nightOpenReport(state.lastReportPath!)}>
+              📄 Letzten Bericht öffnen
+            </button>
             {state.lastRunAt ? ` (${new Date(state.lastRunAt).toLocaleString()})` : ''}
           </p>
         )}

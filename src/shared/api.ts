@@ -119,6 +119,7 @@ export interface DeepCodeApi {
   nightSave(s: NightShiftState): Promise<NightShiftState>
   nightStart(): Promise<NightShiftState>
   nightStop(): Promise<boolean>
+  nightOpenReport(path: string): Promise<boolean>
 
   // watcher
   watchStart(cwd: string): Promise<boolean>

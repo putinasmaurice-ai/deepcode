@@ -32,6 +32,7 @@ const api: DeepCodeApi = {
   nightSave: (s: unknown) => ipcRenderer.invoke(IPC.nightSave, s),
   nightStart: () => ipcRenderer.invoke(IPC.nightStart),
   nightStop: () => ipcRenderer.invoke(IPC.nightStop),
+  nightOpenReport: (path: string) => ipcRenderer.invoke(IPC.nightOpenReport, path),
   projectHealth: (cwd: string) => ipcRenderer.invoke(IPC.projectHealth, cwd),
   watchStart: (cwd: string) => ipcRenderer.invoke(IPC.watchStart, cwd),
   watchStop: () => ipcRenderer.invoke(IPC.watchStop),

@@ -126,6 +126,10 @@ export function registerIpc(win: BrowserWindow): void {
     requestStop()
     return true
   })
+  ipcMain.handle(IPC.nightOpenReport, (_e, path: string) => {
+    shell.openPath(path)
+    return true
+  })
   ipcMain.handle(IPC.projectHealth, (_e, cwd: string) => computeProjectHealth(cwd))
   ipcMain.handle(IPC.exportSession, (_e, id: string) => {
     const s = getSession(id)

@@ -30,6 +30,7 @@ export const IPC = {
   nightSave: 'night:save',
   nightStart: 'night:start',
   nightStop: 'night:stop',
+  nightOpenReport: 'night:openReport',
   projectHealth: 'projects:health',
   watchStart: 'watch:start',
   watchStop: 'watch:stop',

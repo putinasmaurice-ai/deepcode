@@ -89,7 +89,7 @@ export function App(): JSX.Element {
   const [queue, setQueue] = useState<{ sessionId: string; text: string; attachments?: string[] }[]>([])
   const [contentHits, setContentHits] = useState<{ sessionId: string; title: string; snippet: string }[]>([])
   const [moreOpen, setMoreOpen] = useState(() => localStorage.getItem('nav-more') === '1')
-  const [firstRunDismissed, setFirstRunDismissed] = useState(false)
+  const [firstRunDismissed, setFirstRunDismissed] = useState(() => localStorage.getItem('firstrun-dismissed') === '1')
   const editTargetRef = useRef<string | null>(null)
   const toastIdRef = useRef(0)
   // stable handle to send() for callbacks created inside the event handler
@@ -274,6 +274,13 @@ export function App(): JSX.Element {
   }, [])
 
   const [votedArena, setVotedArena] = useState<Set<string>>(new Set())
+  const markArenaVoted = useCallback((sessionId: string, pairKey: string): void => {
+    setVotedArena((s) => {
+      const next = new Set([...s, pairKey])
+      localStorage.setItem('arena-voted:' + sessionId, JSON.stringify([...next]))
+      return next
+    })
+  }, [])
   async function arena(): Promise<void> {
     if (!session || busy) return
     setBusy(true)
@@ -286,7 +293,7 @@ export function App(): JSX.Element {
   }
   async function voteArena(winner: string, loser: string, pairKey: string): Promise<void> {
     await api.arenaVote(winner, loser)
-    setVotedArena((s) => new Set([...s, pairKey]))
+    if (session) markArenaVoted(session.id, pairKey)
     addToast(`Gemerkt: ${winner} bevorzugt. Fließt in die Modell-Präferenzen ein.`)
   }
 
@@ -434,6 +441,11 @@ export function App(): JSX.Element {
     setToolState(deriveToolState(s.messages))
     setSessionUsage(computeUsage(s.messages))
     setTodos(s.todos ?? [])
+    try {
+      setVotedArena(new Set(JSON.parse(localStorage.getItem('arena-voted:' + s.id) ?? '[]')))
+    } catch {
+      setVotedArena(new Set())
+    }
     setView('chat')
     setError('')
     nearBottomRef.current = true
@@ -804,7 +816,7 @@ export function App(): JSX.Element {
                         </button>
                         <button
                           className="attach-btn"
-                          onClick={() => setVotedArena((s) => new Set([...s, pairKey]))}
+                          onClick={() => session && markArenaVoted(session.id, pairKey)}
                         >
                           Unentschieden
                         </button>
@@ -900,7 +912,10 @@ export function App(): JSX.Element {
         <FirstRunModal
           settings={settings}
           onSaved={(s) => setSettings(s)}
-          onDismiss={() => setFirstRunDismissed(true)}
+          onDismiss={() => {
+            localStorage.setItem('firstrun-dismissed', '1')
+            setFirstRunDismissed(true)
+          }}
         />
       )}
       <div className="toasts">

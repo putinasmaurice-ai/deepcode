@@ -147,6 +147,26 @@ export function SettingsPanel({
             />
           </div>
         </div>
+        <div className="row">
+          <div className="field">
+            <label>Reasoner-Preis / 1M Input ($)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={p.reasonerPricePerMillionInput ?? 0.55}
+              onChange={(e) => updateProvider({ reasonerPricePerMillionInput: Number(e.target.value) })}
+            />
+          </div>
+          <div className="field">
+            <label>Reasoner-Preis / 1M Output ($)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={p.reasonerPricePerMillionOutput ?? 2.19}
+              onChange={(e) => updateProvider({ reasonerPricePerMillionOutput: Number(e.target.value) })}
+            />
+          </div>
+        </div>
       </div>
 
       <div className="card">

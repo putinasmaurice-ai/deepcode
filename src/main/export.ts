@@ -13,6 +13,12 @@ export function exportSessionMarkdown(session: Session): string {
   lines.push(`- Erstellt: ${new Date(session.createdAt).toLocaleString()}`)
   lines.push(`- Modell: ${session.model ?? 'default'}`)
   lines.push('')
+  if (session.todos?.length) {
+    lines.push('')
+    lines.push('## Aufgaben')
+    for (const t of session.todos) lines.push(`- [${t.status === 'done' ? 'x' : ' '}] ${t.text}`)
+  }
+  lines.push('')
   lines.push('---')
 
   for (const m of session.messages) {

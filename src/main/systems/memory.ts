@@ -58,7 +58,7 @@ export function saveMemory(entry: Omit<MemoryEntry, 'path'>): MemoryEntry {
   const path = join(PATHS.memory, `${slug}.md`)
   const content = `---
 name: ${slug}
-description: ${entry.description}
+description: ${JSON.stringify(entry.description)}
 type: ${entry.type}
 ---
 

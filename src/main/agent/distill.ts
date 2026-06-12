@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { Session } from '@shared/types'
 import { EngineDeps } from './deps'
@@ -47,13 +47,18 @@ export async function distillSkill(
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 50)
-  const dir = join(PATHS.skills, slug)
+  // avoid silently overwriting an existing skill of the same name
+  let finalSlug = slug
+  for (let n = 2; existsSync(join(PATHS.skills, finalSlug, 'SKILL.md')) && n < 20; n++) {
+    finalSlug = slug + '-' + n
+  }
+  const dir = join(PATHS.skills, finalSlug)
   mkdirSync(dir, { recursive: true })
   const file = join(dir, 'SKILL.md')
   writeFileSync(
     file,
-    `---\nname: ${slug}\ndescription: ${(descMatch?.[1] ?? '').trim()}\n---\n\n${bodyMatch[1].trim()}\n`,
+    `---\nname: ${finalSlug}\ndescription: ${JSON.stringify((descMatch?.[1] ?? '').trim())}\n---\n\n${bodyMatch[1].trim()}\n`,
     'utf8'
   )
-  return { name: slug, path: file }
+  return { name: finalSlug, path: file }
 }

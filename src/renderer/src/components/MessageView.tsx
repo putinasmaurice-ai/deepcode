@@ -103,15 +103,7 @@ function MessageViewImpl({
         ) : (
           'DeepCode'
         )}
-        {message.content && (
-          <span
-            className="copy-btn"
-            title="Antwort kopieren"
-            onClick={() => navigator.clipboard.writeText(message.content)}
-          >
-            ⧉
-          </span>
-        )}
+        {message.content && <CopyButton text={message.content} label="Antwort kopieren" />}
       </div>
       {message.reasoning && <Reasoning text={message.reasoning} />}
       {message.content && (
@@ -168,6 +160,24 @@ export const MessageView = memo(MessageViewImpl, (prev, next) => {
   }
   return true
 })
+
+function CopyButton({ text, label }: { text: string; label: string }): JSX.Element {
+  const [done, setDone] = useState(false)
+  return (
+    <button
+      className="copy-btn"
+      title={label}
+      aria-label={label}
+      onClick={() => {
+        navigator.clipboard.writeText(text)
+        setDone(true)
+        setTimeout(() => setDone(false), 1200)
+      }}
+    >
+      {done ? '✓' : '⧉'}
+    </button>
+  )
+}
 
 function Reasoning({ text }: { text: string }): JSX.Element {
   const [open, setOpen] = useState(false)
