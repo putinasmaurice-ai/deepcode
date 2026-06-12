@@ -740,7 +740,9 @@ export class AgentEngine {
       let out = ''
       const child = spawn(shell, args, { cwd, windowsHide: true })
       const timer = setTimeout(() => child.kill('SIGKILL'), 180_000)
-      const onAbort = (): void => child.kill('SIGKILL')
+      const onAbort = (): void => {
+        child.kill('SIGKILL')
+      }
       signal.addEventListener('abort', onAbort, { once: true })
       const append = (c: Buffer): void => {
         out += c.toString('utf8')
