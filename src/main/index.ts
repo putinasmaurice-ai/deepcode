@@ -56,6 +56,7 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     title: 'DeepCode',
+    icon: join(__dirname, '../../resources/icon.png'),
     backgroundColor: '#0a0f1a',
     autoHideMenuBar: true,
     webPreferences: {

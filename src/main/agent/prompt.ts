@@ -105,11 +105,28 @@ You are in plan mode: write/shell tools are disabled. Investigate the codebase w
   }
 
   if (parts.skills.length) {
-    const list = parts.skills.map((s) => `- ${s.name}: ${s.description}`).join('\n')
+    // Token diet: long skill descriptions would dominate the prompt (some
+    // imported ones are 800+ chars). Truncate hard, prefer user/project skills
+    // with a one-liner, and list overflow plugin skills as names only.
+    const MAX_DESC = 90
+    const MAX_DESCRIBED = 40
+    const trunc = (s: string): string => {
+      const clean = s.replace(/\s+/g, ' ').trim()
+      return clean.length > MAX_DESC ? clean.slice(0, MAX_DESC - 1) + '…' : clean
+    }
+    const ordered = [...parts.skills].sort(
+      (a, b) => Number(a.source === 'plugin') - Number(b.source === 'plugin')
+    )
+    const described = ordered.slice(0, MAX_DESCRIBED)
+    const rest = ordered.slice(MAX_DESCRIBED)
+    const lines = described.map((s) => `- ${s.name}: ${trunc(s.description)}`)
+    if (rest.length) {
+      lines.push(`- (more, by name): ${rest.map((s) => s.name).join(', ')}`)
+    }
     sections.push(
       `# Available skills
-When one of these matches the task, call the use_skill tool with its name to load detailed instructions BEFORE doing the work:
-${list}`
+When one matches the task, call use_skill with its name to load full instructions BEFORE doing the work:
+${lines.join('\n')}`
     )
   }
 

@@ -10,8 +10,9 @@ export function makeSkillTool(skills: SkillDef[]): Tool {
     name: 'use_skill',
     description:
       'Load the full instructions for an installed skill by name. Call this when a skill from the ' +
-      'available list matches the task, BEFORE doing the work, then follow the returned instructions. ' +
-      (names.length ? `Available skills: ${names.join(', ')}.` : 'No skills are installed yet.'),
+      '"Available skills" list in your system prompt matches the task, BEFORE doing the work, then ' +
+      'follow the returned instructions.' +
+      (names.length ? '' : ' (No skills are installed yet.)'),
     permission: 'none',
     parameters: {
       type: 'object',
