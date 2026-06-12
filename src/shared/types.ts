@@ -50,6 +50,9 @@ export interface ProjectDef {
   trustLevel?: 'interactive' | 'trusted' | 'restricted'
   // append a CHANGELOG-DEEPCODE.md entry after every turn that changed files
   autoChangelog?: boolean
+  // quality gate: command run after every turn that changed files (e.g. "npm test");
+  // on failure the output is fed back and the agent fixes it automatically
+  verifyCommand?: string
   createdAt: number
   updatedAt: number
 }
@@ -159,6 +162,8 @@ export interface AppSettings {
   theme: 'dark' | 'light'
   // notify when project files change outside the agent (editor saves, git)
   watcherEnabled: boolean
+  // after a turn that changed files, run one extra self-review pass (≈2x tokens)
+  selfReview: boolean
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -167,7 +172,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     baseUrl: 'https://api.deepseek.com',
     model: 'deepseek-chat',
     reasonerModel: 'deepseek-reasoner',
-    temperature: 0.2,
+    temperature: 0.1, // DeepSeek empfiehlt für Coding niedrige Temperatur
     maxTokens: 8192,
     pricePerMillionInput: 0.27,
     pricePerMillionOutput: 1.1,
@@ -184,7 +189,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   compactThreshold: 0,
   monthlyBudget: 0,
   theme: 'dark',
-  watcherEnabled: false
+  watcherEnabled: false,
+  selfReview: false
 }
 
 // ---- Tool plumbing ----

@@ -143,6 +143,14 @@ export function ProjectsPanel({
                   placeholder="Konventionen, Stack, Do's & Don'ts für dieses Projekt…"
                 />
               </div>
+              <div className="field">
+                <label>Verify-Befehl (Qualitäts-Gate — läuft nach jeder Änderung, Fehler werden automatisch gefixt)</label>
+                <input
+                  value={editing.verifyCommand ?? ''}
+                  onChange={(e) => setEditing({ ...editing, verifyCommand: e.target.value || undefined })}
+                  placeholder="z.B. npm test  ·  npm run typecheck  ·  pytest"
+                />
+              </div>
               <div className="row">
                 <div className="field">
                   <label>Trust-Level (Freigaben in diesem Projekt)</label>

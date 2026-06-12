@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { spawn } from 'child_process'
 import {
   AgentEvent,
   AppSettings,
@@ -239,6 +240,12 @@ export class AgentEngine {
       // error memory: remember "failed command → working follow-up" pairs
       let lastFailedCmd: { program: string; errorHead: string } | null = null
 
+      // quality loop: after the agent finishes, optionally self-review and/or
+      // run the project's verify command — failures feed back automatically.
+      let reviewDone = false
+      let verifyAttempts = 0
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
       for (let step = 0; step < MAX_STEPS; step++) {
         if (signal.aborted) break
 
@@ -389,6 +396,53 @@ export class AgentEngine {
           session.messages.push(resultMsg)
           saveSession(session)
         }
+      }
+
+      // ---- quality gates ----
+      if (signal.aborted) break
+      const changedSoFar = getTurnFiles(session.id, turnTag)
+      if (!changedSoFar.length || policy === 'plan') break
+
+      // (1) one self-review pass over the own changes (opt-in, ≈1 extra round)
+      if (this.settings.selfReview && !reviewDone) {
+        reviewDone = true
+        emit({ type: 'status', message: '🔍 Selbst-Review der Änderungen…' })
+        session.messages.push({
+          id: randomUUID(),
+          role: 'user',
+          content:
+            'Selbst-Review: Prüfe die Dateien, die du in dieser Aufgabe geändert hast, kritisch auf Bugs, ' +
+            'vergessene Anpassungen an Aufrufstellen, Importfehler und Verstöße gegen die Projektkonventionen. ' +
+            'Behebe gefundene Probleme direkt. Wenn alles korrekt ist, antworte nur: "Review ok."',
+          createdAt: Date.now()
+        })
+        saveSession(session)
+        continue
+      }
+
+      // (2) project verify command (e.g. npm test) with auto-fix feedback
+      if (project?.verifyCommand && verifyAttempts < 2) {
+        emit({ type: 'status', message: `⚙ Verify: ${project.verifyCommand}` })
+        const v = await this.runVerify(project.verifyCommand, session.cwd, signal)
+        if (v.ok) {
+          emit({ type: 'status', message: '✅ Verify bestanden.' })
+          break
+        }
+        verifyAttempts++
+        emit({
+          type: 'status',
+          message: `❌ Verify fehlgeschlagen — automatischer Fix (Versuch ${verifyAttempts}/2)…`
+        })
+        session.messages.push({
+          id: randomUUID(),
+          role: 'user',
+          content: `Der Verify-Befehl \`${project.verifyCommand}\` ist nach deinen Änderungen fehlgeschlagen:\n\n\`\`\`\n${v.output.slice(-5000)}\n\`\`\`\n\nAnalysiere die Ursache und behebe sie.`,
+          createdAt: Date.now()
+        })
+        saveSession(session)
+        continue
+      }
+      break
       }
 
       // auto-changelog (opt-in per project): record what this turn changed
@@ -671,6 +725,39 @@ export class AgentEngine {
       'utf8'
     )
     return { name: slug, path: file }
+  }
+
+  // Run the project's verify command (quality gate). 3-minute cap, output tail.
+  private runVerify(
+    command: string,
+    cwd: string,
+    signal: AbortSignal
+  ): Promise<{ ok: boolean; output: string }> {
+    const isWin = process.platform === 'win32'
+    const shell = isWin ? 'powershell.exe' : '/bin/bash'
+    const args = isWin ? ['-NoProfile', '-NonInteractive', '-Command', command] : ['-lc', command]
+    return new Promise((resolve) => {
+      let out = ''
+      const child = spawn(shell, args, { cwd, windowsHide: true })
+      const timer = setTimeout(() => child.kill('SIGKILL'), 180_000)
+      const onAbort = (): void => child.kill('SIGKILL')
+      signal.addEventListener('abort', onAbort, { once: true })
+      const append = (c: Buffer): void => {
+        out += c.toString('utf8')
+        if (out.length > 60_000) out = out.slice(-60_000)
+      }
+      child.stdout?.on('data', append)
+      child.stderr?.on('data', append)
+      child.on('error', (e) => {
+        clearTimeout(timer)
+        resolve({ ok: false, output: `Verify konnte nicht starten: ${e.message}` })
+      })
+      child.on('close', (code) => {
+        clearTimeout(timer)
+        signal.removeEventListener('abort', onAbort)
+        resolve({ ok: code === 0, output: out.trim() || `(exit ${code})` })
+      })
+    })
   }
 
   private toolResultMessage(callId: string, name: string, res: ToolResult): ChatMessage {
