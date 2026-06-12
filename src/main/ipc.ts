@@ -283,7 +283,8 @@ export function registerIpc(win: BrowserWindow): void {
       const original = session.messages[idx].content
       session.messages = session.messages.slice(0, idx)
       saveSession(session)
-      emit({ type: 'session', session })
+      // No 'session' event here: the renderer truncates its transcript locally,
+      // keeping its optimistic user message visible during the rerun.
       await engine.runTurn(session, newText ?? original, emit, mode)
       return true
     }

@@ -342,6 +342,15 @@ export function App(): JSX.Element {
   async function send(text: string, attachments?: string[]): Promise<void> {
     if (!session || busy) return
     setError('')
+    // edit-and-resend: drop the edited message and everything after it locally
+    // (the main process truncates its copy too)
+    if (editTargetRef.current) {
+      const editId = editTargetRef.current
+      setMessages((m) => {
+        const i = m.findIndex((x) => x.id === editId)
+        return i >= 0 ? m.slice(0, i) : m
+      })
+    }
     const note =
       attachments && attachments.length
         ? `\n\n📎 ${attachments.length} ${attachments.length === 1 ? 'Anhang' : 'Anhänge'}: ${attachments
@@ -382,6 +391,11 @@ export function App(): JSX.Element {
     if (!session || busy) return
     const lastUser = [...messages].reverse().find((m) => m.role === 'user' && !m.id.startsWith('local-'))
     if (!lastUser) return
+    // drop the old answer locally; keep the user message visible
+    setMessages((m) => {
+      const i = m.findIndex((x) => x.id === lastUser.id)
+      return i >= 0 ? m.slice(0, i + 1) : m
+    })
     setBusy(true)
     try {
       await api.resendMessage(session.id, lastUser.id, undefined, mode)

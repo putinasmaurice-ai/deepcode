@@ -39,14 +39,20 @@ Everything is file-based and editable — use **Open config folder** in any pane
 
 The agent runs a streaming tool-calling loop with these built-in tools:
 
-- `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep` — full file access
-- `run_command` — shell (PowerShell on Windows) for builds, tests, git, package managers
-- `task` — delegate to a subagent
-- `use_skill` — load a skill's detailed instructions
+- `read_file`, `write_file`, `edit_file`, `apply_patch` (atomic multi-file), `list_dir`, `glob`, `grep`
+- `run_command` — shell (PowerShell on Windows); `run_background_command`/`job_status`/`kill_job` for long-running jobs
+- `web_fetch` — read documentation/APIs from the internet
+- `task` — delegate to a subagent · `use_skill` — load skill instructions · `todo_write` — visible task list
 - any tools exposed by connected MCP connectors
 
-Tool calls are gated by per-category permissions (read / file-change / shell) that you can
-auto-approve or approve inline per call.
+Modes: **Interaktiv** (asks before changes), **Plan** (read-only, proposes a plan), **Auto** (approves everything).
+File changes are checkpointed — `/rewind` undoes the last turn. Dangerous commands always require approval.
+
+Built-in slash commands: `/help /init /goal /cost /model /compact /rewind /jobs` + file-based custom commands.
+
+More: Projects (instructions + goal + trust level), cost dashboard (per chat/project/total),
+@-file mentions, drag&drop attachments, edit-and-resend, regenerate, syntax highlighting,
+session export, desktop notifications, Ctrl+N/Ctrl+K/Esc shortcuts.
 
 ## Architecture
 

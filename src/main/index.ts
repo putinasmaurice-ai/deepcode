@@ -87,6 +87,8 @@ function createWindow(): void {
 app
   .whenReady()
   .then(() => {
+    // required for HTML5 Notification toasts on Windows
+    app.setAppUserModelId('com.maurice.deepcode')
     ensureConfigDirs()
     seedStarterContent()
     createWindow()
