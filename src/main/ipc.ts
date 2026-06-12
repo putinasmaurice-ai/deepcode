@@ -38,6 +38,9 @@ import type { ApprovalPolicy } from './agent/engine'
 import { loadProjects, getProject, upsertProject, deleteProject as removeProject } from './projects'
 import { computeUsageSummary, usageSummaryText } from './usage'
 import { listAudit, searchSessions } from './history'
+import { getNightShift, saveNightShift, runNightShift, requestStop } from './nightshift'
+import { computeProjectHealth } from './health'
+import { NightShiftState } from '@shared/types'
 import { exportSessionMarkdown } from './export'
 import { ProjectDef } from '@shared/types'
 import {
@@ -107,6 +110,22 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.usageSummary, () => computeUsageSummary())
   ipcMain.handle(IPC.listAudit, () => listAudit())
   ipcMain.handle(IPC.searchSessions, (_e, q: string) => searchSessions(q))
+
+  // ---- night shift + project health ----
+  ipcMain.handle(IPC.nightGet, () => getNightShift())
+  ipcMain.handle(IPC.nightSave, (_e, state: NightShiftState) => saveNightShift(state))
+  ipcMain.handle(IPC.nightStart, () => {
+    // fire and forget — progress arrives via agent events; renderer polls state
+    runNightShift(engine, emit).catch((err) =>
+      emit({ type: 'error', message: `Nachtschicht: ${(err as Error).message}` })
+    )
+    return getNightShift()
+  })
+  ipcMain.handle(IPC.nightStop, () => {
+    requestStop()
+    return true
+  })
+  ipcMain.handle(IPC.projectHealth, (_e, cwd: string) => computeProjectHealth(cwd))
   ipcMain.handle(IPC.exportSession, (_e, id: string) => {
     const s = getSession(id)
     if (!s) throw new Error('Session not found')

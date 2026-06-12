@@ -26,6 +26,13 @@ const api = {
   listAudit: () => ipcRenderer.invoke(IPC.listAudit),
   searchSessions: (q: string) => ipcRenderer.invoke(IPC.searchSessions, q),
 
+  // night shift + project health
+  nightGet: () => ipcRenderer.invoke(IPC.nightGet),
+  nightSave: (s: unknown) => ipcRenderer.invoke(IPC.nightSave, s),
+  nightStart: () => ipcRenderer.invoke(IPC.nightStart),
+  nightStop: () => ipcRenderer.invoke(IPC.nightStop),
+  projectHealth: (cwd: string) => ipcRenderer.invoke(IPC.projectHealth, cwd),
+
   // agent
   sendMessage: (sessionId: string, text: string, attachments?: string[], mode?: string) =>
     ipcRenderer.invoke(IPC.sendMessage, sessionId, text, attachments, mode),

@@ -104,6 +104,22 @@ export function recordArenaVote(winner: string, loser: string): void {
   })
 }
 
+// Error memory: when a command fails and a follow-up succeeds, remember the
+// pair so the agent proposes the known fix next time (injected via MEMORY.md).
+export function recordErrorSolution(errorHead: string, solution: string): void {
+  const existing = loadMemory().find((m) => m.name === 'error-solutions')
+  const lines = existing ? existing.body.split('\n').filter(Boolean) : []
+  const entry = `- Fehler: ${errorHead.slice(0, 140)} → Lösung: ${solution.slice(0, 160)}`
+  if (lines.includes(entry)) return
+  lines.unshift(entry)
+  saveMemory({
+    name: 'error-solutions',
+    description: `Bekannte Fehler→Lösung-Paare aus früheren Sessions (${Math.min(lines.length, 30)} Einträge)`,
+    type: 'reference',
+    body: lines.slice(0, 30).join('\n')
+  })
+}
+
 function rebuildIndex(): void {
   const entries = loadMemory()
   const lines = entries.map((e) => `- [${e.name}](${e.name}.md) — ${e.description}`)

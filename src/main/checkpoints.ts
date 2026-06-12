@@ -53,6 +53,11 @@ export function recordSnapshot(sessionId: string, turnTag: string, absPath: stri
   }
 }
 
+// Which files were touched in a given turn (for changelog generation).
+export function getTurnFiles(sessionId: string, turnTag: string): string[] {
+  return load(sessionId, turnTag).map((s) => s.path)
+}
+
 export function listTurnTags(sessionId: string): string[] {
   const d = dir(sessionId)
   if (!existsSync(d)) return []

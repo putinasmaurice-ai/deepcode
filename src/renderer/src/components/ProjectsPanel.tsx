@@ -1,7 +1,35 @@
 import { useEffect, useState } from 'react'
-import type { ProjectDef } from '../../../shared/types'
+import type { ProjectDef, ProjectHealth } from '../../../shared/types'
 
 const api = window.deepcode
+
+function HealthView({ h }: { h: ProjectHealth }): JSX.Element {
+  return (
+    <div className="health">
+      <span className="badge">{h.files} Dateien</span>
+      <span className="badge">{h.lines.toLocaleString()} Zeilen</span>
+      <span className="badge" style={{ color: h.oversized.length ? 'var(--yellow)' : 'var(--green)' }}>
+        {h.oversized.length} Datei(en) &gt;250 Zeilen
+      </span>
+      <span className="badge" style={{ color: h.todos > 20 ? 'var(--yellow)' : undefined }}>
+        {h.todos} TODOs
+      </span>
+      <span className="badge" style={{ color: h.hasTests ? 'var(--green)' : 'var(--red)' }}>
+        Tests: {h.hasTests ? 'ja' : 'fehlen'}
+      </span>
+      {h.gitBranch && (
+        <span className="badge">
+          ⎇ {h.gitBranch} · {h.gitDirty}Δ{h.lastCommitAge ? ` · ${h.lastCommitAge}` : ''}
+        </span>
+      )}
+      {h.oversized.length > 0 && (
+        <div className="meta" style={{ marginTop: 6, width: '100%' }}>
+          Größte: {h.oversized.slice(0, 3).map((o) => `${o.path} (${o.lines})`).join(' · ')}
+        </div>
+      )}
+    </div>
+  )
+}
 
 const COLORS = ['#5b9dff', '#7c5cff', '#3fb950', '#d29922', '#f85149', '#39c5cf']
 
@@ -14,6 +42,13 @@ export function ProjectsPanel({
   const [name, setName] = useState('')
   const [cwd, setCwd] = useState('')
   const [editing, setEditing] = useState<ProjectDef | null>(null)
+  const [health, setHealth] = useState<Record<string, ProjectHealth | 'loading'>>({})
+
+  async function checkHealth(p: ProjectDef): Promise<void> {
+    setHealth((h) => ({ ...h, [p.id]: 'loading' }))
+    const result = (await api.projectHealth(p.cwd)) as ProjectHealth
+    setHealth((h) => ({ ...h, [p.id]: result }))
+  }
 
   async function load(): Promise<void> {
     setItems(await api.listProjects())
@@ -108,6 +143,31 @@ export function ProjectsPanel({
                   placeholder="Konventionen, Stack, Do's & Don'ts für dieses Projekt…"
                 />
               </div>
+              <div className="row">
+                <div className="field">
+                  <label>Trust-Level (Freigaben in diesem Projekt)</label>
+                  <select
+                    value={editing.trustLevel ?? 'interactive'}
+                    onChange={(e) =>
+                      setEditing({ ...editing, trustLevel: e.target.value as ProjectDef['trustLevel'] })
+                    }
+                  >
+                    <option value="interactive">Interaktiv — fragt bei Änderungen</option>
+                    <option value="trusted">Vertraut — alles automatisch erlauben</option>
+                    <option value="restricted">Eingeschränkt — nur lesen</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Auto-Changelog</label>
+                  <select
+                    value={editing.autoChangelog ? 'on' : 'off'}
+                    onChange={(e) => setEditing({ ...editing, autoChangelog: e.target.value === 'on' })}
+                  >
+                    <option value="off">Aus</option>
+                    <option value="on">An — CHANGELOG-DEEPCODE.md pflegen</option>
+                  </select>
+                </div>
+              </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button className="btn" onClick={saveEdit}>
                   Speichern
@@ -128,6 +188,9 @@ export function ProjectsPanel({
                   <button className="btn sm" onClick={() => onOpenProject(p.id)}>
                     Öffnen
                   </button>
+                  <button className="btn ghost sm" onClick={() => checkHealth(p)}>
+                    🩺 Health
+                  </button>
                   <button className="btn ghost sm" onClick={() => setEditing(p)}>
                     Bearbeiten
                   </button>
@@ -144,6 +207,8 @@ export function ProjectsPanel({
               </div>
               <p className="meta">{p.cwd}</p>
               {p.goal && <p>🎯 {p.goal}</p>}
+              {health[p.id] === 'loading' && <p className="meta">Prüfe…</p>}
+              {health[p.id] && health[p.id] !== 'loading' && <HealthView h={health[p.id] as ProjectHealth} />}
             </div>
           )
         )}

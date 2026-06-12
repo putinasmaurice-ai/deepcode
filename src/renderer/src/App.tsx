@@ -15,6 +15,7 @@ import { MessageView } from './components/MessageView'
 import { ProjectsPanel } from './components/ProjectsPanel'
 import { UsagePanel } from './components/UsagePanel'
 import { AuditPanel } from './components/AuditPanel'
+import { NightShiftPanel } from './components/NightShiftPanel'
 import {
   SettingsPanel,
   SkillsPanel,
@@ -33,6 +34,7 @@ export type View =
   | 'chat'
   | 'projects'
   | 'usage'
+  | 'night'
   | 'audit'
   | 'settings'
   | 'skills'
@@ -55,6 +57,7 @@ const NAV: { view: View; icon: string; label: string }[] = [
   { view: 'chat', icon: '💬', label: 'Chat' },
   { view: 'projects', icon: '📂', label: 'Projekte' },
   { view: 'usage', icon: '💰', label: 'Kosten' },
+  { view: 'night', icon: '🌙', label: 'Nachtschicht' },
   { view: 'skills', icon: '📘', label: 'Skills' },
   { view: 'commands', icon: '/', label: 'Slash Commands' },
   { view: 'subagents', icon: '🤖', label: 'Subagents' },
@@ -907,6 +910,8 @@ export function App(): JSX.Element {
           />
         ) : view === 'usage' ? (
           <UsagePanel />
+        ) : view === 'night' ? (
+          <NightShiftPanel />
         ) : view === 'audit' ? (
           <AuditPanel />
         ) : (

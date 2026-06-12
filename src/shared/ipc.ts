@@ -25,6 +25,13 @@ export const IPC = {
   listAudit: 'audit:list',
   searchSessions: 'sessions:search',
 
+  // night shift + project health
+  nightGet: 'night:get',
+  nightSave: 'night:save',
+  nightStart: 'night:start',
+  nightStop: 'night:stop',
+  projectHealth: 'projects:health',
+
   // agent turn
   sendMessage: 'agent:send',
   cancelTurn: 'agent:cancel',

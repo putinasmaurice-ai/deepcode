@@ -1250,6 +1250,41 @@ button {
   border-color: var(--accent);
 }
 
+/* night shift */
+.night-task {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.night-task .meta {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-family: var(--mono);
+}
+.night-status {
+  flex: 0 0 22px;
+  text-align: center;
+}
+
+/* project health badges */
+.health {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.health .badge {
+  margin-left: 0;
+}
+.health .meta {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-family: var(--mono);
+}
+
 /* arena vote bar */
 .vote-bar {
   display: flex;

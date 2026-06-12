@@ -18,7 +18,10 @@ import { loadHooks, runHooks } from '../systems/hooks'
 import { mcpManager } from '../systems/mcp'
 import { saveSession } from '../store'
 import { getProject } from '../projects'
-import { recordSnapshot } from '../checkpoints'
+import { recordSnapshot, getTurnFiles } from '../checkpoints'
+import { recordErrorSolution } from '../systems/memory'
+import { appendFileSync } from 'fs'
+import { join, relative } from 'path'
 
 type Emit = (e: AgentEvent) => void
 // 'interactive' = ask the user; 'safe' = deny anything not pre-approved (headless);
@@ -233,6 +236,9 @@ export class AgentEngine {
         spawnSubagent: (agent, prompt) => this.runSubagent(agent, prompt, session.cwd, emit, signal)
       }
 
+      // error memory: remember "failed command → working follow-up" pairs
+      let lastFailedCmd: { program: string; errorHead: string } | null = null
+
       for (let step = 0; step < MAX_STEPS; step++) {
         if (signal.aborted) break
 
@@ -356,12 +362,49 @@ export class AgentEngine {
             // PostToolUse hooks
             await runHooks('PostToolUse', { toolName: call.name, toolArgs: parsedArgs, cwd: session.cwd }, hooks)
 
+            // error memory: failed command followed by a working variant of the
+            // same program → remember the fix for future sessions
+            if (call.name === 'run_command' && typeof parsedArgs.command === 'string') {
+              const program = parsedArgs.command.trim().split(/\s+/)[0] ?? ''
+              if (!res.ok) {
+                const errorHead =
+                  res.content.split('\n').find((l) => /error|fehler|exception|fatal/i.test(l)) ??
+                  res.content.split('\n')[0] ??
+                  ''
+                lastFailedCmd = { program, errorHead: errorHead.trim() }
+              } else if (lastFailedCmd && lastFailedCmd.program === program && lastFailedCmd.errorHead) {
+                try {
+                  recordErrorSolution(lastFailedCmd.errorHead, parsedArgs.command.trim())
+                } catch {
+                  /* memory write must never break the loop */
+                }
+                lastFailedCmd = null
+              }
+            }
+
             resultMsg = this.toolResultMessage(call.id, call.name, res)
             emit({ type: 'tool_result', callId: call.id, name: call.name, result: res })
           }
 
           session.messages.push(resultMsg)
           saveSession(session)
+        }
+      }
+
+      // auto-changelog (opt-in per project): record what this turn changed
+      if (project?.autoChangelog) {
+        try {
+          const changed = getTurnFiles(session.id, turnTag)
+          if (changed.length) {
+            const rels = changed.map((p) => relative(session.cwd, p) || p)
+            const entry =
+              `\n## ${new Date().toLocaleString()} — ${userText.replace(/\s+/g, ' ').slice(0, 90)}\n` +
+              rels.map((r) => `- ${r}`).join('\n') +
+              '\n'
+            appendFileSync(join(session.cwd, 'CHANGELOG-DEEPCODE.md'), entry, 'utf8')
+          }
+        } catch {
+          /* changelog must never break the turn */
         }
       }
 

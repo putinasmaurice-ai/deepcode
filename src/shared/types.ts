@@ -48,8 +48,41 @@ export interface ProjectDef {
   color?: string // accent dot in the sidebar
   // trusted = auto-approve everything in this project; restricted = read-only unattended
   trustLevel?: 'interactive' | 'trusted' | 'restricted'
+  // append a CHANGELOG-DEEPCODE.md entry after every turn that changed files
+  autoChangelog?: boolean
   createdAt: number
   updatedAt: number
+}
+
+export interface NightTask {
+  id: string
+  prompt: string
+  cwd: string
+  projectId?: string
+  status: 'pending' | 'running' | 'done' | 'failed'
+  summary?: string
+  tokens?: number
+  cost?: number
+}
+
+export interface NightShiftState {
+  tasks: NightTask[]
+  running: boolean
+  autonomy: 'safe' | 'full'
+  lastReportPath?: string
+  lastRunAt?: number
+}
+
+export interface ProjectHealth {
+  cwd: string
+  files: number
+  lines: number
+  oversized: { path: string; lines: number }[] // files over 250 lines
+  todos: number
+  hasTests: boolean
+  gitBranch: string | null
+  gitDirty: number
+  lastCommitAge: string | null
 }
 
 export interface TodoItem {
