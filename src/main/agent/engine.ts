@@ -211,7 +211,8 @@ export class AgentEngine {
           emit,
           signal,
           () => (reviewDone ? null : ((reviewDone = true), 'review')),
-          () => (verifyAttempts < 2 ? ((verifyAttempts += 1), true) : false)
+          // returns the attempt number (1-based) or null when exhausted
+          () => (verifyAttempts < 2 ? ++verifyAttempts : null)
         )
         if (!feedback) break
         session.messages.push({ id: randomUUID(), role: 'user', content: feedback, createdAt: Date.now() })
@@ -292,8 +293,8 @@ export class AgentEngine {
         const res = await this.executeToolCall(call, tools, ctx, policy, emit, hooks, session.cwd, (s) => {
           lastFailedCmd = s(lastFailedCmd)
         })
-        session.messages.push(toolResultMessage(call.id, call.name, res))
         emit({ type: 'tool_result', callId: call.id, name: call.name, result: res })
+        session.messages.push(toolResultMessage(call.id, call.name, res))
       }
       // one write per round instead of per tool result (sessions get big)
       saveSession(session)
@@ -368,7 +369,7 @@ export class AgentEngine {
     emit: Emit,
     signal: AbortSignal,
     takeReview: () => 'review' | null,
-    takeVerifyAttempt: () => boolean
+    takeVerifyAttempt: () => number | null
   ): Promise<string | null> {
     const changed = getTurnFiles(session.id, turnTag)
     if (!changed.length || policy === 'plan') return null
@@ -389,8 +390,19 @@ export class AgentEngine {
         emit({ type: 'status', message: '✅ Verify bestanden.' })
         return null
       }
-      if (!takeVerifyAttempt()) return null
-      emit({ type: 'status', message: `❌ Verify fehlgeschlagen — automatischer Fix…` })
+      const attempt = takeVerifyAttempt()
+      if (attempt === null) {
+        // final check after the last fix still fails — tell the user honestly
+        emit({
+          type: 'status',
+          message: '❌ Verify weiterhin fehlgeschlagen (2 Fix-Versuche aufgebraucht) — bitte manuell prüfen.'
+        })
+        return null
+      }
+      emit({
+        type: 'status',
+        message: `❌ Verify fehlgeschlagen — automatischer Fix (Versuch ${attempt}/2)…`
+      })
       return `Der Verify-Befehl \`${project.verifyCommand}\` ist nach deinen Änderungen fehlgeschlagen:\n\n\`\`\`\n${v.output.slice(-5000)}\n\`\`\`\n\nAnalysiere die Ursache und behebe sie.`
     }
     return null
