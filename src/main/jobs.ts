@@ -1,4 +1,4 @@
-import { spawn, ChildProcess } from 'child_process'
+import { spawn, spawnSync, ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
 import { platform } from 'os'
 import { auditLog } from './audit'
@@ -68,6 +68,8 @@ export function startJob(command: string, cwd: string): JobInfo {
     if (job.status === 'running') job.status = code === 0 ? 'done' : 'failed'
     job.exitCode = code
     job.endedAt = Date.now()
+    // finished jobs only need their tail — release the big buffer
+    if (job.output.length > 20_000) job.output = job.output.slice(-20_000)
   })
 
   jobs.set(job.id, job)
@@ -112,8 +114,12 @@ export function killJob(id: string): boolean {
   j.endedAt = Date.now()
   try {
     if (isWin && j.child.pid) {
-      // kill the whole tree on Windows (PowerShell spawns children)
-      spawn('taskkill', ['/PID', String(j.child.pid), '/T', '/F'], { windowsHide: true })
+      // kill the whole tree on Windows (PowerShell spawns children). Synchronous
+      // so it also completes reliably during app shutdown.
+      spawnSync('taskkill', ['/PID', String(j.child.pid), '/T', '/F'], {
+        windowsHide: true,
+        timeout: 3000
+      })
     } else {
       j.child.kill('SIGKILL')
     }
@@ -123,6 +129,8 @@ export function killJob(id: string): boolean {
   return true
 }
 
+// Synchronous on purpose: called from Electron's before-quit, which does not
+// wait for async work.
 export function shutdownJobs(): void {
   for (const j of jobs.values()) {
     if (j.status === 'running') killJob(j.id)

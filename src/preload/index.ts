@@ -27,8 +27,13 @@ const api = {
   // agent
   sendMessage: (sessionId: string, text: string, attachments?: string[], mode?: string) =>
     ipcRenderer.invoke(IPC.sendMessage, sessionId, text, attachments, mode),
-  resendMessage: (sessionId: string, messageId: string, newText?: string, mode?: string) =>
-    ipcRenderer.invoke(IPC.resendMessage, sessionId, messageId, newText, mode),
+  resendMessage: (
+    sessionId: string,
+    messageId: string,
+    newText?: string,
+    mode?: string,
+    attachments?: string[]
+  ) => ipcRenderer.invoke(IPC.resendMessage, sessionId, messageId, newText, mode, attachments),
   listFiles: (cwd: string) => ipcRenderer.invoke(IPC.listFiles, cwd),
   cancelTurn: (sessionId: string) => ipcRenderer.invoke(IPC.cancelTurn, sessionId),
   approveTool: (callId: string, approved: boolean) =>

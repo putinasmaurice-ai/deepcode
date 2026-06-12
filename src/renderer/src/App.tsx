@@ -372,7 +372,7 @@ export function App(): JSX.Element {
       const editId = editTargetRef.current
       editTargetRef.current = null
       if (editId) {
-        await api.resendMessage(session.id, editId, text, mode)
+        await api.resendMessage(session.id, editId, text, mode, attachments)
       } else {
         await api.sendMessage(session.id, text, attachments, mode)
       }

@@ -6,6 +6,7 @@ import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { ensureConfigDirs, PATHS } from './paths'
 import { seedStarterContent } from './seed'
 import { registerIpc, bootstrapMcp } from './ipc'
+import { shutdownJobs } from './jobs'
 
 // Window bounds persistence (~/.deepcode/window.json)
 interface WinState {
@@ -114,5 +115,10 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   // stop any still-running background jobs so we don't orphan processes
-  import('./jobs').then((m) => m.shutdownJobs()).catch(() => {})
+  // (synchronous — before-quit does not wait for promises)
+  try {
+    shutdownJobs()
+  } catch {
+    /* ignore */
+  }
 })

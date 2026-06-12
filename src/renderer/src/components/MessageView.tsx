@@ -123,6 +123,7 @@ function MessageViewImpl({
 
 // Re-render only when this message or one of its own tool results changes.
 export const MessageView = memo(MessageViewImpl, (prev, next) => {
+  if (prev.onApprove !== next.onApprove || prev.onEdit !== next.onEdit) return false
   const a = prev.message
   const b = next.message
   if (

@@ -275,7 +275,14 @@ export function registerIpc(win: BrowserWindow): void {
   // (optionally with edited text). Powers "Regenerate".
   ipcMain.handle(
     IPC.resendMessage,
-    async (_e, sessionId: string, messageId: string, newText?: string, mode?: ApprovalPolicy) => {
+    async (
+      _e,
+      sessionId: string,
+      messageId: string,
+      newText?: string,
+      mode?: ApprovalPolicy,
+      attachments?: string[]
+    ) => {
       const session = getSession(sessionId)
       if (!session) throw new Error('Session not found')
       const idx = session.messages.findIndex((m) => m.id === messageId && m.role === 'user')
@@ -283,9 +290,14 @@ export function registerIpc(win: BrowserWindow): void {
       const original = session.messages[idx].content
       session.messages = session.messages.slice(0, idx)
       saveSession(session)
+      let text = newText ?? original
+      if (attachments?.length) {
+        const ctx = buildAttachmentContext(attachments, session.cwd)
+        if (ctx) text = `${ctx}\n\n${text}`
+      }
       // No 'session' event here: the renderer truncates its transcript locally,
       // keeping its optimistic user message visible during the rerun.
-      await engine.runTurn(session, newText ?? original, emit, mode)
+      await engine.runTurn(session, text, emit, mode)
       return true
     }
   )
@@ -380,10 +392,16 @@ export function registerIpc(win: BrowserWindow): void {
         const txt = readFileSync(head, 'utf8').trim()
         gitBranch = txt.startsWith('ref:') ? txt.split('/').pop() || null : txt.slice(0, 8)
         gitDirty = await new Promise<number>((resolve) => {
-          const t = setTimeout(() => resolve(0), 2500)
-          execFile('git', ['status', '--porcelain'], { cwd, timeout: 2000 }, (err, stdout) => {
+          let settled = false
+          const finish = (n: number): void => {
+            if (settled) return
+            settled = true
             clearTimeout(t)
-            resolve(err ? 0 : stdout.split('\n').filter(Boolean).length)
+            resolve(n)
+          }
+          const t = setTimeout(() => finish(0), 2500)
+          execFile('git', ['status', '--porcelain'], { cwd, timeout: 2000 }, (err, stdout) => {
+            finish(err ? 0 : stdout.split('\n').filter(Boolean).length)
           })
         })
       }
