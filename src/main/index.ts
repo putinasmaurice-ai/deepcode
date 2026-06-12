@@ -7,6 +7,7 @@ import { ensureConfigDirs, PATHS } from './paths'
 import { seedStarterContent } from './seed'
 import { registerIpc, bootstrapMcp } from './ipc'
 import { shutdownJobs } from './jobs'
+import { maybeRunE2E } from './e2e'
 
 // Window bounds persistence (~/.deepcode/window.json)
 interface WinState {
@@ -87,10 +88,12 @@ function createWindow(): void {
 
 app
   .whenReady()
-  .then(() => {
+  .then(async () => {
     // required for HTML5 Notification toasts on Windows
     app.setAppUserModelId('com.maurice.deepcode')
     ensureConfigDirs()
+    // headless smoke-test mode (DEEPCODE_E2E_PROMPT) — runs one turn and quits
+    if (await maybeRunE2E()) return
     seedStarterContent()
     createWindow()
     bootstrapMcp()
