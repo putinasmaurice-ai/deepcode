@@ -24,7 +24,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-gh auth status >nul 2>nul
+%GH% auth status >nul 2>nul
 if errorlevel 1 (
   echo.
   echo  Nicht eingeloggt. Bitte ausfuehren:  gh auth login
@@ -32,7 +32,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-for /f "delims=" %%u in ('gh api user --jq .login') do set OWNER=%%u
+for /f "delims=" %%u in ('%GH% api user --jq .login') do set OWNER=%%u
 echo  GitHub-Account: %OWNER%
 
 REM Owner in die Updater-Config schreiben
@@ -44,10 +44,10 @@ set VERSION=%VRAW:"=%
 echo  Version: v%VERSION%
 
 REM Repo anlegen (falls noch nicht vorhanden) + Remote setzen
-gh repo view %OWNER%/deepcode >nul 2>nul
+%GH% repo view %OWNER%/deepcode >nul 2>nul
 if errorlevel 1 (
   echo  Lege privates Repo %OWNER%/deepcode an...
-  gh repo create deepcode --private --source . --remote origin
+  %GH% repo create deepcode --private --source . --remote origin
 ) else (
   git remote get-url origin >nul 2>nul || git remote add origin https://github.com/%OWNER%/deepcode.git
 )
@@ -72,10 +72,10 @@ if errorlevel 1 (
 )
 
 echo  Erstelle Release v%VERSION% mit Installer + Update-Manifest...
-gh release create v%VERSION% "release\DeepCode Setup %VERSION%.exe" "release\DeepCode Setup %VERSION%.exe.blockmap" "release\latest.yml" --title "DeepCode v%VERSION%" --notes "Automatisches Release via PUBLISH.bat" 2>nul
+%GH% release create v%VERSION% "release\DeepCode Setup %VERSION%.exe" "release\DeepCode Setup %VERSION%.exe.blockmap" "release\latest.yml" --title "DeepCode v%VERSION%" --notes "Automatisches Release via PUBLISH.bat" 2>nul
 if errorlevel 1 (
   echo  Release existiert evtl. schon - versuche Upload der Dateien...
-  gh release upload v%VERSION% "release\DeepCode Setup %VERSION%.exe" "release\DeepCode Setup %VERSION%.exe.blockmap" "release\latest.yml" --clobber
+  %GH% release upload v%VERSION% "release\DeepCode Setup %VERSION%.exe" "release\DeepCode Setup %VERSION%.exe.blockmap" "release\latest.yml" --clobber
 )
 
 echo.
@@ -85,7 +85,7 @@ echo.
 echo   WICHTIG fuer Auto-Update in der installierten App:
 echo   GitHub-Releases muessen oeffentlich erreichbar sein.
 echo   Entweder Repo public stellen:
-echo     gh repo edit %OWNER%/deepcode --visibility public
+echo     %GH% repo edit %OWNER%/deepcode --visibility public
 echo   ...oder privat lassen (Code geschuetzt) und Updates
 echo   weiterhin manuell ueber PUBLISH.bat + Installer beziehen.
 echo  ==========================================================
