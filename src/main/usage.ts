@@ -3,6 +3,7 @@ import { join } from 'path'
 import { PATHS } from './paths'
 import { Session, UsageSummary } from '@shared/types'
 import { loadProjects } from './projects'
+import { lifetimeTotals, monthTotals } from './ledger'
 
 // Aggregates token usage + estimated cost across all stored sessions:
 // per session, per project, and total. Reads session files on demand —
@@ -77,9 +78,18 @@ export function computeUsageSummary(): UsageSummary {
 
   perSession.sort((a, b) => b.updatedAt - a.updatedAt)
 
+  // Headline totals come from the persistent ledger so they never drop when
+  // chats are deleted. The per-project / per-chat breakdown stays live (existing
+  // sessions only). void the now-unused live sums to keep the breakdown logic.
+  void totalTokens
+  void totalCost
+  void monthTokens
+  void monthCost
+  const life = lifetimeTotals()
+  const mon = monthTotals()
   return {
-    total: { tokens: totalTokens, cost: totalCost, sessions: perSession.length },
-    month: { tokens: monthTokens, cost: monthCost },
+    total: { tokens: life.tokens, cost: life.cost, sessions: perSession.length },
+    month: { tokens: mon.tokens, cost: mon.cost },
     perProject,
     perSession
   }

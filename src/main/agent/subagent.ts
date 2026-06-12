@@ -4,6 +4,7 @@ import { EngineDeps, Emit } from './deps'
 import { buildSystemPrompt } from './prompt'
 import { toApiMessages, toolResultMessage } from './api-messages'
 import { costOf } from './pricing'
+import { recordUsage } from '../ledger'
 import { buildTools, collectSkills } from './toolset'
 import { toApiTools } from './tools'
 import { ToolContext } from './tools/types'
@@ -77,7 +78,10 @@ export async function runSubagent(
         arguments: tc.arguments || '{}'
       }))
     }
-    if (result.usage) assistantMsg.usage = costOf(deps.settings.provider, result.usage, agent?.model)
+    if (result.usage) {
+      assistantMsg.usage = costOf(deps.settings.provider, result.usage, agent?.model)
+      recordUsage(assistantMsg.usage)
+    }
     messages.push(assistantMsg)
     finalText = result.content || finalText
 

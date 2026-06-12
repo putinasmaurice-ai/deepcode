@@ -23,6 +23,7 @@ import { recordErrorSolution } from '../systems/memory'
 import { recordSnapshot, getTurnFiles } from '../checkpoints'
 import { getProject } from '../projects'
 import { saveSession } from '../store'
+import { recordUsage } from '../ledger'
 
 export type { ApprovalPolicy } from './policy'
 
@@ -284,6 +285,7 @@ export class AgentEngine {
       assistantMsg.finishReason = result.finishReason
       if (result.usage) {
         assistantMsg.usage = costOf(this.settings.provider, result.usage, turnModel)
+        recordUsage(assistantMsg.usage)
         emit({ type: 'usage', messageId: assistantMsg.id, usage: assistantMsg.usage })
       }
       session.messages.push(assistantMsg)

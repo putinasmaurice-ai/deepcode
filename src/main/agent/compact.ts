@@ -2,6 +2,8 @@ import { randomUUID } from 'crypto'
 import { ChatMessage, Session } from '@shared/types'
 import { EngineDeps, Emit } from './deps'
 import { saveSession } from '../store'
+import { costOf } from './pricing'
+import { recordUsage } from '../ledger'
 
 // Summarize older turns into one synthetic message to keep context small while
 // preserving recent turns and tool-call/result pairing.
@@ -53,6 +55,7 @@ export async function compactSession(
       session.model
     )
     summary = res.content
+    if (res.usage) recordUsage(costOf(deps.settings.provider, res.usage, session.model))
   } catch (e) {
     emit({ type: 'error', message: `Compaction failed: ${(e as Error).message}` })
     return session

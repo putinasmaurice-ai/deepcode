@@ -4,6 +4,7 @@ import { buildSystemPrompt } from './prompt'
 import { toApiMessages } from './api-messages'
 import { newAssistantMessage, streamCallbacksFor } from './streaming'
 import { costOf } from './pricing'
+import { recordUsage } from '../ledger'
 import { getProject } from '../projects'
 import { saveSession } from '../store'
 
@@ -47,6 +48,7 @@ async function streamVariant(
   msg.finishReason = result.finishReason
   if (result.usage) {
     msg.usage = costOf(deps.settings.provider, result.usage, model)
+    recordUsage(msg.usage)
     emit({ type: 'usage', messageId: msg.id, usage: msg.usage })
   }
   emit({ type: 'message_done', message: msg })

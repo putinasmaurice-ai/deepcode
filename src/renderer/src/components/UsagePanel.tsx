@@ -30,12 +30,18 @@ export function UsagePanel(): JSX.Element {
             ↻ Aktualisieren
           </button>
         </div>
-        <p className="sub">Token-Verbrauch und geschätzte Kosten — pro Chat, pro Projekt und gesamt.</p>
+        <p className="sub">
+          Token-Verbrauch und geschätzte Kosten. „Gesamt (alle Zeit)" und „Dieser Monat" sind dauerhafte
+          Summen — sie bleiben erhalten, auch wenn du Chats löschst. Die Aufschlüsselung unten zeigt nur
+          noch vorhandene Chats.
+        </p>
 
         <div className="stat-row">
           <div className="stat">
             <div className="stat-value">{fmtCost(usage.total.cost)}</div>
-            <div className="stat-label">Gesamtkosten</div>
+            <div className="stat-label" title="Lebenslange Summe — fällt nie, auch wenn du Chats löschst">
+              Gesamt (alle Zeit)
+            </div>
           </div>
           <div className="stat">
             <div className="stat-value" style={overBudget ? { color: 'var(--red)', WebkitTextFillColor: 'var(--red)' } : undefined}>
