@@ -83,7 +83,17 @@ export function Welcome({
   const [mcpConnected, setMcpConnected] = useState<number | null>(null)
   useEffect(() => {
     api.listSkills().then((s) => setSkillCount(s?.length ?? 0))
-    api.listMcp().then((m) => setMcpConnected(m?.filter((x) => x.status === 'connected').length ?? 0))
+    const checkMcp = (): void => {
+      api.listMcp().then((m) => setMcpConnected(m?.filter((x) => x.status === 'connected').length ?? 0))
+    }
+    checkMcp()
+    // auto-connect runs async after app start — re-check until it settled
+    const t1 = setTimeout(checkMcp, 3000)
+    const t2 = setTimeout(checkMcp, 8000)
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+    }
   }, [])
 
   const keyOk = !!settings.provider.apiKey

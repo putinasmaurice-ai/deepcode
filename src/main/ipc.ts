@@ -1,4 +1,5 @@
-import { ipcMain, dialog, shell, BrowserWindow } from 'electron'
+import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron'
+import { previewToolDiff } from './preview-diff'
 import { randomUUID } from 'crypto'
 import { homedir } from 'os'
 import { existsSync, statSync, readFileSync } from 'fs'
@@ -282,6 +283,41 @@ export function registerIpc(win: BrowserWindow): void {
     } catch {
       return [] // endpoint not running — that's fine
     }
+  })
+  ipcMain.handle(IPC.previewDiff, (_e, name: string, argsJson: string, cwd: string) =>
+    previewToolDiff(name, argsJson, cwd)
+  )
+  ipcMain.handle(IPC.getAppInfo, () => ({
+    version: app.getVersion(),
+    electron: process.versions.electron
+  }))
+  // Marketplace: install a plugin/skill bundle by cloning a git repo into
+  // ~/.deepcode/plugins/<repo>. Shallow clone, 60s cap.
+  ipcMain.handle(IPC.installFromGit, async (_e, url: string) => {
+    const m = url.trim().match(/^https:\/\/(github\.com|gitlab\.com|codeberg\.org)\/[\w.-]+\/([\w.-]+?)(\.git)?\/?$/)
+    if (!m) return { ok: false, message: 'Bitte eine https-Repo-URL angeben (GitHub/GitLab/Codeberg).' }
+    const name = m[2]
+    const dest = join(PATHS.plugins, name)
+    if (existsSync(dest)) return { ok: false, message: `"${name}" ist bereits installiert.` }
+    return new Promise((resolvePromise) => {
+      execFile(
+        'git',
+        ['clone', '--depth', '1', url.trim(), dest],
+        { timeout: 60_000 },
+        (err) => {
+          if (err) {
+            resolvePromise({ ok: false, message: `Clone fehlgeschlagen: ${err.message.slice(0, 200)}` })
+            return
+          }
+          const hasPlugin = existsSync(join(dest, 'plugin.json'))
+          const hasSkills = existsSync(join(dest, 'skills')) || existsSync(join(dest, 'SKILL.md'))
+          resolvePromise({
+            ok: true,
+            message: `"${name}" installiert${hasPlugin ? ' (Plugin)' : hasSkills ? ' (Skills)' : ''} — im Plugins-Panel aktivierbar.`
+          })
+        }
+      )
+    })
   })
   ipcMain.handle(IPC.readFileHead, (_e, path: string, maxChars?: number) => {
     try {

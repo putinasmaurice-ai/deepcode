@@ -81,6 +81,9 @@ export interface DeepCodeApi {
   listLocalModels(): Promise<string[]>
   listFiles(cwd: string): Promise<string[]>
   readFileHead(path: string, maxChars?: number): Promise<string>
+  previewDiff(name: string, argsJson: string, cwd: string): Promise<string>
+  installFromGit(url: string): Promise<{ ok: boolean; message: string }>
+  getAppInfo(): Promise<{ version: string; electron: string }>
   onAgentEvent(cb: (e: AgentEvent) => void): () => void
 
   // feature systems

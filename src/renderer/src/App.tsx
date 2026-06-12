@@ -17,6 +17,8 @@ import { UsagePanel } from './components/UsagePanel'
 import { AuditPanel } from './components/AuditPanel'
 import { NightShiftPanel } from './components/NightShiftPanel'
 import { Welcome, TodoStrip, ContextPill, basename, relTime } from './components/ChatExtras'
+import { FirstRunModal } from './components/FirstRunModal'
+import { MarketPanel } from './components/MarketPanel'
 import {
   SettingsPanel,
   SkillsPanel,
@@ -36,6 +38,7 @@ export type View =
   | 'projects'
   | 'usage'
   | 'night'
+  | 'market'
   | 'audit'
   | 'settings'
   | 'skills'
@@ -64,6 +67,7 @@ const NAV_MAIN: { view: View; icon: string; label: string }[] = [
   { view: 'settings', icon: '⚙️', label: 'Settings' }
 ]
 const NAV_MORE: { view: View; icon: string; label: string }[] = [
+  { view: 'market', icon: '🛒', label: 'Marketplace' },
   { view: 'skills', icon: '📘', label: 'Skills' },
   { view: 'commands', icon: '/', label: 'Slash Commands' },
   { view: 'subagents', icon: '🤖', label: 'Subagents' },
@@ -105,6 +109,7 @@ export function App(): JSX.Element {
   const [queue, setQueue] = useState<{ sessionId: string; text: string; attachments?: string[] }[]>([])
   const [contentHits, setContentHits] = useState<{ sessionId: string; title: string; snippet: string }[]>([])
   const [moreOpen, setMoreOpen] = useState(() => localStorage.getItem('nav-more') === '1')
+  const [firstRunDismissed, setFirstRunDismissed] = useState(false)
   const editTargetRef = useRef<string | null>(null)
   const toastIdRef = useRef(0)
   // stable handle to send() for callbacks created inside the event handler
@@ -895,6 +900,7 @@ export function App(): JSX.Element {
                     onApprove={approve}
                     onEdit={startEdit}
                     onAutomate={automateFromChat}
+                    cwd={session?.cwd}
                   />
                 ))}
                 {busy && status && <div className="msg"><div className="role">working</div><div style={{ color: 'var(--text-faint)', fontSize: 13 }}>{status}</div></div>}
@@ -1010,6 +1016,8 @@ export function App(): JSX.Element {
           <UsagePanel />
         ) : view === 'night' ? (
           <NightShiftPanel />
+        ) : view === 'market' ? (
+          <MarketPanel />
         ) : view === 'audit' ? (
           <AuditPanel />
         ) : (
@@ -1023,6 +1031,13 @@ export function App(): JSX.Element {
           />
         )}
       </main>
+      {settings && !settings.provider.apiKey && !firstRunDismissed && (
+        <FirstRunModal
+          settings={settings}
+          onSaved={(s) => setSettings(s)}
+          onDismiss={() => setFirstRunDismissed(true)}
+        />
+      )}
       <div className="toasts">
         {toasts.map((t) => (
           <div key={t.id} className={'toast ' + t.kind}>

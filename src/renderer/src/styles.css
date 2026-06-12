@@ -1308,6 +1308,63 @@ button {
   color: var(--text-dim);
 }
 
+/* first-run modal */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 8, 16, 0.72);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+.modal {
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 16px;
+  padding: 28px 30px;
+  max-width: 480px;
+  width: 92%;
+  box-shadow: var(--shadow-pop);
+  animation: msgIn 0.25s ease;
+}
+.modal h2 {
+  margin: 0 0 10px;
+  font-size: 20px;
+}
+.modal p {
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.modal a {
+  color: var(--accent-3);
+}
+.modal input {
+  width: 100%;
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+  border-radius: 9px;
+  color: var(--text);
+  padding: 11px 13px;
+  font-size: 14px;
+  margin: 8px 0 4px;
+  outline: none;
+}
+.modal input:focus {
+  border-color: var(--accent);
+}
+.modal-hint {
+  font-size: 12px !important;
+  color: var(--text-faint) !important;
+}
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
 /* toasts */
 .toasts {
   position: fixed;

@@ -42,13 +42,15 @@ function MessageViewImpl({
   toolState,
   onApprove,
   onEdit,
-  onAutomate
+  onAutomate,
+  cwd
 }: {
   message: ChatMessage
   toolState: Record<string, ToolState>
   onApprove: (callId: string, approved: boolean) => void
   onEdit?: (messageId: string, content: string) => void
   onAutomate?: (content: string) => void
+  cwd?: string
 }): JSX.Element | null {
   const bubbleRef = useRef<HTMLDivElement>(null)
   useCodeEnhancer(bubbleRef, message.content)
@@ -125,6 +127,7 @@ function MessageViewImpl({
           name={tc.name}
           args={tc.arguments}
           state={toolState[tc.id]}
+          cwd={cwd}
           onApprove={(ok) => onApprove(tc.id, ok)}
         />
       ))}
@@ -144,7 +147,7 @@ function MessageViewImpl({
 
 // Re-render only when this message or one of its own tool results changes.
 export const MessageView = memo(MessageViewImpl, (prev, next) => {
-  if (prev.onApprove !== next.onApprove || prev.onEdit !== next.onEdit || prev.onAutomate !== next.onAutomate)
+  if (prev.onApprove !== next.onApprove || prev.onEdit !== next.onEdit || prev.onAutomate !== next.onAutomate || prev.cwd !== next.cwd)
     return false
   const a = prev.message
   const b = next.message
@@ -178,18 +181,29 @@ function Reasoning({ text }: { text: string }): JSX.Element {
   )
 }
 
+const FILE_TOOLS = new Set(['write_file', 'edit_file', 'apply_patch'])
+
 function ToolBlock({
   name,
   args,
   state,
+  cwd,
   onApprove
 }: {
   name: string
   args: string
   state?: ToolState
+  cwd?: string
   onApprove: (ok: boolean) => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
+  const [pendingDiff, setPendingDiff] = useState<string | null>(null)
+  // pre-approval diff: show exactly what this call would change
+  useEffect(() => {
+    if (state?.pending && cwd && FILE_TOOLS.has(name)) {
+      window.deepcode.previewDiff(name, args, cwd).then((d) => setPendingDiff(d || null))
+    }
+  }, [state?.pending, name, args, cwd])
   const result = state?.result
   const pending = state?.pending
   const summary = summarizeArgs(name, args)
@@ -214,7 +228,13 @@ function ToolBlock({
         <div className="approve">
           <div className="approve-body">
             <div className="q">Allow DeepCode to run this {permissionWord(name)}?</div>
-            <Preview name={name} args={args} />
+            {pendingDiff ? (
+              <div style={{ maxHeight: 220, overflow: 'auto', marginTop: 8 }}>
+                <DiffView diff={pendingDiff} />
+              </div>
+            ) : (
+              <Preview name={name} args={args} />
+            )}
           </div>
           <div className="approve-actions">
             <button className="btn sm" onClick={() => onApprove(true)}>

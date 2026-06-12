@@ -29,8 +29,8 @@ function ensureInside(resolved: string, cwd: string, confine?: boolean): void {
 }
 
 // Compact unified-ish line diff for the UI. Not a real LCS — good enough to show
-// what changed for a write/edit.
-function lineDiff(before: string, after: string): { diff: string; added: number; removed: number } {
+// what changed for a write/edit. Exported for the pre-approval diff preview.
+export function lineDiff(before: string, after: string): { diff: string; added: number; removed: number } {
   const a = before.length ? before.split('\n') : []
   const b = after.split('\n')
   // find common prefix/suffix to keep the diff focused

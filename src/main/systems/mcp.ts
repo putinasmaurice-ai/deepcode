@@ -97,9 +97,14 @@ export class McpManager {
     let transport: any
     if (def.transport === 'stdio') {
       const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js')
+      // Windows: npx/uvx etc. are .cmd shims — direct spawn fails with ENOENT.
+      // Routing through cmd.exe resolves anything on PATH reliably.
+      const isWin = process.platform === 'win32'
+      const command = isWin ? 'cmd.exe' : def.command!
+      const args = isWin ? ['/c', def.command!, ...(def.args ?? [])] : (def.args ?? [])
       transport = new StdioClientTransport({
-        command: def.command!,
-        args: def.args ?? [],
+        command,
+        args,
         env: { ...process.env, ...(def.env ?? {}) } as Record<string, string>
       })
     } else if (def.transport === 'sse') {
