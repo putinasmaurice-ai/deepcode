@@ -107,19 +107,19 @@ export function listJobs(): JobInfo[] {
   return [...jobs.values()].map((j) => toInfo(j, 200)).sort((a, b) => b.startedAt - a.startedAt)
 }
 
-export function killJob(id: string): boolean {
+export function killJob(id: string, sync = false): boolean {
   const j = jobs.get(id)
   if (!j || j.status !== 'running') return false
   j.status = 'killed'
   j.endedAt = Date.now()
   try {
     if (isWin && j.child.pid) {
-      // kill the whole tree on Windows (PowerShell spawns children). Synchronous
-      // so it also completes reliably during app shutdown.
-      spawnSync('taskkill', ['/PID', String(j.child.pid), '/T', '/F'], {
-        windowsHide: true,
-        timeout: 3000
-      })
+      // kill the whole process tree on Windows (PowerShell spawns children).
+      // Async at runtime (taskkill can take seconds — must not block the main
+      // process); sync only during app shutdown where blocking is required.
+      const args = ['/PID', String(j.child.pid), '/T', '/F']
+      if (sync) spawnSync('taskkill', args, { windowsHide: true, timeout: 3000 })
+      else spawn('taskkill', args, { windowsHide: true })
     } else {
       j.child.kill('SIGKILL')
     }
@@ -133,6 +133,6 @@ export function killJob(id: string): boolean {
 // wait for async work.
 export function shutdownJobs(): void {
   for (const j of jobs.values()) {
-    if (j.status === 'running') killJob(j.id)
+    if (j.status === 'running') killJob(j.id, true)
   }
 }

@@ -64,6 +64,17 @@ export class AgentEngine {
     this.client.update(settings.provider)
   }
 
+  // One operation per session: prevents concurrent runTurn/arena/secondOpinion
+  // on the same session (message interleaving + orphaned AbortControllers).
+  private acquireSession(sessionId: string): AbortController {
+    if (this.aborters.has(sessionId)) {
+      throw new Error('Diese Session arbeitet gerade — bitte warten, bis der laufende Vorgang fertig ist.')
+    }
+    const aborter = new AbortController()
+    this.aborters.set(sessionId, aborter)
+    return aborter
+  }
+
   approve(callId: string, approved: boolean): void {
     const resolver = this.pendingApprovals.get(callId)
     if (resolver) {
@@ -85,6 +96,26 @@ export class AgentEngine {
     const respondedIds = new Set(
       messages.filter((m) => m.role === 'tool' && m.toolCallId).map((m) => m.toolCallId as string)
     )
+
+    // Token diet: only the last RECENT_TOOL_TURNS tool-calling rounds keep their
+    // full outputs — older tool results collapse to a stub. The agent re-reads
+    // files on demand anyway; resending stale 100k outputs every request is the
+    // single biggest input-token waste on long sessions.
+    const RECENT_TOOL_TURNS = 3
+    const recentCallIds = new Set<string>()
+    let turns = 0
+    for (let i = messages.length - 1; i >= 0 && turns < RECENT_TOOL_TURNS; i--) {
+      const m = messages[i]
+      if (m.role === 'assistant' && m.toolCalls?.length) {
+        for (const tc of m.toolCalls) recentCallIds.add(tc.id)
+        turns++
+      }
+    }
+    const toolContent = (m: ChatMessage): string => {
+      if (recentCallIds.has(m.toolCallId ?? '')) return m.content.slice(0, 30_000)
+      const head = m.content.replace(/\s+/g, ' ').slice(0, 220)
+      return `${head}… [ältere Ausgabe gekürzt — Datei/Befehl bei Bedarf erneut abrufen]`
+    }
 
     for (const m of messages) {
       if (m.role === 'user') {
@@ -115,7 +146,7 @@ export class AgentEngine {
       } else if (m.role === 'tool') {
         out.push({
           role: 'tool',
-          content: m.content,
+          content: toolContent(m),
           tool_call_id: m.toolCallId,
           name: m.toolName
         })
@@ -177,8 +208,7 @@ export class AgentEngine {
     emit: Emit,
     policy: ApprovalPolicy = 'interactive'
   ): Promise<void> {
-    const aborter = new AbortController()
-    this.aborters.set(session.id, aborter)
+    const aborter = this.acquireSession(session.id)
     const signal = aborter.signal
 
     try {
@@ -394,8 +424,9 @@ export class AgentEngine {
           }
 
           session.messages.push(resultMsg)
-          saveSession(session)
         }
+        // one write per round instead of per tool result (sessions get big)
+        saveSession(session)
       }
 
       // ---- quality gates ----
@@ -509,7 +540,9 @@ export class AgentEngine {
       .join('\n\n')
 
     emit({ type: 'status', message: 'Compacting conversation…' })
-    const aborter = new AbortController()
+    // reentrant: auto-compaction inside runTurn already holds the session lock
+    const ownsLock = !this.aborters.has(session.id)
+    const aborter = ownsLock ? this.acquireSession(session.id) : this.aborters.get(session.id)!
     let summary = ''
     try {
       const res = await this.client.streamChat(
@@ -530,6 +563,8 @@ export class AgentEngine {
     } catch (e) {
       emit({ type: 'error', message: `Compaction failed: ${(e as Error).message}` })
       return session
+    } finally {
+      if (ownsLock) this.aborters.delete(session.id)
     }
 
     const synthetic: ChatMessage = {
@@ -548,8 +583,7 @@ export class AgentEngine {
   // Second opinion: re-answer the conversation with the reasoner model (no tools)
   // and stream it as a tagged alternative message. DeepSeek is cheap — exploit it.
   async secondOpinion(session: Session, emit: Emit): Promise<void> {
-    const aborter = new AbortController()
-    this.aborters.set(session.id, aborter)
+    const aborter = this.acquireSession(session.id)
     try {
       const model = this.settings.provider.reasonerModel || this.settings.provider.model
       const project = session.projectId ? getProject(session.projectId) : null
@@ -611,8 +645,7 @@ export class AgentEngine {
   // Model arena: answer the last user request with TWO models in parallel and
   // stream both as tagged messages — the user votes, the vote becomes memory.
   async arena(session: Session, emit: Emit, modelB?: string): Promise<void> {
-    const aborter = new AbortController()
-    this.aborters.set(session.id, aborter)
+    const aborter = this.acquireSession(session.id)
     const modelA = session.model || this.settings.provider.model
     const b = modelB || this.settings.provider.reasonerModel || modelA
 

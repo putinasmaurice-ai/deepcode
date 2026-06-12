@@ -138,12 +138,23 @@ export class DeepSeekClient {
           await sleep(backoff(attempt), signal)
           continue
         }
-        throw new Error(`Network error reaching DeepSeek: ${lastErr}`)
+        if (isLocal) {
+          throw new Error(
+            `Lokales Modell nicht erreichbar (${base}). Läuft Ollama/LM Studio? Starte es oder wechsle oben rechts das Modell.`
+          )
+        }
+        throw new Error(`Netzwerkfehler zu DeepSeek: ${lastErr}`)
       }
 
       if (res.ok && res.body) break
 
       const text = await res.text().catch(() => '')
+      if (res.status === 401 || res.status === 403) {
+        throw new Error('API-Key ungültig oder abgelaufen — bitte in den Settings prüfen.')
+      }
+      if (res.status === 402) {
+        throw new Error('DeepSeek-Guthaben aufgebraucht — bitte unter platform.deepseek.com aufladen.')
+      }
       lastErr = `DeepSeek API error ${res.status}: ${text || res.statusText}`
       if (RETRYABLE.has(res.status) && attempt < MAX_RETRIES) {
         await sleep(backoff(attempt), signal)

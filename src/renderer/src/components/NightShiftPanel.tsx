@@ -110,6 +110,18 @@ export function NightShiftPanel(): JSX.Element {
                 <option value="full">Full — Dateien & Shell erlaubt</option>
               </select>
             </div>
+            <div className="field">
+              <label>Start-Zeitpunkt</label>
+              <select
+                value={state.waitForOffPeak ? 'offpeak' : 'now'}
+                onChange={async (e) =>
+                  setState(await api.nightSave({ ...state, waitForOffPeak: e.target.value === 'offpeak' }))
+                }
+              >
+                <option value="now">Sofort</option>
+                <option value="offpeak">💰 Im Off-Peak-Fenster (bis −75% günstiger)</option>
+              </select>
+            </div>
           </div>
           <button className="btn" onClick={addTask} disabled={!prompt.trim() || !projectId}>
             Einreihen

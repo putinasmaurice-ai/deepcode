@@ -37,6 +37,12 @@ export function requestStop(): void {
   stopRequested = true
 }
 
+// DeepSeek off-peak discount window: UTC 16:30–00:30 (chat −50%, reasoner −75%)
+export function inOffPeakWindow(d = new Date()): boolean {
+  const mins = d.getUTCHours() * 60 + d.getUTCMinutes()
+  return mins >= 16 * 60 + 30 || mins < 30
+}
+
 export async function runNightShift(
   engine: AgentEngine,
   emit: (e: AgentEvent) => void
@@ -45,6 +51,17 @@ export async function runNightShift(
   running = true
   stopRequested = false
   const state = getNightShift()
+
+  // optionally hold until DeepSeek's discount window opens
+  if (state.waitForOffPeak) {
+    while (!inOffPeakWindow() && !stopRequested) {
+      emit({
+        type: 'status',
+        message: '🌙 Nachtschicht wartet auf das DeepSeek-Off-Peak-Fenster (UTC 16:30–00:30, bis −75%)…'
+      })
+      await new Promise((r) => setTimeout(r, 60_000))
+    }
+  }
   const lines: string[] = [`# 🌙 Nachtschicht-Bericht — ${new Date().toLocaleString()}`, '']
 
   try {

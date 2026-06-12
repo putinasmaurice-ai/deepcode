@@ -96,7 +96,7 @@ export function App(): JSX.Element {
   const [toasts, setToasts] = useState<
     { id: number; text: string; kind: 'info' | 'error'; action?: { label: string; run: () => void } }[]
   >([])
-  const [queue, setQueue] = useState<{ text: string; attachments?: string[] }[]>([])
+  const [queue, setQueue] = useState<{ sessionId: string; text: string; attachments?: string[] }[]>([])
   const [contentHits, setContentHits] = useState<{ sessionId: string; title: string; snippet: string }[]>([])
   const editTargetRef = useRef<string | null>(null)
   const toastIdRef = useRef(0)
@@ -116,6 +116,38 @@ export function App(): JSX.Element {
     },
     []
   )
+
+  // streaming-delta batching: accumulate chunks and flush once per frame
+  // instead of one O(n) setMessages pass per token chunk
+  const deltaBufRef = useRef<Map<string, { content: string; reasoning: string }>>(new Map())
+  const flushScheduledRef = useRef(false)
+  const queueDelta = useCallback((messageId: string, kind: 'content' | 'reasoning', delta: string): void => {
+    const buf = deltaBufRef.current
+    const entry = buf.get(messageId) ?? { content: '', reasoning: '' }
+    entry[kind] += delta
+    buf.set(messageId, entry)
+    if (flushScheduledRef.current) return
+    flushScheduledRef.current = true
+    requestAnimationFrame(() => {
+      flushScheduledRef.current = false
+      const pending = deltaBufRef.current
+      deltaBufRef.current = new Map()
+      if (!pending.size) return
+      setMessages((m) =>
+        m.map((x) => {
+          const d = pending.get(x.id)
+          if (!d) return x
+          return {
+            ...x,
+            content: x.content + d.content,
+            reasoning: d.reasoning ? (x.reasoning ?? '') + d.reasoning : x.reasoning
+          }
+        })
+      )
+      scrollDown()
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const activeProject = projects.find((p) => p.id === (session?.projectId ?? activeProjectId)) ?? null
 
@@ -139,14 +171,17 @@ export function App(): JSX.Element {
     if (!busy) refreshGit()
   }, [busy, refreshGit])
 
-  // queued messages (mid-turn steering): auto-send the next one when idle
+  // queued messages (mid-turn steering): auto-send the next one for the
+  // ACTIVE session when idle — items for other sessions wait until you return
   useEffect(() => {
-    if (busy || queue.length === 0) return
-    const [next, ...rest] = queue
-    setQueue(rest)
+    if (busy || !session) return
+    const idx = queue.findIndex((q) => q.sessionId === session.id)
+    if (idx === -1) return
+    const next = queue[idx]
+    setQueue((q) => q.filter((_, i) => i !== idx))
     send(next.text, next.attachments)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [busy, queue])
+  }, [busy, queue, session?.id])
 
   // full-text history search (debounced) when the sidebar filter has 3+ chars
   useEffect(() => {
@@ -281,20 +316,14 @@ export function App(): JSX.Element {
         setMessages((m) => [...m, e.message])
         break
       case 'content_delta':
-        setMessages((m) =>
-          m.map((x) => (x.id === e.messageId ? { ...x, content: x.content + e.delta } : x))
-        )
-        scrollDown()
+        queueDelta(e.messageId, 'content', e.delta)
         break
       case 'reasoning_delta':
-        setMessages((m) =>
-          m.map((x) =>
-            x.id === e.messageId ? { ...x, reasoning: (x.reasoning ?? '') + e.delta } : x
-          )
-        )
-        scrollDown()
+        queueDelta(e.messageId, 'reasoning', e.delta)
         break
       case 'message_done':
+        // the server copy is authoritative — drop any unflushed deltas for it
+        deltaBufRef.current.delete(e.message.id)
         setMessages((m) => m.map((x) => (x.id === e.message.id ? e.message : x)))
         scrollDown()
         break
@@ -467,7 +496,7 @@ export function App(): JSX.Element {
     if (!session) return
     // mid-turn steering: queue messages typed while the agent is working
     if (busy) {
-      setQueue((q) => [...q, { text, attachments }])
+      setQueue((q) => [...q, { sessionId: session.id, text, attachments }])
       addToast('In Warteschlange — wird nach diesem Turn gesendet.')
       return
     }
@@ -917,13 +946,13 @@ export function App(): JSX.Element {
                 </button>
               )}
             </div>
-            {queue.length > 0 && (
+            {queue.filter((q) => q.sessionId === session?.id).length > 0 && (
               <div className="queue-strip">
-                {queue.map((q, i) => (
+                {queue.filter((q) => q.sessionId === session?.id).map((q, i) => (
                   <span key={i} className="chip" title={q.text}>
                     ⏭ {q.text.slice(0, 50)}
                     {q.text.length > 50 ? '…' : ''}
-                    <span className="chip-x" onClick={() => setQueue((list) => list.filter((_, j) => j !== i))}>
+                    <span className="chip-x" onClick={() => setQueue((list) => list.filter((x) => x !== q))}>
                       ✕
                     </span>
                   </span>

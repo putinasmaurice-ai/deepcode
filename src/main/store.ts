@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, readdirSync, unlinkSync, renameSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { safeStorage } from 'electron'
@@ -70,20 +70,28 @@ function sessionPath(id: string): string {
   return join(PATHS.sessions, `${id}.json`)
 }
 
-export function listSessions(): Session[] {
+// In-memory metadata cache: listSessions() is called after every turn; without
+// this it re-parses every session JSON (grows linearly with history).
+let sessionCache: Map<string, Session> | null = null
+
+function ensureSessionCache(): Map<string, Session> {
+  if (sessionCache) return sessionCache
   ensureConfigDirs()
-  const out: Session[] = []
+  sessionCache = new Map()
   for (const f of readdirSync(PATHS.sessions)) {
     if (!f.endsWith('.json')) continue
     try {
       const s = JSON.parse(readFileSync(join(PATHS.sessions, f), 'utf8')) as Session
-      // strip heavy messages for the list view
-      out.push({ ...s, messages: [] })
-    } catch {
-      /* skip corrupt */
+      sessionCache.set(s.id, { ...s, messages: [] }) // metadata only
+    } catch (err) {
+      console.error('Corrupt session file skipped:', f, err)
     }
   }
-  return out.sort((a, b) => b.updatedAt - a.updatedAt)
+  return sessionCache
+}
+
+export function listSessions(): Session[] {
+  return [...ensureSessionCache().values()].sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
 export function getSession(id: string): Session | null {
@@ -99,10 +107,16 @@ export function getSession(id: string): Session | null {
 export function saveSession(session: Session): void {
   ensureConfigDirs()
   session.updatedAt = Date.now()
-  writeFileSync(sessionPath(session.id), JSON.stringify(session, null, 2), 'utf8')
+  // atomic write: tmp + rename, so a crash mid-write can't corrupt the session
+  const target = sessionPath(session.id)
+  const tmp = target + '.tmp'
+  writeFileSync(tmp, JSON.stringify(session, null, 2), 'utf8')
+  renameSync(tmp, target)
+  ensureSessionCache().set(session.id, { ...session, messages: [] })
 }
 
 export function deleteSession(id: string): void {
   const p = sessionPath(id)
   if (existsSync(p)) unlinkSync(p)
+  sessionCache?.delete(id)
 }

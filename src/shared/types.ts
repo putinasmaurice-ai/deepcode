@@ -72,6 +72,8 @@ export interface NightShiftState {
   tasks: NightTask[]
   running: boolean
   autonomy: 'safe' | 'full'
+  // wait for DeepSeek's off-peak window (UTC 16:30–00:30, up to 75% cheaper)
+  waitForOffPeak?: boolean
   lastReportPath?: string
   lastRunAt?: number
 }
@@ -186,7 +188,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultCwd: '',
   customInstructions: '',
   confineToCwd: true,
-  compactThreshold: 0,
+  compactThreshold: 100_000, // auto-compact long sessions (large token saver)
   monthlyBudget: 0,
   theme: 'dark',
   watcherEnabled: false,
