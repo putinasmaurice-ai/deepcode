@@ -534,17 +534,26 @@ export function App(): JSX.Element {
         return i >= 0 ? m.slice(0, i) : m
       })
     }
-    const note =
-      attachments && attachments.length
-        ? `\n\n📎 ${attachments.length} ${attachments.length === 1 ? 'Anhang' : 'Anhänge'}: ${attachments
-            .map((p) => p.replace(/[/\\]+$/, '').split(/[/\\]/).pop())
-            .join(', ')}`
-        : ''
+    const isImg = (p: string): boolean => /\.(png|jpe?g|gif|webp|bmp)$/i.test(p)
+    const imgPaths = (attachments ?? []).filter(isImg)
+    const otherPaths = (attachments ?? []).filter((p) => !isImg(p))
+    const note = otherPaths.length
+      ? `\n\n📎 ${otherPaths.length} ${otherPaths.length === 1 ? 'Anhang' : 'Anhänge'}: ${otherPaths
+          .map((p) => p.replace(/[/\\]+$/, '').split(/[/\\]/).pop())
+          .join(', ')}`
+      : ''
     const userMsg: ChatMessage = {
       id: 'local-' + Date.now(),
       role: 'user',
       content: text + note,
       createdAt: Date.now()
+    }
+    // resolve image thumbnails for an instant preview
+    if (imgPaths.length) {
+      const uris = (await Promise.all(imgPaths.map((p) => api.imageDataUri(p)))).filter(
+        (u): u is string => !!u
+      )
+      if (uris.length) userMsg.images = uris
     }
     setMessages((m) => [...m, userMsg])
     setBusy(true)

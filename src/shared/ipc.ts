@@ -47,6 +47,7 @@ export const IPC = {
   arenaVote: 'memory:arenaVote',
   listLocalModels: 'provider:localModels',
   readFileHead: 'fs:readHead',
+  imageDataUri: 'fs:imageDataUri',
   previewDiff: 'fs:previewDiff',
   installFromGit: 'market:installGit',
   getAppInfo: 'app:info',

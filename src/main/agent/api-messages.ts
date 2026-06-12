@@ -38,7 +38,18 @@ export function toApiMessages(system: string, messages: ChatMessage[]): ApiMessa
 
   for (const m of messages) {
     if (m.role === 'user') {
-      out.push({ role: 'user', content: m.content })
+      if (m.images?.length) {
+        // multimodal: text + image parts (vision models)
+        out.push({
+          role: 'user',
+          content: [
+            { type: 'text', text: m.content || 'Beschreibe / analysiere das Bild.' },
+            ...m.images.map((url) => ({ type: 'image_url' as const, image_url: { url } }))
+          ]
+        })
+      } else {
+        out.push({ role: 'user', content: m.content })
+      }
     } else if (m.role === 'assistant') {
       const msg: ApiMessage = { role: 'assistant', content: m.content || '' }
       if (m.toolCalls?.length) {

@@ -103,6 +103,14 @@ export function SettingsPanel({
             placeholder="local:dolphin3"
           />
         </div>
+        <div className="field">
+          <label>👁 Vision-Modell (automatisch genutzt, wenn du ein Bild anhängst)</label>
+          <input
+            value={p.visionModel ?? 'local:qwen2.5vl:7b'}
+            onChange={(e) => updateProvider({ visionModel: e.target.value })}
+            placeholder="local:qwen2.5vl:7b"
+          />
+        </div>
         <div className="row">
           <div className="field">
             <label>Model</label>

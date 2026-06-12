@@ -34,6 +34,7 @@ export interface ChatMessage {
   meta?: Record<string, unknown> // tool result metadata (diff, paths, counts…)
   variant?: 'second-opinion' | 'arena' // alternative/parallel answers
   variantModel?: string
+  images?: string[] // attached images as data URIs (for vision models)
 }
 
 export interface ProjectDef {
@@ -146,6 +147,8 @@ export interface ProviderSettings {
   localBaseUrl: string
   // model the 🔓 Uncensored toggle switches to (a local, unaligned model)
   uncensoredModel: string
+  // vision-capable model used automatically when a message has image attachments
+  visionModel: string
 }
 
 export interface AppSettings {
@@ -186,7 +189,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     reasonerPricePerMillionInput: 0.55,
     reasonerPricePerMillionOutput: 2.19,
     localBaseUrl: 'http://localhost:11434/v1',
-    uncensoredModel: 'local:dolphin3'
+    uncensoredModel: 'local:dolphin3',
+    visionModel: 'local:qwen2.5vl:7b'
   },
   autoApprove: {
     read: true,

@@ -142,7 +142,8 @@ export class AgentEngine {
     session: Session,
     userText: string,
     emit: Emit,
-    policy: ApprovalPolicy = 'interactive'
+    policy: ApprovalPolicy = 'interactive',
+    images?: string[]
   ): Promise<void> {
     const aborter = this.acquireSession(session.id)
     const signal = aborter.signal
@@ -160,9 +161,13 @@ export class AgentEngine {
         id: randomUUID(),
         role: 'user',
         content: injected ? `${userText}\n\n<hook-context>\n${injected}\n</hook-context>` : userText,
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        images: images?.length ? images : undefined
       })
       saveSession(session)
+
+      // images present → run this turn on the vision model (auto-routing)
+      const turnModel = images?.length ? this.settings.provider.visionModel : session.model
 
       if (this.settings.compactThreshold > 0 && estimateTokens(session) > this.settings.compactThreshold) {
         await this.compactSession(session, emit)
@@ -206,7 +211,7 @@ export class AgentEngine {
       let reviewDone = false
       let verifyAttempts = 0
       for (let round = 0; round < MAX_QUALITY_ROUNDS; round++) {
-        await this.runSteps(session, system, tools, ctx, policy, emit, signal, hooks)
+        await this.runSteps(session, system, tools, ctx, policy, emit, signal, hooks, turnModel)
         if (signal.aborted) break
 
         const feedback = await this.qualityFeedback(
@@ -250,8 +255,10 @@ export class AgentEngine {
     policy: ApprovalPolicy,
     emit: Emit,
     signal: AbortSignal,
-    hooks: ReturnType<typeof loadHooks>
+    hooks: ReturnType<typeof loadHooks>,
+    model?: string
   ): Promise<void> {
+    const turnModel = model ?? session.model
     const apiTools = toApiTools(tools)
     // error memory: remember "failed command → working follow-up" pairs
     let lastFailedCmd: { program: string; errorHead: string } | null = null
@@ -266,7 +273,7 @@ export class AgentEngine {
         apiTools,
         streamCallbacksFor(assistantMsg, emit),
         signal,
-        session.model
+        turnModel
       )
 
       assistantMsg.toolCalls = result.toolCalls.map((tc) => ({
@@ -276,7 +283,7 @@ export class AgentEngine {
       }))
       assistantMsg.finishReason = result.finishReason
       if (result.usage) {
-        assistantMsg.usage = costOf(this.settings.provider, result.usage, session.model)
+        assistantMsg.usage = costOf(this.settings.provider, result.usage, turnModel)
         emit({ type: 'usage', messageId: assistantMsg.id, usage: assistantMsg.usage })
       }
       session.messages.push(assistantMsg)

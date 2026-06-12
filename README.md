@@ -54,6 +54,10 @@ More: Projects (instructions + goal + trust level), cost dashboard (per chat/pro
 @-file mentions, drag&drop attachments, edit-and-resend, regenerate, syntax highlighting,
 session export, desktop notifications, Ctrl+N/Ctrl+K/Esc shortcuts.
 
+Local models: pick any Ollama/LM Studio model with the `local:` prefix (free, offline).
+🔓 Uncensored toggle (local unaligned model) and 👁 image analysis — attach a screenshot
+and a local vision model describes/analyzes it (auto-routed; DeepSeek text models can't see images).
+
 ## Architecture
 
 ```

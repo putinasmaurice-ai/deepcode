@@ -83,7 +83,14 @@ function MessageViewImpl({
           )}
         </div>
         {m && <div className="attach-note">📎 Anhänge im Kontext</div>}
-        <div className="bubble">{visible || '(nur Anhänge)'}</div>
+        {message.images?.length ? (
+          <div className="msg-images">
+            {message.images.map((src, i) => (
+              <img key={i} src={src} alt={`Anhang ${i + 1}`} />
+            ))}
+          </div>
+        ) : null}
+        <div className="bubble">{visible || (message.images?.length ? '👁 Bild analysieren' : '(nur Anhänge)')}</div>
       </div>
     )
   }

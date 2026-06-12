@@ -1368,6 +1368,21 @@ button {
   margin-top: 14px;
 }
 
+/* attached images (vision) */
+.msg-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.msg-images img {
+  max-width: 220px;
+  max-height: 180px;
+  border-radius: 10px;
+  border: 1px solid var(--border-2);
+  object-fit: cover;
+}
+
 /* working indicator */
 .working {
   display: flex;

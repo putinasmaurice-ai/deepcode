@@ -1,5 +1,6 @@
 import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron'
 import { previewToolDiff } from './preview-diff'
+import { isImagePath, imageToDataUri } from './images'
 import { checkForUpdates } from './updater'
 import { randomUUID } from 'crypto'
 import { homedir } from 'os'
@@ -192,10 +193,17 @@ export function registerIpc(win: BrowserWindow): void {
       }
     }
 
-    // Prepend attached files/folders (cheap: files inlined up to a cap, folders as a tree).
+    // Split attachments: images go to the vision model, other files are inlined.
+    let images: string[] | undefined
     if (attachments && attachments.length) {
-      const ctx = buildAttachmentContext(attachments, session.cwd)
-      if (ctx) text = `${ctx}\n\n${text}`
+      const imgPaths = attachments.filter(isImagePath)
+      const filePaths = attachments.filter((p) => !isImagePath(p))
+      if (filePaths.length) {
+        const ctx = buildAttachmentContext(filePaths, session.cwd)
+        if (ctx) text = `${ctx}\n\n${text}`
+      }
+      const uris = imgPaths.map(imageToDataUri).filter((u): u is string => !!u)
+      if (uris.length) images = uris
     }
 
     if (session.title === 'New session') {
@@ -205,7 +213,7 @@ export function registerIpc(win: BrowserWindow): void {
 
     beginAgentOp()
     try {
-      await engine.runTurn(session, text, emit, mode)
+      await engine.runTurn(session, text, emit, mode, images)
     } finally {
       endAgentOp()
     }
@@ -325,6 +333,7 @@ export function registerIpc(win: BrowserWindow): void {
       )
     })
   })
+  ipcMain.handle(IPC.imageDataUri, (_e, path: string) => imageToDataUri(path))
   ipcMain.handle(IPC.readFileHead, (_e, path: string, maxChars?: number) => {
     try {
       if (!existsSync(path)) return '(Datei nicht gefunden)'

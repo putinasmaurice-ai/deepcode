@@ -81,6 +81,7 @@ export interface DeepCodeApi {
   listLocalModels(): Promise<string[]>
   listFiles(cwd: string): Promise<string[]>
   readFileHead(path: string, maxChars?: number): Promise<string>
+  imageDataUri(path: string): Promise<string | null>
   previewDiff(name: string, argsJson: string, cwd: string): Promise<string>
   installFromGit(url: string): Promise<{ ok: boolean; message: string }>
   getAppInfo(): Promise<{ version: string; electron: string }>

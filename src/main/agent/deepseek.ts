@@ -16,9 +16,14 @@ export interface ApiToolDef {
   }
 }
 
+// OpenAI-compatible multimodal content parts (used for image attachments).
+export type ContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
 export interface ApiMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
-  content: string | null
+  content: string | ContentPart[] | null
   tool_calls?: {
     id: string
     type: 'function'

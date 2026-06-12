@@ -54,6 +54,7 @@ const api: DeepCodeApi = {
   listLocalModels: () => ipcRenderer.invoke(IPC.listLocalModels),
   readFileHead: (path: string, maxChars?: number) =>
     ipcRenderer.invoke(IPC.readFileHead, path, maxChars),
+  imageDataUri: (path: string) => ipcRenderer.invoke(IPC.imageDataUri, path),
   previewDiff: (name: string, argsJson: string, cwd: string) =>
     ipcRenderer.invoke(IPC.previewDiff, name, argsJson, cwd),
   installFromGit: (url: string) => ipcRenderer.invoke(IPC.installFromGit, url),
