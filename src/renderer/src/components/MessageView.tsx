@@ -1,23 +1,74 @@
-import { memo, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import type { ChatMessage } from '../../../shared/types'
 import type { ToolState } from '../App'
+import hljs from '../highlight'
+
+// Highlight code blocks + inject per-block copy buttons after the streamed
+// content settles (debounced — re-highlighting on every delta would be wasteful).
+function useCodeEnhancer(ref: React.RefObject<HTMLDivElement>, content: string): void {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const root = ref.current
+      if (!root) return
+      root.querySelectorAll<HTMLElement>('pre code').forEach((el) => {
+        if (el.dataset.hl) return
+        try {
+          hljs.highlightElement(el)
+        } catch {
+          /* unknown language — leave plain */
+        }
+        el.dataset.hl = '1'
+        const pre = el.parentElement
+        if (pre && !pre.querySelector('.code-copy')) {
+          const btn = document.createElement('button')
+          btn.className = 'code-copy'
+          btn.textContent = '⧉'
+          btn.title = 'Code kopieren'
+          btn.onclick = () => {
+            navigator.clipboard.writeText(el.textContent ?? '')
+            btn.textContent = '✓'
+            setTimeout(() => (btn.textContent = '⧉'), 1200)
+          }
+          pre.appendChild(btn)
+        }
+      })
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [ref, content])
+}
 
 function MessageViewImpl({
   message,
   toolState,
-  onApprove
+  onApprove,
+  onEdit
 }: {
   message: ChatMessage
   toolState: Record<string, ToolState>
   onApprove: (callId: string, approved: boolean) => void
+  onEdit?: (messageId: string, content: string) => void
 }): JSX.Element | null {
+  const bubbleRef = useRef<HTMLDivElement>(null)
+  useCodeEnhancer(bubbleRef, message.content)
+
   if (message.role === 'user') {
     // Collapse the verbose <attached-context> block (from attached files/folders).
     const m = message.content.match(/^<attached-context>[\s\S]*?<\/attached-context>\s*([\s\S]*)$/)
     const visible = m ? m[1] : message.content
     return (
       <div className="msg user">
-        <div className="role">You</div>
+        <div className="role">
+          You
+          {onEdit && !message.id.startsWith('local-') && (
+            <span
+              className="copy-btn"
+              title="Bearbeiten & neu senden (Verlauf ab hier wird ersetzt)"
+              onClick={() => onEdit(message.id, visible)}
+            >
+              ✏️
+            </span>
+          )}
+        </div>
         {m && <div className="attach-note">📎 Anhänge im Kontext</div>}
         <div className="bubble">{visible || '(nur Anhänge)'}</div>
       </div>
@@ -41,7 +92,11 @@ function MessageViewImpl({
       </div>
       {message.reasoning && <Reasoning text={message.reasoning} />}
       {message.content && (
-        <div className="bubble" dangerouslySetInnerHTML={{ __html: renderMd(message.content) }} />
+        <div
+          className="bubble"
+          ref={bubbleRef}
+          dangerouslySetInnerHTML={{ __html: renderMd(message.content) }}
+        />
       )}
       {message.toolCalls?.map((tc) => (
         <ToolBlock
@@ -251,9 +306,11 @@ function renderMd(text: string): string {
   const segments = text.split(/```/)
   for (let i = 0; i < segments.length; i++) {
     if (i % 2 === 1) {
-      const body = segments[i].replace(/^[a-zA-Z0-9]*\n/, '')
+      const langMatch = segments[i].match(/^([a-zA-Z0-9+-]*)\n/)
+      const lang = langMatch?.[1] ?? ''
+      const body = segments[i].replace(/^[a-zA-Z0-9+-]*\n/, '')
       out.push(
-        `<pre class="codeblock"><code>${esc(body)}</code></pre>`
+        `<pre class="codeblock">${lang ? `<span class="code-lang">${esc(lang)}</span>` : ''}<code${lang ? ` class="language-${esc(lang)}"` : ''}>${esc(body)}</code></pre>`
       )
       continue
     }

@@ -109,3 +109,8 @@ app
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
+
+app.on('before-quit', () => {
+  // stop any still-running background jobs so we don't orphan processes
+  import('./jobs').then((m) => m.shutdownJobs()).catch(() => {})
+})

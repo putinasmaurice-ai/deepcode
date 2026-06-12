@@ -32,6 +32,8 @@ import { mcpManager } from './systems/mcp'
 import { PATHS } from './paths'
 import { buildAttachmentContext, listProjectFiles } from './attachments'
 import { rewindLastTurn } from './checkpoints'
+import { listJobs, killJob } from './jobs'
+import { execFile } from 'child_process'
 import type { ApprovalPolicy } from './agent/engine'
 import { loadProjects, getProject, upsertProject, deleteProject as removeProject } from './projects'
 import { computeUsageSummary, usageSummaryText } from './usage'
@@ -210,6 +212,27 @@ export function registerIpc(win: BrowserWindow): void {
         emit({ type: 'turn_done', sessionId: session.id })
         return true
       }
+      if (cmd === 'jobs') {
+        const all = listJobs()
+        if (args.startsWith('kill ')) {
+          const id = args.slice(5).trim()
+          emitInfo(emit, killJob(id) ? `🛑 Job \`${id}\` gestoppt.` : `Job \`${id}\` nicht gefunden oder beendet.`)
+        } else {
+          emitInfo(
+            emit,
+            all.length
+              ? `## Hintergrund-Jobs\n${all
+                  .map(
+                    (j) =>
+                      `- \`${j.id}\` **${j.status}**${j.exitCode !== null ? ` (exit ${j.exitCode})` : ''} — \`${j.command.slice(0, 70)}\``
+                  )
+                  .join('\n')}\n\n_Stoppen mit \`/jobs kill <id>\`._`
+              : 'Keine Hintergrund-Jobs. Der Agent startet sie mit `run_background_command` (z.B. Dev-Server).'
+          )
+        }
+        emit({ type: 'turn_done', sessionId: session.id })
+        return true
+      }
       if (cmd === 'rewind') {
         const restored = rewindLastTurn(session.id)
         emitInfo(
@@ -346,19 +369,27 @@ export function registerIpc(win: BrowserWindow): void {
     shell.openPath(PATHS.root)
     return true
   })
-  ipcMain.handle(IPC.getCwdInfo, (_e, cwd: string) => {
+  ipcMain.handle(IPC.getCwdInfo, async (_e, cwd: string) => {
     const exists = existsSync(cwd) && statSync(cwd).isDirectory()
     let gitBranch: string | null = null
+    let gitDirty = 0
     try {
       const head = join(cwd, '.git', 'HEAD')
       if (existsSync(head)) {
         const txt = readFileSync(head, 'utf8').trim()
         gitBranch = txt.startsWith('ref:') ? txt.split('/').pop() || null : txt.slice(0, 8)
+        gitDirty = await new Promise<number>((resolve) => {
+          const t = setTimeout(() => resolve(0), 2500)
+          execFile('git', ['status', '--porcelain'], { cwd, timeout: 2000 }, (err, stdout) => {
+            clearTimeout(t)
+            resolve(err ? 0 : stdout.split('\n').filter(Boolean).length)
+          })
+        })
       }
     } catch {
       /* not a repo */
     }
-    return { cwd, exists, gitBranch }
+    return { cwd, exists, gitBranch, gitDirty }
   })
 
   // ---- automation scheduler ----
@@ -418,6 +449,7 @@ function emitHelp(emit: (e: AgentEvent) => void, cwd: string): void {
   lines.push('- `/model [id]` — Modell dieser Session anzeigen/wechseln')
   lines.push('- `/compact` — ältere Nachrichten zusammenfassen (Kontext sparen)')
   lines.push('- `/rewind` — Datei-Änderungen der letzten Runde rückgängig machen')
+  lines.push('- `/jobs [kill <id>]` — Hintergrund-Jobs anzeigen/stoppen')
   if (cmds.length) {
     lines.push('\n**Eigene Befehle:**')
     for (const c of cmds) lines.push(`- \`/${c.name}\` — ${c.description}`)

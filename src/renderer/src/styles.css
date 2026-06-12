@@ -1121,3 +1121,100 @@ button {
   outline: 2px dashed var(--accent);
   outline-offset: -6px;
 }
+
+/* code blocks: language tag + copy button */
+.codeblock {
+  position: relative;
+}
+.code-lang {
+  position: absolute;
+  top: 6px;
+  right: 38px;
+  font-size: 10px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-family: var(--sans);
+}
+.code-copy {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-2);
+  color: var(--text-dim);
+  border-radius: 6px;
+  font-size: 12px;
+  padding: 2px 7px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.codeblock:hover .code-copy {
+  opacity: 1;
+}
+.code-copy:hover {
+  color: var(--accent-3);
+  border-color: var(--accent);
+}
+
+/* ocean syntax theme (highlight.js) */
+.hljs {
+  color: var(--text);
+  background: transparent;
+}
+.hljs-comment,
+.hljs-quote {
+  color: #5b6b85;
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag {
+  color: #7c9bff;
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-addition {
+  color: #5fe3a1;
+}
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet {
+  color: #ffb86c;
+}
+.hljs-title,
+.hljs-title.function_,
+.hljs-section {
+  color: #39e5f0;
+}
+.hljs-title.class_,
+.hljs-type,
+.hljs-built_in {
+  color: #c792ea;
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-params {
+  color: #a9c4e8;
+}
+.hljs-tag,
+.hljs-name {
+  color: #4da3ff;
+}
+.hljs-meta,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: #e3b341;
+}
+.hljs-deletion {
+  color: #ff8a80;
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 700;
+}

@@ -85,6 +85,9 @@ export function App(): JSX.Element {
   const [todos, setTodos] = useState<TodoItem[]>([])
   const [sessionFilter, setSessionFilter] = useState('')
   const [showJump, setShowJump] = useState(false)
+  const [gitDirty, setGitDirty] = useState(0)
+  const [composerPrefill, setComposerPrefill] = useState<string | null>(null)
+  const editTargetRef = useRef<string | null>(null)
   const chatRef = useRef<HTMLDivElement>(null)
   const nearBottomRef = useRef(true)
 
@@ -94,13 +97,21 @@ export function App(): JSX.Element {
     setProjects(await api.listProjects())
   }
 
-  // git branch for the current working dir
-  useEffect(() => {
+  // git branch + dirty count for the current working dir (refreshed after each turn)
+  const refreshGit = useCallback((): void => {
     if (!session?.cwd) return
-    api.getCwdInfo(session.cwd).then((info: { gitBranch?: string | null }) => {
+    api.getCwdInfo(session.cwd).then((info: { gitBranch?: string | null; gitDirty?: number }) => {
       setGitBranch(info?.gitBranch ?? null)
+      setGitDirty(info?.gitDirty ?? 0)
     })
   }, [session?.cwd])
+  useEffect(() => {
+    refreshGit()
+  }, [refreshGit])
+  // refresh git state after each finished turn (the agent may have changed files)
+  useEffect(() => {
+    if (!busy) refreshGit()
+  }, [busy, refreshGit])
 
   // global shortcuts: Ctrl+N new chat, Ctrl+K focus composer, Esc cancel turn
   useEffect(() => {
@@ -209,6 +220,14 @@ export function App(): JSX.Element {
         setBusy(false)
         setStatus('')
         refreshSessions()
+        // notify when the user is in another window/app
+        if (document.hidden) {
+          try {
+            new Notification('DeepCode 🐋', { body: 'Aufgabe abgeschlossen.' })
+          } catch {
+            /* notifications unavailable */
+          }
+        }
         break
     }
   }, [])
@@ -340,12 +359,24 @@ export function App(): JSX.Element {
     nearBottomRef.current = true
     scrollDown()
     try {
-      await api.sendMessage(session.id, text, attachments, mode)
+      // edit-and-resend: replace history from the edited message onward
+      const editId = editTargetRef.current
+      editTargetRef.current = null
+      if (editId) {
+        await api.resendMessage(session.id, editId, text, mode)
+      } else {
+        await api.sendMessage(session.id, text, attachments, mode)
+      }
     } catch (err) {
       setError((err as Error).message)
       setBusy(false)
     }
   }
+
+  const startEdit = useCallback((messageId: string, content: string): void => {
+    editTargetRef.current = messageId
+    setComposerPrefill(content)
+  }, [])
 
   async function regenerate(): Promise<void> {
     if (!session || busy) return
@@ -533,7 +564,12 @@ export function App(): JSX.Element {
               <div className="cwd" onClick={pickCwd} title="Click to change the working directory">
                 📁 {session.cwd}
               </div>
-              {gitBranch && <span className="pill branch-pill">⎇ {gitBranch}</span>}
+              {gitBranch && (
+                <span className="pill branch-pill" title={gitDirty ? `${gitDirty} unkommittierte Änderung(en)` : 'Working tree sauber'}>
+                  ⎇ {gitBranch}
+                  {gitDirty > 0 && <span style={{ color: 'var(--yellow)' }}> ·{gitDirty}Δ</span>}
+                </span>
+              )}
               {(activeProject?.goal || session.goal) && (
                 <span
                   className="pill goal-pill"
@@ -623,6 +659,7 @@ export function App(): JSX.Element {
                     message={m}
                     toolState={toolState}
                     onApprove={approve}
+                    onEdit={startEdit}
                   />
                 ))}
                 {busy && status && <div className="msg"><div className="role">working</div><div style={{ color: 'var(--text-faint)', fontSize: 13 }}>{status}</div></div>}
@@ -657,7 +694,14 @@ export function App(): JSX.Element {
               )}
             </div>
             {todos.length > 0 && <TodoStrip todos={todos} onClear={() => setTodos([])} />}
-            <Composer busy={busy} onSend={send} onStop={stop} cwd={session?.cwd} />
+            <Composer
+              busy={busy}
+              onSend={send}
+              onStop={stop}
+              cwd={session?.cwd}
+              prefill={composerPrefill}
+              onPrefillConsumed={() => setComposerPrefill(null)}
+            />
           </>
         ) : view === 'projects' ? (
           <ProjectsPanel

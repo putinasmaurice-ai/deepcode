@@ -12,12 +12,16 @@ export function Composer({
   busy,
   onSend,
   onStop,
-  cwd
+  cwd,
+  prefill,
+  onPrefillConsumed
 }: {
   busy: boolean
   onSend: (text: string, attachments?: string[]) => void
   onStop: () => void
   cwd?: string
+  prefill?: string | null
+  onPrefillConsumed?: () => void
 }): JSX.Element {
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<string[]>([])
@@ -31,6 +35,16 @@ export function Composer({
   useEffect(() => {
     ref.current?.focus()
   }, [cwd])
+
+  // edit-and-resend: take over prefilled text from a user message
+  useEffect(() => {
+    if (prefill != null) {
+      setText(prefill)
+      onPrefillConsumed?.()
+      ref.current?.focus()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill])
 
   // file list for @-mentions (lazy, refreshed per cwd)
   useEffect(() => {

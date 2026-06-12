@@ -72,6 +72,31 @@ Bug: $ARGUMENTS
 `
   )
 
+  writeIfMissing(
+    join(PATHS.commands, 'branch.md'),
+    `---
+name: branch
+description: Create a feature branch for the current task and switch to it
+---
+
+Create a new git branch for the following task and switch to it. Derive a short kebab-case branch name (e.g. feature/fix-login-bug) from the task. If there are uncommitted changes, ask whether to stash, commit, or bring them along. Confirm the result with \`git status\`.
+
+Task: $ARGUMENTS
+`
+  )
+  writeIfMissing(
+    join(PATHS.commands, 'pr.md'),
+    `---
+name: pr
+description: Commit current work and open a pull request (gh CLI)
+---
+
+Prepare a pull request for the current branch: review the changes (git status, git diff), stage and commit them with a clear conventional-commits message, push the branch, and open a PR with \`gh pr create\` including a concise title and a summary body. Show me the PR description before creating it. If \`gh\` is not installed or not authenticated, explain how to set it up instead.
+
+$ARGUMENTS
+`
+  )
+
   // --- Subagent ---
   writeIfMissing(
     join(PATHS.agents, 'code-reviewer.md'),
