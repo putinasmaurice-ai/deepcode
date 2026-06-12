@@ -1250,6 +1250,21 @@ button {
   border-color: var(--accent);
 }
 
+/* arena vote bar */
+.vote-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin: 4px 0 16px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
 /* toasts */
 .toasts {
   position: fixed;

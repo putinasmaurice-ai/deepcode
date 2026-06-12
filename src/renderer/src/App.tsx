@@ -215,6 +215,29 @@ export function App(): JSX.Element {
     setView('automations')
   }, [])
 
+  // local models (Ollama / LM Studio), refreshed on mount
+  const [localModels, setLocalModels] = useState<string[]>([])
+  useEffect(() => {
+    api.listLocalModels().then((m: string[]) => setLocalModels(m ?? []))
+  }, [])
+
+  const [votedArena, setVotedArena] = useState<Set<string>>(new Set())
+  async function arena(): Promise<void> {
+    if (!session || busy) return
+    setBusy(true)
+    try {
+      await api.arena(session.id)
+    } catch (err) {
+      addToast((err as Error).message, 'error')
+      setBusy(false)
+    }
+  }
+  async function voteArena(winner: string, loser: string, pairKey: string): Promise<void> {
+    await api.arenaVote(winner, loser)
+    setVotedArena((s) => new Set([...s, pairKey]))
+    addToast(`Gemerkt: ${winner} bevorzugt. Fließt in die Modell-Präferenzen ein.`)
+  }
+
   // ---- agent event stream ----
   useEffect(() => {
     const off = api.onAgentEvent((e: AgentEvent) => handleEvent(e))
@@ -717,17 +740,18 @@ export function App(): JSX.Element {
                 className="model-select"
                 value={session.model || settings.provider.model}
                 onChange={(e) => changeModel(e.target.value)}
-                title="Model for this session"
+                title="Modell für diese Session (local: = Ollama/LM Studio, kostenlos & offline)"
               >
                 {Array.from(
                   new Set([
                     settings.provider.model,
                     settings.provider.reasonerModel,
-                    session.model || settings.provider.model
+                    session.model || settings.provider.model,
+                    ...localModels.map((m) => 'local:' + m)
                   ])
                 ).map((m) => (
                   <option key={m} value={m}>
-                    {m}
+                    {m.startsWith('local:') ? '💻 ' + m : m}
                   </option>
                 ))}
               </select>
@@ -782,6 +806,39 @@ export function App(): JSX.Element {
                       ▸ Weiter generieren
                     </button>
                   )}
+                {!busy &&
+                  (() => {
+                    // arena vote bar: last two messages are an unvoted arena pair
+                    const n = transcript.length
+                    if (n < 2) return null
+                    const a = transcript[n - 2]
+                    const b = transcript[n - 1]
+                    const pairKey = a.id + ':' + b.id
+                    if (a.variant !== 'arena' || b.variant !== 'arena' || votedArena.has(pairKey)) return null
+                    return (
+                      <div className="vote-bar">
+                        <span>🥊 Welche Antwort war besser?</span>
+                        <button
+                          className="btn ghost sm"
+                          onClick={() => voteArena(a.variantModel!, b.variantModel!, pairKey)}
+                        >
+                          A: {a.variantModel}
+                        </button>
+                        <button
+                          className="btn ghost sm"
+                          onClick={() => voteArena(b.variantModel!, a.variantModel!, pairKey)}
+                        >
+                          B: {b.variantModel}
+                        </button>
+                        <button
+                          className="attach-btn"
+                          onClick={() => setVotedArena((s) => new Set([...s, pairKey]))}
+                        >
+                          Unentschieden
+                        </button>
+                      </div>
+                    )
+                  })()}
                 {!busy && transcript.some((m) => m.role === 'assistant') && (
                   <div className="msg-actions-row">
                     <button className="attach-btn" onClick={regenerate} title="Letzte Antwort neu generieren">
@@ -793,6 +850,13 @@ export function App(): JSX.Element {
                       title="Das Reasoner-Modell prüft die letzte Antwort unabhängig und gibt eine eigene Einschätzung"
                     >
                       🧠 Zweitmeinung
+                    </button>
+                    <button
+                      className="attach-btn"
+                      onClick={arena}
+                      title="Beide Modelle beantworten die letzte Frage parallel — du wählst den Gewinner, die App merkt sich deine Präferenz"
+                    >
+                      🥊 Arena
                     </button>
                   </div>
                 )}

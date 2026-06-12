@@ -32,7 +32,7 @@ export interface ChatMessage {
   usage?: TokenUsage // token usage for this assistant turn
   finishReason?: string // 'stop' | 'length' | 'tool_calls' | ...
   meta?: Record<string, unknown> // tool result metadata (diff, paths, counts…)
-  variant?: 'second-opinion' // alternative answer from the reasoner model
+  variant?: 'second-opinion' | 'arena' // alternative/parallel answers
   variantModel?: string
 }
 
@@ -100,6 +100,9 @@ export interface ProviderSettings {
   // pricing for cost estimation (USD per 1M tokens)
   pricePerMillionInput: number
   pricePerMillionOutput: number
+  // OpenAI-compatible endpoint for LOCAL models (Ollama/LM Studio).
+  // Models prefixed "local:" are routed here, keyless and free.
+  localBaseUrl: string
 }
 
 export interface AppSettings {
@@ -132,7 +135,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     temperature: 0.2,
     maxTokens: 8192,
     pricePerMillionInput: 0.27,
-    pricePerMillionOutput: 1.1
+    pricePerMillionOutput: 1.1,
+    localBaseUrl: 'http://localhost:11434/v1'
   },
   autoApprove: {
     read: true,

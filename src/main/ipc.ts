@@ -27,7 +27,7 @@ import { loadCommands, expandCommand } from './systems/commands'
 import { loadSubagents } from './systems/subagents'
 import { loadHooks } from './systems/hooks'
 import { pluginSkills, pluginCommands, pluginSubagents, pluginHooks, loadPlugins, togglePlugin } from './systems/plugins'
-import { loadMemory, saveMemory, deleteMemory } from './systems/memory'
+import { loadMemory, saveMemory, deleteMemory, recordArenaVote } from './systems/memory'
 import { mcpManager } from './systems/mcp'
 import { PATHS } from './paths'
 import { buildAttachmentContext, listProjectFiles } from './attachments'
@@ -328,6 +328,33 @@ export function registerIpc(win: BrowserWindow): void {
     if (!session) throw new Error('Session not found')
     await engine.secondOpinion(session, emit)
     return true
+  })
+  ipcMain.handle(IPC.arena, async (_e, sessionId: string, modelB?: string) => {
+    const session = getSession(sessionId)
+    if (!session) throw new Error('Session not found')
+    await engine.arena(session, emit, modelB)
+    return true
+  })
+  ipcMain.handle(IPC.arenaVote, (_e, winner: string, loser: string) => {
+    recordArenaVote(winner, loser)
+    return true
+  })
+  // local models from the OpenAI-compatible endpoint (Ollama / LM Studio)
+  ipcMain.handle(IPC.listLocalModels, async () => {
+    try {
+      const base = (settings.provider.localBaseUrl || 'http://localhost:11434/v1').replace(/\/$/, '')
+      const ctrl = new AbortController()
+      const t = setTimeout(() => ctrl.abort(), 2500)
+      const res = await fetch(`${base}/models`, { signal: ctrl.signal })
+      clearTimeout(t)
+      if (!res.ok) return []
+      const json = (await res.json()) as { data?: { id: string }[] }
+      return (json.data ?? [])
+        .map((m) => m.id)
+        .filter((id) => !/embed|minilm/i.test(id)) // hide embedding models
+    } catch {
+      return [] // endpoint not running — that's fine
+    }
   })
   ipcMain.handle(IPC.readFileHead, (_e, path: string, maxChars?: number) => {
     try {

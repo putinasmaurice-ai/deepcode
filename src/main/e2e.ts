@@ -33,7 +33,7 @@ export async function maybeRunE2E(): Promise<boolean> {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       messages: [],
-      model: settings.provider.model
+      model: process.env.DEEPCODE_E2E_MODEL || settings.provider.model
     }
     saveSession(session)
     log(`PROMPT: ${prompt}`)

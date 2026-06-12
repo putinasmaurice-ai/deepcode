@@ -84,13 +84,21 @@ export class DeepSeekClient {
     signal: AbortSignal,
     modelOverride?: string
   ): Promise<StreamResult> {
-    if (!this.settings.apiKey || !this.settings.apiKey.trim()) {
+    const rawModel = modelOverride || this.settings.model
+    // "local:<name>" routes to the local OpenAI-compatible endpoint (Ollama /
+    // LM Studio): keyless, free, offline-capable.
+    const isLocal = rawModel.startsWith('local:')
+    const model = isLocal ? rawModel.slice('local:'.length) : rawModel
+    const base = isLocal
+      ? this.settings.localBaseUrl || 'http://localhost:11434/v1'
+      : this.settings.baseUrl
+
+    if (!isLocal && (!this.settings.apiKey || !this.settings.apiKey.trim())) {
       throw new Error('DeepSeek API key is not configured. Add it in Settings.')
     }
 
-    const model = modelOverride || this.settings.model
     const reasoner = isReasoner(model)
-    const url = `${this.settings.baseUrl.replace(/\/$/, '')}/chat/completions`
+    const url = `${base.replace(/\/$/, '')}/chat/completions`
 
     const body: Record<string, unknown> = {
       model,
@@ -115,12 +123,11 @@ export class DeepSeekClient {
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
       try {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        if (!isLocal) headers.Authorization = `Bearer ${this.settings.apiKey}`
         res = await fetch(url, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${this.settings.apiKey}`
-          },
+          headers,
           body: JSON.stringify(body),
           signal
         })

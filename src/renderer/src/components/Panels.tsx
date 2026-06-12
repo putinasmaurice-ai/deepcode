@@ -87,6 +87,14 @@ export function SettingsPanel({
           <label>Base URL</label>
           <input value={p.baseUrl} onChange={(e) => updateProvider({ baseUrl: e.target.value })} />
         </div>
+        <div className="field">
+          <label>Lokale Modelle — Endpoint (Ollama / LM Studio, OpenAI-kompatibel)</label>
+          <input
+            value={p.localBaseUrl ?? 'http://localhost:11434/v1'}
+            onChange={(e) => updateProvider({ localBaseUrl: e.target.value })}
+            placeholder="http://localhost:11434/v1"
+          />
+        </div>
         <div className="row">
           <div className="field">
             <label>Model</label>

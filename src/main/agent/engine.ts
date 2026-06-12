@@ -145,7 +145,8 @@ export class AgentEngine {
     return false
   }
 
-  private costOf(usage: RawUsage): TokenUsage {
+  private costOf(usage: RawUsage, model?: string): TokenUsage {
+    if (model?.startsWith('local:')) return { ...usage, cost: 0 } // local = free
     const p = this.settings.provider
     const cost =
       (usage.promptTokens / 1_000_000) * (p.pricePerMillionInput || 0) +
@@ -268,7 +269,7 @@ export class AgentEngine {
         }))
         assistantMsg.finishReason = result.finishReason
         if (result.usage) {
-          assistantMsg.usage = this.costOf(result.usage)
+          assistantMsg.usage = this.costOf(result.usage, session.model)
           emit({ type: 'usage', messageId: assistantMsg.id, usage: assistantMsg.usage })
         }
         session.messages.push(assistantMsg)
@@ -496,7 +497,7 @@ export class AgentEngine {
       )
       msg.finishReason = result.finishReason
       if (result.usage) {
-        msg.usage = this.costOf(result.usage)
+        msg.usage = this.costOf(result.usage, model)
         emit({ type: 'usage', messageId: msg.id, usage: msg.usage })
       }
       session.messages.push(msg)
@@ -504,6 +505,77 @@ export class AgentEngine {
       emit({ type: 'message_done', message: msg })
     } catch (e) {
       if ((e as Error).name !== 'AbortError') emit({ type: 'error', message: (e as Error).message })
+    } finally {
+      this.aborters.delete(session.id)
+      emit({ type: 'turn_done', sessionId: session.id })
+    }
+  }
+
+  // Model arena: answer the last user request with TWO models in parallel and
+  // stream both as tagged messages — the user votes, the vote becomes memory.
+  async arena(session: Session, emit: Emit, modelB?: string): Promise<void> {
+    const aborter = new AbortController()
+    this.aborters.set(session.id, aborter)
+    const modelA = session.model || this.settings.provider.model
+    const b = modelB || this.settings.provider.reasonerModel || modelA
+
+    const project = session.projectId ? getProject(session.projectId) : null
+    const system =
+      buildSystemPrompt({
+        cwd: session.cwd,
+        skills: [],
+        customInstructions: this.settings.customInstructions,
+        project: project
+          ? { name: project.name, instructions: project.instructions, goal: project.goal }
+          : null,
+        sessionGoal: session.goal
+      }) +
+      '\n\n# Arena mode\nAnswer the last user request directly and completely. Tools are unavailable — answer from the conversation context.'
+
+    const apiMessages = this.toApiMessages(system, session.messages)
+
+    const runOne = async (model: string): Promise<ChatMessage> => {
+      const msg: ChatMessage = {
+        id: randomUUID(),
+        role: 'assistant',
+        content: '',
+        createdAt: Date.now(),
+        variant: 'arena',
+        variantModel: model
+      }
+      emit({ type: 'message_start', message: msg })
+      const result = await this.client.streamChat(
+        apiMessages,
+        [],
+        {
+          onReasoning: (d) => {
+            msg.reasoning = (msg.reasoning ?? '') + d
+            emit({ type: 'reasoning_delta', messageId: msg.id, delta: d })
+          },
+          onContent: (d) => {
+            msg.content += d
+            emit({ type: 'content_delta', messageId: msg.id, delta: d })
+          }
+        },
+        aborter.signal,
+        model
+      )
+      msg.finishReason = result.finishReason
+      if (result.usage) {
+        msg.usage = this.costOf(result.usage, model)
+        emit({ type: 'usage', messageId: msg.id, usage: msg.usage })
+      }
+      emit({ type: 'message_done', message: msg })
+      return msg
+    }
+
+    try {
+      const settled = await Promise.allSettled([runOne(modelA), runOne(b)])
+      for (const r of settled) {
+        if (r.status === 'fulfilled') session.messages.push(r.value)
+        else emit({ type: 'error', message: `Arena: ${(r.reason as Error).message}` })
+      }
+      saveSession(session)
     } finally {
       this.aborters.delete(session.id)
       emit({ type: 'turn_done', sessionId: session.id })

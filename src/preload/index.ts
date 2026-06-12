@@ -38,6 +38,9 @@ const api = {
   ) => ipcRenderer.invoke(IPC.resendMessage, sessionId, messageId, newText, mode, attachments),
   listFiles: (cwd: string) => ipcRenderer.invoke(IPC.listFiles, cwd),
   secondOpinion: (sessionId: string) => ipcRenderer.invoke(IPC.secondOpinion, sessionId),
+  arena: (sessionId: string, modelB?: string) => ipcRenderer.invoke(IPC.arena, sessionId, modelB),
+  arenaVote: (winner: string, loser: string) => ipcRenderer.invoke(IPC.arenaVote, winner, loser),
+  listLocalModels: () => ipcRenderer.invoke(IPC.listLocalModels),
   readFileHead: (path: string, maxChars?: number) =>
     ipcRenderer.invoke(IPC.readFileHead, path, maxChars),
   cancelTurn: (sessionId: string) => ipcRenderer.invoke(IPC.cancelTurn, sessionId),

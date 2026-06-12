@@ -88,11 +88,15 @@ function MessageViewImpl({
   if (message.role !== 'assistant') return null
 
   return (
-    <div className={'msg assistant' + (message.variant === 'second-opinion' ? ' second-opinion' : '')}>
+    <div className={'msg assistant' + (message.variant ? ' second-opinion' : '')}>
       <div className="role">
         {message.variant === 'second-opinion' ? (
           <>
             🧠 Zweitmeinung <span className="badge">{message.variantModel}</span>
+          </>
+        ) : message.variant === 'arena' ? (
+          <>
+            🥊 Arena <span className="badge">{message.variantModel}</span>
           </>
         ) : (
           'DeepCode'

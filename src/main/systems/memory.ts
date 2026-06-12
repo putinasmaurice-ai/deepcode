@@ -75,6 +75,35 @@ export function deleteMemory(name: string): void {
   rebuildIndex()
 }
 
+// Arena votes accumulate into one memory entry, so the model-preference
+// knowledge ("user prefers X for coding") flows into every system prompt.
+export function recordArenaVote(winner: string, loser: string): void {
+  const existing = loadMemory().find((m) => m.name === 'arena-preferences')
+  const counts = new Map<string, number>()
+  if (existing) {
+    for (const line of existing.body.split('\n')) {
+      const m = line.match(/^- (.+?) schlägt (.+?): (\d+)x$/)
+      if (m) counts.set(`${m[1]}>${m[2]}`, parseInt(m[3], 10))
+    }
+  }
+  const key = `${winner}>${loser}`
+  counts.set(key, (counts.get(key) ?? 0) + 1)
+  const body = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => {
+      const [w, l] = k.split('>')
+      return `- ${w} schlägt ${l}: ${n}x`
+    })
+    .join('\n')
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]
+  saveMemory({
+    name: 'arena-preferences',
+    description: `Modell-Präferenzen aus Arena-Votings (Favorit: ${top[0].split('>')[0]})`,
+    type: 'feedback',
+    body
+  })
+}
+
 function rebuildIndex(): void {
   const entries = loadMemory()
   const lines = entries.map((e) => `- [${e.name}](${e.name}.md) — ${e.description}`)
