@@ -1,4 +1,4 @@
-import { app, shell, dialog, BrowserWindow } from 'electron'
+import { app, shell, dialog, BrowserWindow, Menu, clipboard } from 'electron'
 import { join } from 'path'
 import { fileURLToPath } from 'url'
 import { dirname } from 'path'
@@ -73,6 +73,34 @@ function createWindow(): void {
     win.show()
   })
   win.on('close', () => saveWinState(win))
+
+  // Right-click context menu with Cut/Copy/Paste/Select-all — Electron has none
+  // by default, which is why copy/paste felt broken.
+  win.webContents.on('context-menu', (_e, params) => {
+    const editable = params.isEditable
+    const hasSelection = params.selectionText.trim().length > 0
+    const template: Electron.MenuItemConstructorOptions[] = []
+    if (editable) {
+      template.push(
+        { role: 'cut', enabled: hasSelection },
+        { role: 'copy', enabled: hasSelection },
+        { role: 'paste' },
+        { type: 'separator' },
+        { role: 'selectAll' }
+      )
+    } else if (hasSelection) {
+      template.push({ role: 'copy' })
+    } else {
+      template.push({ role: 'selectAll' })
+    }
+    if (params.linkURL) {
+      template.unshift(
+        { label: 'Link kopieren', click: () => clipboard.writeText(params.linkURL) },
+        { type: 'separator' }
+      )
+    }
+    Menu.buildFromTemplate(template).popup({ window: win })
+  })
 
   win.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)

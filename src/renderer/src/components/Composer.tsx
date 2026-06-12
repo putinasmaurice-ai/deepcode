@@ -3,9 +3,23 @@ import type { SlashCommandDef } from '../../../shared/types'
 
 const api = window.deepcode
 
+const b = (name: string, description: string): SlashCommandDef => ({
+  name,
+  description,
+  path: '',
+  template: '',
+  source: 'user'
+})
 const BUILTIN: SlashCommandDef[] = [
-  { name: 'help', description: 'Show what DeepCode can do', path: '', template: '', source: 'user' },
-  { name: 'init', description: 'Analyze this project and write a DEEPCODE.md', path: '', template: '', source: 'user' }
+  b('help', 'Zeigt alle Befehle und Fähigkeiten'),
+  b('goal', 'Dauerhaftes Ziel setzen/anzeigen — /goal <Ziel> · /goal clear'),
+  b('init', 'Projekt analysieren und DEEPCODE.md schreiben'),
+  b('cost', 'Kostenübersicht (pro Chat / Projekt / gesamt)'),
+  b('model', 'Modell dieser Session anzeigen/wechseln — /model <id>'),
+  b('compact', 'Ältere Nachrichten zusammenfassen (Kontext sparen)'),
+  b('rewind', 'Datei-Änderungen der letzten Runde rückgängig machen'),
+  b('jobs', 'Hintergrund-Jobs anzeigen/stoppen — /jobs kill <id>'),
+  b('learn', 'Aus diesem Chat einen wiederverwendbaren Skill destillieren')
 ]
 
 export function Composer({

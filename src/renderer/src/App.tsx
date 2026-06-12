@@ -16,7 +16,7 @@ import { ProjectsPanel } from './components/ProjectsPanel'
 import { UsagePanel } from './components/UsagePanel'
 import { AuditPanel } from './components/AuditPanel'
 import { NightShiftPanel } from './components/NightShiftPanel'
-import { Welcome, TodoStrip, ContextPill, basename, relTime } from './components/ChatExtras'
+import { Welcome, TodoStrip, ContextPill, WorkingIndicator, basename, relTime } from './components/ChatExtras'
 import { FirstRunModal } from './components/FirstRunModal'
 import { MarketPanel } from './components/MarketPanel'
 import { Sidebar, NAV } from './components/Sidebar'
@@ -817,7 +817,7 @@ export function App(): JSX.Element {
                     cwd={session?.cwd}
                   />
                 ))}
-                {busy && status && <div className="msg"><div className="role">working</div><div style={{ color: 'var(--text-faint)', fontSize: 13 }}>{status}</div></div>}
+                {busy && <WorkingIndicator status={status} />}
                 {!busy && status && <div style={{ color: 'var(--text-faint)', fontSize: 12 }}>{status}</div>}
                 {!busy &&
                   transcript.length > 0 &&

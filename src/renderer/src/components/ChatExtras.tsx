@@ -45,6 +45,28 @@ export function ContextPill({
   )
 }
 
+// Live "working" indicator with an elapsed-seconds counter — reassures the
+// user the agent is running, which matters a lot for slow local models.
+export function WorkingIndicator({ status }: { status: string }): JSX.Element {
+  const [secs, setSecs] = useState(0)
+  useEffect(() => {
+    const start = Date.now()
+    const t = setInterval(() => setSecs(Math.floor((Date.now() - start) / 1000)), 500)
+    return () => clearInterval(t)
+  }, [])
+  return (
+    <div className="working">
+      <span className="working-dots">
+        <i></i>
+        <i></i>
+        <i></i>
+      </span>
+      <span className="working-text">{status || 'DeepCode arbeitet'}</span>
+      <span className="working-secs">{secs}s</span>
+    </div>
+  )
+}
+
 export function TodoStrip({ todos, onClear }: { todos: TodoItem[]; onClear: () => void }): JSX.Element {
   const done = todos.filter((t) => t.status === 'done').length
   return (
