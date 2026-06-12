@@ -482,6 +482,26 @@ export function App(): JSX.Element {
     setSessions((list) => list.map((x) => (x.id === session.id ? { ...x, model } : x)))
   }
 
+  // 🔓 Uncensored toggle: swap to the configured local unaligned model and back.
+  const uncensoredModel = settings?.provider.uncensoredModel || 'local:dolphin3'
+  const uncensoredActive = !!session && session.model === uncensoredModel
+  async function toggleUncensored(): Promise<void> {
+    if (!session) return
+    if (uncensoredActive) {
+      await changeModel(settings!.provider.model)
+    } else {
+      if (!localModels.length) {
+        addToast(
+          'Kein lokales Modell gefunden. Läuft Ollama? Modell laden: ollama pull dolphin3',
+          'error'
+        )
+        return
+      }
+      await changeModel(uncensoredModel)
+      addToast('🔓 Uncensored-Modus: lokales, ungefiltertes Modell — Antworten ohne Schutzschienen.')
+    }
+  }
+
   async function compact(): Promise<void> {
     if (!session || busy) return
     setBusy(true)
@@ -738,6 +758,17 @@ export function App(): JSX.Element {
                   </option>
                 ))}
               </select>
+              <button
+                className={'btn ghost sm uncensored-btn' + (uncensoredActive ? ' on' : '')}
+                onClick={toggleUncensored}
+                title={
+                  uncensoredActive
+                    ? 'Uncensored aktiv — klicken für zurück zum Standardmodell'
+                    : `Auf lokales, ungefiltertes Modell umschalten (${uncensoredModel})`
+                }
+              >
+                {uncensoredActive ? '🔓 Uncensored' : '🔒'}
+              </button>
             </>
           )}
           {view !== 'chat' && (
@@ -758,6 +789,12 @@ export function App(): JSX.Element {
                 {apiKeyMissing && (
                   <div className="banner">
                     No DeepSeek API key set. Open <b>Settings</b> to add your key and model.
+                  </div>
+                )}
+                {uncensoredActive && (
+                  <div className="banner uncensored-banner">
+                    🔓 <b>Uncensored-Modus</b> — lokales Modell ({uncensoredModel.replace('local:', '')}),
+                    offline & ohne Filter. Du trägst die Verantwortung für die Nutzung.
                   </div>
                 )}
                 {error && <div className="banner">{error}</div>}

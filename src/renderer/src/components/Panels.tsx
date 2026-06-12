@@ -95,6 +95,14 @@ export function SettingsPanel({
             placeholder="http://localhost:11434/v1"
           />
         </div>
+        <div className="field">
+          <label>🔓 Uncensored-Modell (für den Topbar-Schalter — lokal, ungefiltert)</label>
+          <input
+            value={p.uncensoredModel ?? 'local:dolphin3'}
+            onChange={(e) => updateProvider({ uncensoredModel: e.target.value })}
+            placeholder="local:dolphin3"
+          />
+        </div>
         <div className="row">
           <div className="field">
             <label>Model</label>

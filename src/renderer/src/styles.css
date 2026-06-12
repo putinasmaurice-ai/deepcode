@@ -1368,6 +1368,18 @@ button {
   margin-top: 14px;
 }
 
+/* uncensored toggle */
+.uncensored-btn.on {
+  border-color: var(--yellow);
+  color: var(--yellow);
+  background: rgba(227, 179, 65, 0.1);
+}
+.uncensored-banner {
+  background: rgba(227, 179, 65, 0.1);
+  border: 1px solid rgba(227, 179, 65, 0.35);
+  color: var(--yellow);
+}
+
 /* toasts */
 .toasts {
   position: fixed;

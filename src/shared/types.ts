@@ -144,6 +144,8 @@ export interface ProviderSettings {
   // OpenAI-compatible endpoint for LOCAL models (Ollama/LM Studio).
   // Models prefixed "local:" are routed here, keyless and free.
   localBaseUrl: string
+  // model the 🔓 Uncensored toggle switches to (a local, unaligned model)
+  uncensoredModel: string
 }
 
 export interface AppSettings {
@@ -183,7 +185,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     pricePerMillionOutput: 1.1,
     reasonerPricePerMillionInput: 0.55,
     reasonerPricePerMillionOutput: 2.19,
-    localBaseUrl: 'http://localhost:11434/v1'
+    localBaseUrl: 'http://localhost:11434/v1',
+    uncensoredModel: 'local:dolphin3'
   },
   autoApprove: {
     read: true,

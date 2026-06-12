@@ -122,6 +122,7 @@ export class DeepSeekClient {
     // begins — once bytes flow, retrying would duplicate output.
     let res: Response | null = null
     let lastErr = ''
+    let toolsStripped = false
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
       try {
@@ -156,6 +157,15 @@ export class DeepSeekClient {
       }
       if (res.status === 402) {
         throw new Error('DeepSeek-Guthaben aufgebraucht — bitte unter platform.deepseek.com aufladen.')
+      }
+      // Self-heal: many local models (Dolphin, plain chat LLMs) reject tools.
+      // Resend once without tools so they work as a tool-less chat model.
+      if (!toolsStripped && body.tools && /does not support tools|tools.*not.*support|tool.*unsupported/i.test(text)) {
+        toolsStripped = true
+        delete body.tools
+        delete body.tool_choice
+        res = null
+        continue
       }
       lastErr = `DeepSeek API error ${res.status}: ${text || res.statusText}`
       if (RETRYABLE.has(res.status) && attempt < MAX_RETRIES) {
