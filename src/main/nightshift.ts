@@ -5,6 +5,7 @@ import { PATHS } from './paths'
 import { AgentEvent, NightShiftState, Session } from '@shared/types'
 import { AgentEngine } from './agent/engine'
 import { saveSession } from './store'
+import { beginAgentOp, endAgentOp } from './watcher'
 
 // Night shift: a queue of tasks the agent works through autonomously
 // (e.g. overnight), producing a morning report. State persists in
@@ -66,7 +67,12 @@ export async function runNightShift(
       saveSession(session)
 
       try {
-        await engine.runTurn(session, task.prompt, emit, state.autonomy)
+        beginAgentOp()
+        try {
+          await engine.runTurn(session, task.prompt, emit, state.autonomy)
+        } finally {
+          endAgentOp()
+        }
         const lastAssistant = [...session.messages].reverse().find((m) => m.role === 'assistant')
         let tokens = 0
         let cost = 0

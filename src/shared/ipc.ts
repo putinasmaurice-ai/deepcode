@@ -31,6 +31,8 @@ export const IPC = {
   nightStart: 'night:start',
   nightStop: 'night:stop',
   projectHealth: 'projects:health',
+  watchStart: 'watch:start',
+  watchStop: 'watch:stop',
 
   // agent turn
   sendMessage: 'agent:send',

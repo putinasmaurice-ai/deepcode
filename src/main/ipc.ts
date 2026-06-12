@@ -39,6 +39,7 @@ import { loadProjects, getProject, upsertProject, deleteProject as removeProject
 import { computeUsageSummary, usageSummaryText } from './usage'
 import { listAudit, searchSessions } from './history'
 import { getNightShift, saveNightShift, runNightShift, requestStop } from './nightshift'
+import { startWatch, stopWatch, beginAgentOp, endAgentOp } from './watcher'
 import { computeProjectHealth } from './health'
 import { NightShiftState } from '@shared/types'
 import { exportSessionMarkdown } from './export'
@@ -307,7 +308,12 @@ export function registerIpc(win: BrowserWindow): void {
       saveSession(session)
     }
 
-    await engine.runTurn(session, text, emit, mode)
+    beginAgentOp()
+    try {
+      await engine.runTurn(session, text, emit, mode)
+    } finally {
+      endAgentOp()
+    }
     return true
     }
   )
@@ -337,10 +343,23 @@ export function registerIpc(win: BrowserWindow): void {
       }
       // No 'session' event here: the renderer truncates its transcript locally,
       // keeping its optimistic user message visible during the rerun.
-      await engine.runTurn(session, text, emit, mode)
+      beginAgentOp()
+      try {
+        await engine.runTurn(session, text, emit, mode)
+      } finally {
+        endAgentOp()
+      }
       return true
     }
   )
+  ipcMain.handle(IPC.watchStart, (_e, cwd: string) => {
+    startWatch(cwd, (files) => emit({ type: 'fs_change', files }))
+    return true
+  })
+  ipcMain.handle(IPC.watchStop, () => {
+    stopWatch()
+    return true
+  })
   ipcMain.handle(IPC.listFiles, (_e, cwd: string) => listProjectFiles(cwd))
   ipcMain.handle(IPC.secondOpinion, async (_e, sessionId: string) => {
     const session = getSession(sessionId)

@@ -157,6 +157,8 @@ export interface AppSettings {
   // monthly cost budget in USD (0 = off); the usage panel warns when exceeded
   monthlyBudget: number
   theme: 'dark' | 'light'
+  // notify when project files change outside the agent (editor saves, git)
+  watcherEnabled: boolean
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -181,7 +183,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   confineToCwd: true,
   compactThreshold: 0,
   monthlyBudget: 0,
-  theme: 'dark'
+  theme: 'dark',
+  watcherEnabled: false
 }
 
 // ---- Tool plumbing ----
@@ -214,6 +217,7 @@ export type AgentEvent =
   | { type: 'message_done'; message: ChatMessage }
   | { type: 'usage'; messageId: string; usage: TokenUsage }
   | { type: 'todos'; sessionId: string; todos: TodoItem[] }
+  | { type: 'fs_change'; files: string[] }
   | { type: 'turn_done'; sessionId: string }
   | { type: 'error'; message: string }
   | { type: 'status'; message: string }

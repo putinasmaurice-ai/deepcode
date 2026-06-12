@@ -175,6 +175,10 @@ export function SettingsPanel({
             <Switch on={s.confineToCwd} onClick={() => update({ confineToCwd: !s.confineToCwd })} />
             Confine file tools to the working directory (block <code style={{ fontFamily: 'var(--mono)' }}>../</code> escapes)
           </label>
+          <label className="toggle">
+            <Switch on={s.watcherEnabled} onClick={() => update({ watcherEnabled: !s.watcherEnabled })} />
+            👀 Live-Wächter — melden, wenn Projektdateien extern geändert werden (Editor, Git)
+          </label>
         </div>
         <div className="field" style={{ marginTop: 14 }}>
           <label>Auto-compact threshold (tokens, 0 = off)</label>

@@ -32,6 +32,8 @@ const api = {
   nightStart: () => ipcRenderer.invoke(IPC.nightStart),
   nightStop: () => ipcRenderer.invoke(IPC.nightStop),
   projectHealth: (cwd: string) => ipcRenderer.invoke(IPC.projectHealth, cwd),
+  watchStart: (cwd: string) => ipcRenderer.invoke(IPC.watchStart, cwd),
+  watchStop: () => ipcRenderer.invoke(IPC.watchStop),
 
   // agent
   sendMessage: (sessionId: string, text: string, attachments?: string[], mode?: string) =>

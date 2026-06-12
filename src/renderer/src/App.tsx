@@ -93,19 +93,29 @@ export function App(): JSX.Element {
   const [showJump, setShowJump] = useState(false)
   const [gitDirty, setGitDirty] = useState(0)
   const [composerPrefill, setComposerPrefill] = useState<string | null>(null)
-  const [toasts, setToasts] = useState<{ id: number; text: string; kind: 'info' | 'error' }[]>([])
+  const [toasts, setToasts] = useState<
+    { id: number; text: string; kind: 'info' | 'error'; action?: { label: string; run: () => void } }[]
+  >([])
   const [queue, setQueue] = useState<{ text: string; attachments?: string[] }[]>([])
   const [contentHits, setContentHits] = useState<{ sessionId: string; title: string; snippet: string }[]>([])
   const editTargetRef = useRef<string | null>(null)
   const toastIdRef = useRef(0)
+  // stable handle to send() for callbacks created inside the event handler
+  const sendRef = useRef<(text: string, attachments?: string[]) => void>(() => {})
   const chatRef = useRef<HTMLDivElement>(null)
   const nearBottomRef = useRef(true)
 
-  const addToast = useCallback((text: string, kind: 'info' | 'error' = 'info'): void => {
-    const id = ++toastIdRef.current
-    setToasts((t) => [...t, { id, text, kind }])
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), kind === 'error' ? 8000 : 4000)
-  }, [])
+  const addToast = useCallback(
+    (text: string, kind: 'info' | 'error' = 'info', action?: { label: string; run: () => void }): void => {
+      const id = ++toastIdRef.current
+      setToasts((t) => [...t, { id, text, kind, action }])
+      setTimeout(
+        () => setToasts((t) => t.filter((x) => x.id !== id)),
+        action ? 12000 : kind === 'error' ? 8000 : 4000
+      )
+    },
+    []
+  )
 
   const activeProject = projects.find((p) => p.id === (session?.projectId ?? activeProjectId)) ?? null
 
@@ -193,6 +203,18 @@ export function App(): JSX.Element {
   useEffect(() => {
     document.documentElement.dataset.theme = settings?.theme ?? 'dark'
   }, [settings?.theme])
+
+  // live watcher: follow the active session's working dir (when enabled)
+  useEffect(() => {
+    if (settings?.watcherEnabled && session?.cwd) {
+      api.watchStart(session.cwd)
+      return () => {
+        api.watchStop()
+      }
+    }
+    api.watchStop()
+    return undefined
+  }, [settings?.watcherEnabled, session?.cwd])
 
   async function toggleTheme(): Promise<void> {
     if (!settings) return
@@ -298,6 +320,19 @@ export function App(): JSX.Element {
         break
       case 'todos':
         setTodos(e.todos)
+        break
+      case 'fs_change':
+        addToast(
+          `👀 Extern geändert: ${e.files.slice(0, 3).join(', ')}${e.files.length > 3 ? ` +${e.files.length - 3}` : ''}`,
+          'info',
+          {
+            label: 'Analysieren',
+            run: () =>
+              sendRef.current(
+                `Diese Dateien wurden gerade außerhalb von dir geändert: ${e.files.join(', ')}. Lies die Änderungen und prüfe kurz, ob etwas inkonsistent oder kaputt ist.`
+              )
+          }
+        )
         break
       case 'status':
         setStatus(e.message)
@@ -476,6 +511,11 @@ export function App(): JSX.Element {
       setBusy(false)
     }
   }
+
+  // keep sendRef pointing at the freshest send closure
+  useEffect(() => {
+    sendRef.current = send
+  })
 
   const startEdit = useCallback((messageId: string, content: string): void => {
     editTargetRef.current = messageId
@@ -929,6 +969,18 @@ export function App(): JSX.Element {
         {toasts.map((t) => (
           <div key={t.id} className={'toast ' + t.kind}>
             {t.text}
+            {t.action && (
+              <button
+                className="btn sm"
+                style={{ marginLeft: 10 }}
+                onClick={() => {
+                  t.action!.run()
+                  setToasts((list) => list.filter((x) => x.id !== t.id))
+                }}
+              >
+                {t.action.label}
+              </button>
+            )}
           </div>
         ))}
       </div>
