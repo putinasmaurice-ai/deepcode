@@ -1,8 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/ipc'
 import type { AgentEvent } from '@shared/types'
+import type { DeepCodeApi } from '@shared/api'
 
-const api = {
+const api: DeepCodeApi = {
   // settings
   getSettings: () => ipcRenderer.invoke(IPC.getSettings),
   saveSettings: (s: unknown) => ipcRenderer.invoke(IPC.saveSettings, s),
@@ -104,4 +105,4 @@ const api = {
 
 contextBridge.exposeInMainWorld('deepcode', api)
 
-export type DeepCodeApi = typeof api
+export type { DeepCodeApi } from '@shared/api'

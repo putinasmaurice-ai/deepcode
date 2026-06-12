@@ -39,11 +39,19 @@ function walk(dir: string, out: string[], max = 800): void {
   }
 }
 
-// Flat file listing of the working dir (relative paths) for @-mention autocomplete.
+// Flat file listing of the working dir (relative paths) for @-mention
+// autocomplete. Cached for 30s — the renderer asks once per cwd change, but a
+// full tree walk per keystroke would hurt on big repos.
+const fileListCache = new Map<string, { at: number; files: string[] }>()
+
 export function listProjectFiles(cwd: string, max = 2000): string[] {
+  const hit = fileListCache.get(cwd)
+  if (hit && Date.now() - hit.at < 30_000) return hit.files
   const files: string[] = []
   walk(cwd, files, max)
-  return files.map((f) => relative(cwd, f).split(sep).join('/')).sort()
+  const rels = files.map((f) => relative(cwd, f).split(sep).join('/')).sort()
+  fileListCache.set(cwd, { at: Date.now(), files: rels })
+  return rels
 }
 
 export function buildAttachmentContext(paths: string[], cwd: string): string {

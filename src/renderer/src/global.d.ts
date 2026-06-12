@@ -1,4 +1,4 @@
-import type { DeepCodeApi } from '../../preload'
+import type { DeepCodeApi } from '../../shared/api'
 
 declare global {
   interface Window {

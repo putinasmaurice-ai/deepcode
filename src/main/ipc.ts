@@ -8,7 +8,6 @@ import {
   AgentEvent,
   AppSettings,
   AutomationDef,
-  ChatMessage,
   McpServerDef,
   MemoryEntry,
   Session
@@ -31,12 +30,11 @@ import { loadMemory, saveMemory, deleteMemory, recordArenaVote } from './systems
 import { mcpManager } from './systems/mcp'
 import { PATHS } from './paths'
 import { buildAttachmentContext, listProjectFiles } from './attachments'
-import { rewindLastTurn } from './checkpoints'
-import { listJobs, killJob } from './jobs'
+import { runBuiltin } from './builtins'
 import { execFile } from 'child_process'
 import type { ApprovalPolicy } from './agent/engine'
 import { loadProjects, getProject, upsertProject, deleteProject as removeProject } from './projects'
-import { computeUsageSummary, usageSummaryText } from './usage'
+import { computeUsageSummary } from './usage'
 import { listAudit, searchSessions } from './history'
 import { getNightShift, saveNightShift, runNightShift, requestStop } from './nightshift'
 import { startWatch, stopWatch, beginAgentOp, endAgentOp } from './watcher'
@@ -175,122 +173,13 @@ export function registerIpc(win: BrowserWindow): void {
       const cmd = trimmed.slice(1).split(/\s+/)[0]
       const args = trimmed.slice(1 + cmd.length).trim()
 
-      // Built-in commands handled here (no model turn needed for most).
-      if (cmd === 'help') {
-        emitHelp(emit, session.cwd)
+      const builtin = await runBuiltin(cmd, { session, args, emit, engine, settings })
+      if (builtin === 'handled') {
         emit({ type: 'turn_done', sessionId: session.id })
         return true
       }
-      if (cmd === 'goal') {
-        const project = session.projectId ? getProject(session.projectId) : null
-        if (!args) {
-          const current = project?.goal || session.goal
-          emitInfo(
-            emit,
-            current
-              ? `🎯 **Aktuelles Goal${project ? ` (Projekt „${project.name}")` : ''}:**\n\n${current}\n\n_Ändern mit \`/goal <neues Ziel>\` · löschen mit \`/goal clear\`_`
-              : 'Kein Goal gesetzt. Setze eines mit `/goal <dein Ziel>` — es wird dauerhaft in jeden System-Prompt eingespeist.'
-          )
-        } else if (args === 'clear') {
-          if (project) upsertProject({ ...project, goal: undefined, goalSetAt: undefined })
-          session.goal = undefined
-          saveSession(session)
-          emitInfo(emit, '🎯 Goal gelöscht.')
-        } else {
-          if (project) upsertProject({ ...project, goal: args, goalSetAt: Date.now() })
-          else {
-            session.goal = args
-            saveSession(session)
-          }
-          emitInfo(
-            emit,
-            `🎯 **Goal gesetzt${project ? ` für Projekt „${project.name}"` : ''}:**\n\n${args}\n\nJede weitere Antwort wird daran ausgerichtet.`
-          )
-        }
-        emit({ type: 'turn_done', sessionId: session.id })
-        return true
-      }
-      if (cmd === 'cost') {
-        emitInfo(emit, usageSummaryText())
-        emit({ type: 'turn_done', sessionId: session.id })
-        return true
-      }
-      if (cmd === 'model') {
-        if (args) {
-          session.model = args
-          saveSession(session)
-          emitInfo(emit, `Modell für diese Session: **${args}**`)
-        } else {
-          emitInfo(
-            emit,
-            `Aktuelles Modell: **${session.model || settings.provider.model}**\nVerfügbar: \`${settings.provider.model}\`, \`${settings.provider.reasonerModel}\`\nWechseln mit \`/model <id>\``
-          )
-        }
-        emit({ type: 'turn_done', sessionId: session.id })
-        return true
-      }
-      if (cmd === 'compact') {
-        const updated = await engine.compactSession(session, emit)
-        emit({ type: 'session', session: updated })
-        emit({ type: 'turn_done', sessionId: session.id })
-        return true
-      }
-      if (cmd === 'jobs') {
-        const all = listJobs()
-        if (args.startsWith('kill ')) {
-          const id = args.slice(5).trim()
-          emitInfo(emit, killJob(id) ? `🛑 Job \`${id}\` gestoppt.` : `Job \`${id}\` nicht gefunden oder beendet.`)
-        } else {
-          emitInfo(
-            emit,
-            all.length
-              ? `## Hintergrund-Jobs\n${all
-                  .map(
-                    (j) =>
-                      `- \`${j.id}\` **${j.status}**${j.exitCode !== null ? ` (exit ${j.exitCode})` : ''} — \`${j.command.slice(0, 70)}\``
-                  )
-                  .join('\n')}\n\n_Stoppen mit \`/jobs kill <id>\`._`
-              : 'Keine Hintergrund-Jobs. Der Agent startet sie mit `run_background_command` (z.B. Dev-Server).'
-          )
-        }
-        emit({ type: 'turn_done', sessionId: session.id })
-        return true
-      }
-      if (cmd === 'learn') {
-        if (session.messages.filter((m) => m.role === 'assistant').length === 0) {
-          emitInfo(emit, 'Noch nichts zu lernen — führe erst eine Aufgabe in diesem Chat durch, dann destilliere ich daraus einen Skill.')
-        } else {
-          emit({ type: 'status', message: 'Destilliere Skill aus diesem Chat…' })
-          try {
-            const skill = await engine.distillSkill(session, args)
-            emitInfo(
-              emit,
-              `🎓 **Skill gelernt:** \`${skill.name}\`\n\nGespeichert unter \`${skill.path}\`. Ab sofort steht er in jedem Chat zur Verfügung — ich lade ihn automatisch, wenn eine ähnliche Aufgabe kommt. Bearbeiten kannst du ihn im Skills-Panel.`
-            )
-          } catch (e) {
-            emitInfo(emit, `Destillation fehlgeschlagen: ${(e as Error).message}`)
-          }
-        }
-        emit({ type: 'turn_done', sessionId: session.id })
-        return true
-      }
-      if (cmd === 'rewind') {
-        const restored = rewindLastTurn(session.id)
-        emitInfo(
-          emit,
-          restored.length
-            ? `⏪ **Rewind:** ${restored.length} Datei(en) auf den Stand vor der letzten Änderungsrunde zurückgesetzt:\n${restored.map((p) => `- \`${p}\``).join('\n')}\n\n_Nochmal /rewind setzt die Runde davor zurück._`
-            : 'Keine Checkpoints vorhanden — es wurde in dieser Session noch nichts geändert.'
-        )
-        emit({ type: 'turn_done', sessionId: session.id })
-        return true
-      }
-      if (cmd === 'init') {
-        text =
-          'Analyze this project: explore the directory structure, identify the tech stack, ' +
-          'entry points, key modules, build/test commands and conventions. Then write a concise ' +
-          'DEEPCODE.md at the project root documenting all of that so future sessions have context. ' +
-          (args ? `Extra guidance: ${args}` : '')
+      if (typeof builtin === 'string') {
+        text = builtin // builtin expanded into a normal agent prompt (/init)
       } else {
         const expanded = expandCommand(cmd, args, session.cwd)
         if (expanded) text = expanded
@@ -543,44 +432,6 @@ function validDir(p?: string): string | null {
   } catch {
     return null
   }
-}
-
-// Push a synthetic assistant message (for built-in commands, no API call).
-function emitInfo(emit: (e: AgentEvent) => void, content: string): void {
-  const id = randomUUID()
-  const message: ChatMessage = { id, role: 'assistant', content: '', createdAt: Date.now() }
-  emit({ type: 'message_start', message })
-  emit({ type: 'content_delta', messageId: id, delta: content })
-  emit({ type: 'message_done', message: { ...message, content } })
-}
-
-// Render the /help output as a synthetic assistant message.
-function emitHelp(emit: (e: AgentEvent) => void, cwd: string): void {
-  const cmds = [...loadCommands(cwd), ...pluginCommands()]
-  const skills = [...loadSkills(cwd), ...pluginSkills()]
-  const agents = [...loadSubagents(cwd), ...pluginSubagents()]
-  const lines: string[] = []
-  lines.push('## DeepCode — Hilfe\n')
-  lines.push('**Was ich kann:** Codebasen verstehen, Dateien lesen/erstellen/ändern, Terminal-Befehle ausführen, Bugs fixen, Features projektweit implementieren, Tests ausführen, Refactorings planen.\n')
-  lines.push('**Built-in Tools:** read_file, write_file, edit_file, apply_patch, list_dir, glob, grep, run_command, task (Subagents), use_skill + alle MCP-Connector-Tools.\n')
-  lines.push('**Built-in Befehle:**')
-  lines.push('- `/help` — diese Übersicht')
-  lines.push('- `/init` — Projekt analysieren und DEEPCODE.md schreiben')
-  lines.push('- `/goal [Ziel|clear]` — dauerhaftes Ziel setzen/anzeigen/löschen')
-  lines.push('- `/cost` — Kostenübersicht (pro Chat / Projekt / gesamt)')
-  lines.push('- `/model [id]` — Modell dieser Session anzeigen/wechseln')
-  lines.push('- `/compact` — ältere Nachrichten zusammenfassen (Kontext sparen)')
-  lines.push('- `/rewind` — Datei-Änderungen der letzten Runde rückgängig machen')
-  lines.push('- `/jobs [kill <id>]` — Hintergrund-Jobs anzeigen/stoppen')
-  lines.push('- `/learn [Fokus]` — aus diesem Chat einen wiederverwendbaren Skill destillieren')
-  if (cmds.length) {
-    lines.push('\n**Eigene Befehle:**')
-    for (const c of cmds) lines.push(`- \`/${c.name}\` — ${c.description}`)
-  }
-  if (skills.length) lines.push(`\n**Skills (${skills.length}):** ` + skills.slice(0, 30).map((s) => s.name).join(', ') + (skills.length > 30 ? ', …' : ''))
-  if (agents.length) lines.push('\n**Subagents:** ' + agents.map((a) => a.name).join(', '))
-  lines.push('\nAlles verwaltbar über die Sidebar (Projekte, Skills, Commands, Subagents, MCP, Hooks, Memory, Automations, Plugins, Kosten).')
-  emitInfo(emit, lines.join('\n'))
 }
 
 // connect enabled MCP servers in the background after startup

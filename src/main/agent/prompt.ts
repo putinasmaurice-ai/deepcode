@@ -99,7 +99,9 @@ You are in plan mode: write/shell tools are disabled. Investigate the codebase w
     )
   }
 
-  const mem = memoryIndex().trim()
+  // cap: accumulating memories (error solutions, arena votes) must not bloat
+  // every request — the index stays small, details load on demand
+  const mem = memoryIndex().trim().slice(0, 4000)
   if (mem) {
     sections.push(`# Memory (persistent knowledge from past sessions)\n${mem}`)
   }
