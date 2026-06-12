@@ -54,11 +54,16 @@ export interface ToolState {
   name?: string
 }
 
-const NAV: { view: View; icon: string; label: string }[] = [
+// Primary destinations stay visible; management panels collapse under
+// "Erweitert" so the chat list keeps breathing room.
+const NAV_MAIN: { view: View; icon: string; label: string }[] = [
   { view: 'chat', icon: '💬', label: 'Chat' },
   { view: 'projects', icon: '📂', label: 'Projekte' },
   { view: 'usage', icon: '💰', label: 'Kosten' },
   { view: 'night', icon: '🌙', label: 'Nachtschicht' },
+  { view: 'settings', icon: '⚙️', label: 'Settings' }
+]
+const NAV_MORE: { view: View; icon: string; label: string }[] = [
   { view: 'skills', icon: '📘', label: 'Skills' },
   { view: 'commands', icon: '/', label: 'Slash Commands' },
   { view: 'subagents', icon: '🤖', label: 'Subagents' },
@@ -67,9 +72,9 @@ const NAV: { view: View; icon: string; label: string }[] = [
   { view: 'memory', icon: '🧠', label: 'Memory' },
   { view: 'automations', icon: '⏰', label: 'Automations' },
   { view: 'plugins', icon: '🧩', label: 'Plugins' },
-  { view: 'audit', icon: '🧾', label: 'Audit-Log' },
-  { view: 'settings', icon: '⚙️', label: 'Settings' }
+  { view: 'audit', icon: '🧾', label: 'Audit-Log' }
 ]
+const NAV = [...NAV_MAIN, ...NAV_MORE]
 
 export function App(): JSX.Element {
   const [settings, setSettings] = useState<AppSettings | null>(null)
@@ -99,6 +104,7 @@ export function App(): JSX.Element {
   >([])
   const [queue, setQueue] = useState<{ sessionId: string; text: string; attachments?: string[] }[]>([])
   const [contentHits, setContentHits] = useState<{ sessionId: string; title: string; snippet: string }[]>([])
+  const [moreOpen, setMoreOpen] = useState(() => localStorage.getItem('nav-more') === '1')
   const editTargetRef = useRef<string | null>(null)
   const toastIdRef = useRef(0)
   // stable handle to send() for callbacks created inside the event handler
@@ -629,7 +635,7 @@ export function App(): JSX.Element {
           </span>
         </div>
         <div className="nav">
-          {NAV.map((n) => (
+          {NAV_MAIN.map((n) => (
             <button
               key={n.view}
               className={view === n.view ? 'active' : ''}
@@ -639,6 +645,28 @@ export function App(): JSX.Element {
               {n.label}
             </button>
           ))}
+          <button
+            className={'nav-more' + (NAV_MORE.some((n) => n.view === view) ? ' active' : '')}
+            onClick={() => {
+              const next = !moreOpen
+              setMoreOpen(next)
+              localStorage.setItem('nav-more', next ? '1' : '0')
+            }}
+          >
+            <span className="ic">{moreOpen ? '▾' : '▸'}</span>
+            Erweitert
+          </button>
+          {(moreOpen || NAV_MORE.some((n) => n.view === view)) &&
+            NAV_MORE.map((n) => (
+              <button
+                key={n.view}
+                className={'nav-sub' + (view === n.view ? ' active' : '')}
+                onClick={() => setView(n.view)}
+              >
+                <span className="ic">{n.icon}</span>
+                {n.label}
+              </button>
+            ))}
         </div>
         <div className="nav-sep" />
         <div className="nav">

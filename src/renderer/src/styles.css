@@ -195,6 +195,14 @@ button {
   background: var(--border);
   margin: 8px 6px;
 }
+.nav .nav-more {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+.nav .nav-sub {
+  padding-left: 22px;
+  font-size: 12.5px;
+}
 
 .sessions {
   flex: 1;

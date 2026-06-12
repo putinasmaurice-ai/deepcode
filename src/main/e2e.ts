@@ -2,7 +2,7 @@ import { app } from 'electron'
 import { writeFileSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
-import { loadSettings, saveSession } from './store'
+import { loadSettings, saveSession, deleteSession } from './store'
 import { AgentEngine } from './agent/engine'
 import { AgentEvent, Session } from '@shared/types'
 
@@ -22,6 +22,7 @@ export async function maybeRunE2E(): Promise<boolean> {
     lines.push(s)
     console.log('[E2E]', s)
   }
+  let sessionId: string | null = null
 
   try {
     const settings = loadSettings()
@@ -36,6 +37,7 @@ export async function maybeRunE2E(): Promise<boolean> {
       model: process.env.DEEPCODE_E2E_MODEL || settings.provider.model
     }
     saveSession(session)
+    sessionId = session.id
     log(`PROMPT: ${prompt}`)
     log(`CWD: ${cwd} | MODEL: ${session.model}`)
 
@@ -74,6 +76,14 @@ export async function maybeRunE2E(): Promise<boolean> {
     writeFileSync(logPath, lines.join('\n') + '\n', 'utf8')
   } catch {
     /* ignore */
+  }
+  // smoke sessions are throwaway — don't clutter the user's chat list
+  if (sessionId) {
+    try {
+      deleteSession(sessionId)
+    } catch {
+      /* ignore */
+    }
   }
   app.quit()
   return true
