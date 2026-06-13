@@ -82,7 +82,25 @@ export function App(): JSX.Element {
   // from background sessions (night shift / automations) without a stale closure.
   const sessionIdRef = useRef<string | null>(null)
   sessionIdRef.current = session?.id ?? null
-  const [busy, setBusy] = useState(false)
+  // Per-session run tracking: which sessions have an in-flight turn/op. `busy` is DERIVED for the
+  // OPEN session, so switching chats reflects each chat's real state. A single global boolean
+  // stranded the UI 'working' and locked the user out after switching away from a running chat.
+  const [running, setRunning] = useState<ReadonlySet<string>>(() => new Set())
+  const startRun = useCallback((id: string) => setRunning((r) => {
+    const n = new Set(r)
+    n.add(id)
+    return n
+  }), [])
+  const endRun = useCallback((id?: string) => {
+    if (!id) return
+    setRunning((r) => {
+      if (!r.has(id)) return r
+      const n = new Set(r)
+      n.delete(id)
+      return n
+    })
+  }, [])
+  const busy = !!session && running.has(session.id)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
   const [view, setView] = useState<View>('chat')
@@ -247,7 +265,8 @@ export function App(): JSX.Element {
         (document.activeElement?.tagName || '').toLowerCase() !== 'input'
       ) {
         api.cancelTurn(session.id).catch(() => {})
-        setBusy(false)
+        // #36: keep busy until the backend releases the lock + emits turn_done (see stop()).
+        setStatus('Stoppe…')
         // cancelling means "stop" — don't let the queue-drain effect fire the next
         // queued steering message as a brand-new turn.
         setQueue((q) => q.filter((x) => x.sessionId !== session.id))
@@ -337,12 +356,13 @@ export function App(): JSX.Element {
 
   async function secondOpinion(): Promise<void> {
     if (!session || busy) return
-    setBusy(true)
+    const sid = session.id
+    startRun(sid)
     try {
-      await api.secondOpinion(session.id)
+      await api.secondOpinion(sid)
     } catch (err) {
       addToast((err as Error).message, 'error')
-      setBusy(false)
+      endRun(sid)
     }
   }
 
@@ -368,12 +388,13 @@ export function App(): JSX.Element {
   }, [])
   async function arena(): Promise<void> {
     if (!session || busy) return
-    setBusy(true)
+    const sid = session.id
+    startRun(sid)
     try {
-      await api.arena(session.id)
+      await api.arena(sid)
     } catch (err) {
       addToast((err as Error).message, 'error')
-      setBusy(false)
+      endRun(sid)
     }
   }
   async function voteArena(winner: string, loser: string, pairKey: string): Promise<void> {
@@ -400,7 +421,12 @@ export function App(): JSX.Element {
     // Drop any event whose session doesn't match the open chat — even when no chat is
     // open (sessionIdRef.current === null), a stamped background event must not bleed in.
     if (sid && sid !== sessionIdRef.current) {
-      if (e.type === 'turn_done') refreshSessions()
+      // a background turn finishing must still clear ITS running entry (so switching back to that
+      // chat shows it idle), even though we don't render its events here.
+      if (e.type === 'turn_done') {
+        endRun(sid)
+        refreshSessions()
+      }
       return
     }
     switch (e.type) {
@@ -496,7 +522,7 @@ export function App(): JSX.Element {
         addToast(e.message, 'error')
         break
       case 'turn_done':
-        setBusy(false)
+        endRun(sid ?? sessionIdRef.current ?? undefined)
         setStatus('')
         refreshSessions()
         // notify when the user is in another window/app
@@ -575,6 +601,7 @@ export function App(): JSX.Element {
     }
     setView('chat')
     setError('')
+    setStatus('') // status is global text; clear it on switch (the opened session repopulates it)
     nearBottomRef.current = true
     scrollDown()
   }
@@ -591,6 +618,7 @@ export function App(): JSX.Element {
     setSessionUsage({ tokens: 0, cost: 0 })
     setView('chat')
     setError('')
+    setStatus('')
   }
 
   async function exportChat(): Promise<void> {
@@ -636,15 +664,16 @@ export function App(): JSX.Element {
 
   async function compact(): Promise<void> {
     if (!session || busy) return
-    setBusy(true)
+    const sid = session.id
+    startRun(sid)
     try {
-      const updated = (await api.compactSession(session.id)) as Session
+      const updated = (await api.compactSession(sid)) as Session
       if (updated) {
         setMessages(updated.messages.filter((m) => m.role !== 'tool'))
         setToolState(deriveToolState(updated.messages))
       }
     } finally {
-      setBusy(false)
+      endRun(sid)
     }
   }
 
@@ -694,7 +723,7 @@ export function App(): JSX.Element {
       if (uris.length) userMsg.images = uris
     }
     setMessages((m) => [...m, userMsg])
-    setBusy(true)
+    startRun(session.id) // cleared by the scoped turn_done event (or here on a send-IPC rejection)
     nearBottomRef.current = true
     scrollDown()
     try {
@@ -708,7 +737,7 @@ export function App(): JSX.Element {
       }
     } catch (err) {
       setError((err as Error).message)
-      setBusy(false)
+      endRun(session.id)
     }
   }
 
@@ -748,12 +777,12 @@ export function App(): JSX.Element {
       const i = m.findIndex((x) => x.id === lastUser.id)
       return i >= 0 ? m.slice(0, i + 1) : m
     })
-    setBusy(true)
+    startRun(session.id)
     try {
       await api.resendMessage(session.id, lastUser.id, undefined, mode)
     } catch (err) {
       setError((err as Error).message)
-      setBusy(false)
+      endRun(session.id)
     }
   }
 
@@ -800,8 +829,12 @@ export function App(): JSX.Element {
       api.cancelTurn(session.id).catch(() => {})
       // stop means stop — clear queued steering messages so none auto-fires
       setQueue((q) => q.filter((x) => x.sessionId !== session.id))
+      // #36: do NOT clear `running` optimistically. The backend session lock releases only when
+      // the in-flight tool/stream unwinds and emits turn_done (which clears it). Flipping busy off
+      // now would let an immediate follow-up send fail to acquire the still-held lock and orphan
+      // the message. Show a transitional "Stoppe…" until turn_done arrives.
+      setStatus('Stoppe…')
     }
-    setBusy(false)
   }
 
   async function pickCwd(): Promise<void> {
