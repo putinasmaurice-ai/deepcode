@@ -401,6 +401,7 @@ export type WorkflowNodeType =
   | 'shell' // run a shell command
   | 'http' // fetch a URL (web_fetch)
   | 'condition' // branch on a simple expression (true/false edges)
+  | 'switch' // multi-way branch: route by matching a value against named cases (+ default)
   | 'transform' // template / regex-extract / set a variable
   | 'subworkflow' // run another workflow
   | 'delay' // wait N seconds (rate-limiting / polling pauses)

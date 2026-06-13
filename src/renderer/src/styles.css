@@ -2306,6 +2306,31 @@ kbd {
 .wf-varchip:hover {
   border-color: var(--accent);
 }
+/* per-node error-handling block in the config drawer */
+.wf-adv {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-2);
+}
+.wf-adv-head {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+.wf-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin-top: 6px;
+  cursor: pointer;
+}
+.wf-check input {
+  width: auto;
+}
 .wf-drawer textarea.invalid {
   border-color: var(--danger, #e5484d);
   outline-color: var(--danger, #e5484d);

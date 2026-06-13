@@ -53,6 +53,18 @@ export function WorkflowsPanel(): JSX.Element {
     refresh()
   }
 
+  async function doImport(): Promise<void> {
+    try {
+      const def = await api.importWorkflow()
+      if (def) {
+        refresh()
+        setEditing(def) // open the freshly imported workflow
+      }
+    } catch (e) {
+      window.alert(String(e))
+    }
+  }
+
   if (editing) {
     return (
       <WorkflowEditor
@@ -75,9 +87,10 @@ export function WorkflowsPanel(): JSX.Element {
           Baue visuelle Automatisierungen aus Knoten (Agent, Tool, Shell, HTTP, Bedingung, Output) — verdrahtet,
           ausführbar und live nachvollziehbar. Wie n8n, nur klarer.
         </p>
-        <button className="btn" onClick={create} style={{ marginBottom: 16 }}>
-          + Neuer Workflow
-        </button>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          <button className="btn" onClick={create}>+ Neuer Workflow</button>
+          <button className="btn ghost" onClick={doImport}>⬆ Importieren</button>
+        </div>
         {list.length === 0 ? (
           <p style={{ color: 'var(--text-faint)' }}>Noch keine Workflows — lege den ersten an.</p>
         ) : (
@@ -92,6 +105,7 @@ export function WorkflowsPanel(): JSX.Element {
                 </div>
                 <button className="btn ghost sm" onClick={() => open(w.id)}>Öffnen</button>
                 <button className="btn ghost sm" onClick={() => rename(w)}>Umbenennen</button>
+                <button className="btn ghost sm" onClick={() => api.exportWorkflow(w.id).catch((e) => window.alert(String(e)))}>Export</button>
                 <button className="btn ghost sm" onClick={() => remove(w.id, w.name)}>Löschen</button>
               </div>
             ))}

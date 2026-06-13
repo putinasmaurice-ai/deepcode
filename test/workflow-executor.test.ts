@@ -157,6 +157,97 @@ describe('workflow executor', () => {
     expect(run.nodes.find((n) => n.nodeId === 'a')?.error).toBeUndefined()
   })
 
+  it('retries a failing node and succeeds within the retry budget', async () => {
+    const def: WorkflowDef = {
+      id: 'r', name: 'r', createdAt: 0, updatedAt: 0,
+      nodes: [
+        { id: 'trig', type: 'trigger', config: {} },
+        { id: 'a', type: 'agent', config: { prompt: 'x', retries: 3 } }
+      ],
+      edges: [{ id: 'e', source: 'trig', target: 'a' }]
+    }
+    let calls = 0
+    const deps = mockDeps([])
+    deps.runAgent = async () => {
+      calls++
+      if (calls < 3) throw new Error('transient')
+      return 'ok-on-third'
+    }
+    const run = await runWorkflow(def, deps)
+    expect(calls).toBe(3)
+    expect(run.status).toBe('done')
+    expect(run.vars?.last).toBe('ok-on-third')
+  })
+
+  it('continues past a failing node when continueOnError is set', async () => {
+    const def: WorkflowDef = {
+      id: 'c', name: 'c', createdAt: 0, updatedAt: 0,
+      nodes: [
+        { id: 'trig', type: 'trigger', config: {} },
+        { id: 'a', type: 'agent', config: { prompt: 'x', continueOnError: true } },
+        { id: 'o', type: 'output', config: { template: 'reached' } }
+      ],
+      edges: [
+        { id: 'e1', source: 'trig', target: 'a' },
+        { id: 'e2', source: 'a', target: 'o' }
+      ]
+    }
+    const deps = mockDeps([])
+    deps.runAgent = async () => {
+      throw new Error('always fails')
+    }
+    const run = await runWorkflow(def, deps)
+    expect(run.status).toBe('done') // run not aborted by the failed node
+    expect(run.nodes.find((n) => n.nodeId === 'a')?.status).toBe('failed')
+    expect(run.vars?.last).toBe('reached') // downstream node still ran
+  })
+
+  it('treats a cancel during a retry backoff as cancelled, not failed', async () => {
+    const def: WorkflowDef = {
+      id: 'rc', name: 'rc', createdAt: 0, updatedAt: 0,
+      nodes: [
+        { id: 'trig', type: 'trigger', config: {} },
+        { id: 'a', type: 'agent', config: { prompt: 'x', retries: 2, retryDelaySec: 1 } }
+      ],
+      edges: [{ id: 'e', source: 'trig', target: 'a' }]
+    }
+    const ac = new AbortController()
+    const deps = mockDeps([])
+    deps.signal = ac.signal
+    deps.runAgent = async () => {
+      throw new Error('boom') // always fails → goes into the retry backoff sleep
+    }
+    setTimeout(() => ac.abort(), 10) // cancel DURING the 1s retry sleep
+    const run = await runWorkflow(def, deps)
+    expect(run.status).toBe('cancelled')
+    expect(run.nodes.find((n) => n.nodeId === 'a')?.status).toBe('cancelled')
+  }, 5000)
+
+  it('routes a switch node to the matching case', async () => {
+    const def: WorkflowDef = {
+      id: 's', name: 's', createdAt: 0, updatedAt: 0,
+      nodes: [
+        { id: 'trig', type: 'trigger', config: {} },
+        { id: 'set', type: 'transform', config: { mode: 'set', value: 'error', outputVar: 'st' } },
+        { id: 'sw', type: 'switch', config: { input: '{{st}}', cases: 'ok,error,retry' } },
+        { id: 'okO', type: 'output', config: { template: 'OK' } },
+        { id: 'errO', type: 'output', config: { template: 'ERR' } },
+        { id: 'defO', type: 'output', config: { template: 'DEF' } }
+      ],
+      edges: [
+        { id: 'e1', source: 'trig', target: 'set' },
+        { id: 'e2', source: 'set', target: 'sw' },
+        { id: 'e3', source: 'sw', target: 'okO', sourceHandle: 'ok' },
+        { id: 'e4', source: 'sw', target: 'errO', sourceHandle: 'error' },
+        { id: 'e5', source: 'sw', target: 'defO', sourceHandle: 'default' }
+      ]
+    }
+    const run = await runWorkflow(def, mockDeps([]))
+    expect(run.vars?.last).toBe('ERR')
+    expect(run.nodes.find((n) => n.nodeId === 'errO')?.status).toBe('done')
+    expect(run.nodes.find((n) => n.nodeId === 'okO')?.status).toBe('pending')
+  })
+
   it('marks the run failed when a node throws', async () => {
     const def = makeDef()
     def.nodes = [

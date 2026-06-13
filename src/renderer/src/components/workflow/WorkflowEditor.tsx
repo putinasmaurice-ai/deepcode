@@ -78,6 +78,14 @@ const NODE_DEFS: Record<WorkflowNodeType, NodeDef> = {
     label: 'Bedingung',
     fields: [{ key: 'expression', label: 'Ausdruck (z.B. {{last}} contains ok)', kind: 'text' }]
   },
+  switch: {
+    icon: '🔱',
+    label: 'Switch',
+    fields: [
+      { key: 'input', label: 'Wert (nutzt {{var}}, Default {{last}})', kind: 'text' },
+      { key: 'cases', label: 'Fälle (kommagetrennt, z.B. ok,error,retry)', kind: 'text' }
+    ]
+  },
   transform: {
     icon: '✨',
     label: 'Transform',
@@ -113,7 +121,7 @@ const NODE_DEFS: Record<WorkflowNodeType, NodeDef> = {
     fields: [{ key: 'template', label: 'Ausgabe-Template (Default {{last}})', kind: 'textarea' }]
   }
 }
-const PALETTE: WorkflowNodeType[] = ['agent', 'tool', 'shell', 'http', 'condition', 'transform', 'delay', 'notify', 'subworkflow', 'output']
+const PALETTE: WorkflowNodeType[] = ['agent', 'tool', 'shell', 'http', 'condition', 'switch', 'transform', 'delay', 'notify', 'subworkflow', 'output']
 
 interface WfData extends Record<string, unknown> {
   node: WorkflowNode
@@ -165,6 +173,31 @@ function WfNodeView({ data, selected }: NodeProps): JSX.Element {
           <Handle id="false" type="source" position={Position.Bottom} style={{ left: '72%' }} />
           <div className="wf-branches"><span className="t">✓ true</span><span className="f">✗ false</span></div>
         </>
+      ) : d.node.type === 'switch' ? (
+        (() => {
+          // dedup + drop a user case literally named 'default' so no two handles share an id
+          const cases = [
+            ...new Set(
+              String(d.node.config?.cases ?? '')
+                .split(',')
+                .map((s) => s.trim())
+                .filter((c) => c && c !== 'default')
+            )
+          ]
+          const handles = [...cases, 'default']
+          return (
+            <>
+              {handles.map((h, i) => (
+                <Handle key={h} id={h} type="source" position={Position.Bottom} style={{ left: `${((i + 1) / (handles.length + 1)) * 100}%` }} />
+              ))}
+              <div className="wf-branches">
+                {handles.map((h) => (
+                  <span key={h} className={h === 'default' ? 'f' : 't'}>{h}</span>
+                ))}
+              </div>
+            </>
+          )
+        })()
       ) : (
         <Handle type="source" position={Position.Bottom} />
       )}
@@ -282,6 +315,18 @@ export function WorkflowEditor({
         n.id === selId ? { ...n, data: { ...n.data, node: { ...n.data.node, config: { ...n.data.node.config, [key]: value } } } } : n
       )
     )
+    // editing a switch's cases must prune edges wired to a case that no longer exists,
+    // else a dangling sourceHandle silently dead-ends the run.
+    if (key === 'cases' && selId && nodes.find((n) => n.id === selId)?.data.node.type === 'switch') {
+      const live = new Set([
+        ...String(value)
+          .split(',')
+          .map((s) => s.trim())
+          .filter((c) => c && c !== 'default'),
+        'default'
+      ])
+      setEdges((es) => es.filter((e) => e.source !== selId || !e.sourceHandle || live.has(e.sourceHandle)))
+    }
     setSaved(false)
   }
   function updateLabel(value: string): void {
@@ -565,6 +610,41 @@ export function WorkflowEditor({
                 </div>
               )
             })}
+            {['agent', 'tool', 'shell', 'http', 'subworkflow', 'transform'].includes(selected.type) && (
+              <div className="wf-adv">
+                <div className="wf-adv-head">Fehlerbehandlung</div>
+                <div className="row">
+                  <div className="field">
+                    <label>Wiederholungen (0–10)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={10}
+                      value={Number(selected.config?.retries ?? 0)}
+                      onChange={(e) => updateConfig('retries', Math.max(0, Math.min(10, Number(e.target.value) || 0)))}
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Pause (s)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={300}
+                      value={Number(selected.config?.retryDelaySec ?? 0)}
+                      onChange={(e) => updateConfig('retryDelaySec', Math.max(0, Math.min(300, Number(e.target.value) || 0)))}
+                    />
+                  </div>
+                </div>
+                <label className="wf-check">
+                  <input
+                    type="checkbox"
+                    checked={selected.config?.continueOnError === true}
+                    onChange={(e) => updateConfig('continueOnError', e.target.checked)}
+                  />
+                  Bei Fehler fortfahren (Workflow nicht abbrechen)
+                </label>
+              </div>
+            )}
             <p className="wf-hint">
               Variablen: jeder Knoten schreibt sein Ergebnis nach <code>{'{{last}}'}</code> (oder die gesetzte Variable).
               Im Prompt/Template mit <code>{'{{name}}'}</code> einsetzen.

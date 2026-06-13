@@ -54,16 +54,19 @@ Built-in slash commands: `/help /init /goal /cost /model /compact /rewind /jobs`
 
 **🕸️ Visual workflow builder** — a graphical canvas (React Flow) where you wire nodes into an
 automation and run it: **Agent** (a full DeepSeek tool-loop turn), **Tool** (any built-in tool),
-**Shell**, **HTTP**, **Condition** (true/false branches), **Transform** (template/regex/set),
-**Delay** (wait), **Notify** (desktop notification), **Sub-workflow**, **Output**. Connections are
-visible and animated; each node shows live ⏳/✅/❌ status **and the data/error it produced** while
-the run streams; results flow between nodes via `{{variables}}` (click a variable chip to insert one).
+**Shell**, **HTTP**, **Condition** (true/false), **Switch** (multi-way branch), **Transform**
+(template/regex/set), **Delay** (wait), **Notify** (desktop notification), **Sub-workflow**, **Output**.
+Connections are visible and animated; each node shows live ⏳/✅/❌ status **and the data/error it
+produced** while the run streams; results flow between nodes via `{{variables}}` (click a variable chip to insert one).
 - **Cron triggers** — set a trigger node to a schedule and the workflow runs unattended (`0 9 * * *`).
 - **Pre-run validation** — disconnected nodes, missing config and dangling edges are caught and
   highlighted *before* a run, with a plain-language issue list (click an issue to jump to the node).
 - **Run history** — inspect every past run: per-node input/output, errors, duration, final result.
+- **Per-node error handling** — retries (with delay) and *continue-on-error* so one flaky step
+  doesn't kill the whole run.
+- **Import / Export** — share or back up a workflow as a single `.json` file.
 - **Safe unattended** — runs block dangerous shell commands and gate high-blast-radius tools
-  (MCP / Claude Code / sub-agent / `git push`); loops and step counts are bounded.
+  (MCP / Claude Code / sub-agent / `git push`); loops, step counts and total run time are bounded.
 
 It's your KI-coding app and a `/goal` automation tool in one — like n8n, only simpler and clearer.
 

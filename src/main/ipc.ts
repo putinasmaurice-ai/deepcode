@@ -4,7 +4,7 @@ import { isImagePath, imageToDataUri } from './images'
 import { checkForUpdates } from './updater'
 import { randomUUID } from 'crypto'
 import { homedir } from 'os'
-import { existsSync, statSync, readFileSync } from 'fs'
+import { existsSync, statSync, readFileSync, writeFileSync } from 'fs'
 import { join, resolve, sep } from 'path'
 import { IPC } from '@shared/ipc'
 import {
@@ -631,6 +631,66 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.deleteWorkflow, (_e, id: string) => deleteWorkflow(id))
   ipcMain.handle(IPC.listWorkflowRuns, (_e, workflowId?: string) => listWorkflowRuns(workflowId))
   ipcMain.handle(IPC.getWorkflowRun, (_e, runId: string) => getWorkflowRun(runId))
+  // export a workflow to a .json file the user picks (share / back up / move between machines)
+  ipcMain.handle(IPC.exportWorkflow, async (_e, id: string) => {
+    const def = getWorkflow(id)
+    if (!def) throw new Error('Workflow not found')
+    const safeName = (def.name || 'workflow').replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 60)
+    const res = await dialog.showSaveDialog(currentWin ?? win, {
+      title: 'Workflow exportieren',
+      defaultPath: `${safeName}.deepcode-workflow.json`,
+      filters: [{ name: 'DeepCode Workflow', extensions: ['json'] }]
+    })
+    if (res.canceled || !res.filePath) return false
+    writeFileSync(res.filePath, JSON.stringify(def, null, 2), 'utf8')
+    return true
+  })
+  // import a workflow from a .json file — given a FRESH id so it can't overwrite an existing one
+  ipcMain.handle(IPC.importWorkflow, async () => {
+    const res = await dialog.showOpenDialog(currentWin ?? win, {
+      title: 'Workflow importieren',
+      properties: ['openFile'],
+      filters: [{ name: 'DeepCode Workflow', extensions: ['json'] }]
+    })
+    if (res.canceled || !res.filePaths?.[0]) return null
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(readFileSync(res.filePaths[0], 'utf8'))
+    } catch {
+      throw new Error('Datei ist kein gültiges JSON.')
+    }
+    const p = parsed as Partial<WorkflowDef>
+    if (!p || typeof p !== 'object' || !Array.isArray(p.nodes) || !Array.isArray(p.edges)) {
+      throw new Error('Keine gültige Workflow-Datei (nodes/edges fehlen).')
+    }
+    // validate element SHAPE too — a null/typeless node or duplicate id would otherwise be
+    // persisted and crash the editor on open / mis-route at run time.
+    const KNOWN_TYPES = new Set([
+      'trigger', 'agent', 'tool', 'shell', 'http', 'condition', 'switch', 'transform', 'subworkflow', 'delay', 'notify', 'output'
+    ])
+    const okNode = (n: unknown): boolean =>
+      !!n && typeof n === 'object' && typeof (n as { id?: unknown }).id === 'string' && !!(n as { id: string }).id && KNOWN_TYPES.has(String((n as { type?: unknown }).type))
+    const okEdge = (e: unknown): boolean =>
+      !!e && typeof e === 'object' && typeof (e as { id?: unknown }).id === 'string' && typeof (e as { source?: unknown }).source === 'string' && typeof (e as { target?: unknown }).target === 'string'
+    if (!p.nodes.every(okNode) || !p.edges.every(okEdge)) {
+      throw new Error('Keine gültige Workflow-Datei (Knoten/Verbindungen ungültig).')
+    }
+    const nodeIds = p.nodes.map((n) => (n as { id: string }).id)
+    if (new Set(nodeIds).size !== nodeIds.length) {
+      throw new Error('Keine gültige Workflow-Datei (doppelte Knoten-IDs).')
+    }
+    const now = Date.now()
+    const def: WorkflowDef = {
+      id: `wf_${randomUUID()}`, // fresh id — never clobber an existing workflow
+      name: (typeof p.name === 'string' && p.name ? p.name : 'Importiert') + ' (Import)',
+      description: typeof p.description === 'string' ? p.description : undefined,
+      nodes: p.nodes,
+      edges: p.edges,
+      createdAt: now,
+      updatedAt: now
+    }
+    return saveWorkflow(def)
+  })
   ipcMain.handle(IPC.cancelWorkflow, (_e, runId: string) => {
     wfAborters.get(runId)?.abort()
     return true

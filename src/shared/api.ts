@@ -158,6 +158,8 @@ export interface DeepCodeApi {
   cancelWorkflow(runId: string): Promise<boolean>
   listWorkflowRuns(workflowId?: string): Promise<WorkflowRun[]>
   getWorkflowRun(runId: string): Promise<WorkflowRun | null>
+  exportWorkflow(id: string): Promise<boolean>
+  importWorkflow(): Promise<WorkflowDef | null>
 
   // automations
   listAutomations(): Promise<AutomationDef[]>

@@ -108,6 +108,8 @@ const api: DeepCodeApi = {
   cancelWorkflow: (runId: string) => ipcRenderer.invoke(IPC.cancelWorkflow, runId),
   listWorkflowRuns: (workflowId?: string) => ipcRenderer.invoke(IPC.listWorkflowRuns, workflowId),
   getWorkflowRun: (runId: string) => ipcRenderer.invoke(IPC.getWorkflowRun, runId),
+  exportWorkflow: (id: string) => ipcRenderer.invoke(IPC.exportWorkflow, id),
+  importWorkflow: () => ipcRenderer.invoke(IPC.importWorkflow),
 
   // automations
   listAutomations: () => ipcRenderer.invoke(IPC.listAutomations),

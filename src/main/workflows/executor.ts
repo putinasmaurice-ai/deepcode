@@ -78,7 +78,7 @@ async function runNode(
   node: WorkflowNode,
   vars: Record<string, string>,
   deps: WorkflowDeps
-): Promise<{ output?: string; branch?: 'true' | 'false' }> {
+): Promise<{ output?: string; branch?: string }> {
   const cfg = node.config || {}
   const setVar = (out: string): void => {
     const v = typeof cfg.outputVar === 'string' && cfg.outputVar ? cfg.outputVar : 'last'
@@ -138,6 +138,23 @@ async function runNode(
     case 'condition': {
       const ok = evalCondition(String(cfg.expression || ''), vars)
       return { output: String(ok), branch: ok ? 'true' : 'false' }
+    }
+    case 'switch': {
+      // route by exact match of an input value against the configured cases; the matched
+      // case (or 'default') is the branch the walk follows via the same-named edge handle.
+      const input = tmpl(cfg.input ?? '{{last}}', vars).trim()
+      // 'default' is the reserved fallback handle — a user case can't claim it
+      const cases = [
+        ...new Set(
+          String(cfg.cases ?? '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter((c) => c && c !== 'default')
+        )
+      ]
+      const matched = cases.find((c) => c === input)
+      setVar(input)
+      return { output: input, branch: matched ?? 'default' }
     }
     case 'subworkflow': {
       if (!deps.runSubworkflow) throw new Error('sub-workflows unavailable')
@@ -255,36 +272,84 @@ export async function runWorkflow(
       deps.emit({ type: 'workflow_node', runId: run.id, nodeId: current.id, status: 'running' })
       saveRun(run)
 
-      let branch: 'true' | 'false' | undefined
-      try {
-        const res = await runNode(current, run.vars!, deps)
-        branch = res.branch
-        rn.output = res.output?.slice(0, 20_000)
-        rn.status = 'done'
-        rn.endedAt = Date.now()
-        deps.emit({ type: 'workflow_node', runId: run.id, nodeId: current.id, status: 'done', output: rn.output?.slice(0, 2000) })
-      } catch (e) {
-        // a user cancel that interrupts an in-flight node arrives here as an AbortError —
-        // it must read as 'cancelled' (not a red 'failed'), both on the node and the run.
-        if (deps.signal.aborted || (e as Error).name === 'AbortError') {
-          rn.status = 'cancelled'
+      const ncfg = current.config || {}
+      const maxRetries = Math.max(0, Math.min(Number(ncfg.retries) || 0, 10))
+      const retryDelay = Math.max(0, Math.min(Number(ncfg.retryDelaySec) || 0, 300))
+      const continueOnError = ncfg.continueOnError === true
+      let branch: string | undefined
+      let attempt = 0
+      let cancelled = false
+      let nodeFailed = false
+      let hardStop = false // budget exceeded → stop even if continueOnError is set
+      for (;;) {
+        try {
+          const res = await runNode(current, run.vars!, deps)
+          branch = res.branch
+          rn.output = res.output?.slice(0, 20_000)
+          rn.status = 'done'
           rn.endedAt = Date.now()
-          deps.emit({ type: 'workflow_node', runId: run.id, nodeId: current.id, status: 'cancelled' })
-          run.status = 'cancelled'
+          deps.emit({ type: 'workflow_node', runId: run.id, nodeId: current.id, status: 'done', output: rn.output?.slice(0, 2000) })
+          break
+        } catch (e) {
+          // a user cancel that interrupts an in-flight node arrives as an AbortError —
+          // it must read as 'cancelled' (not 'failed'), and it overrides retry.
+          if (deps.signal.aborted || (e as Error).name === 'AbortError') {
+            cancelled = true
+            break
+          }
+          if (attempt < maxRetries) {
+            attempt++
+            deps.emit({ type: 'workflow_node', runId: run.id, nodeId: current.id, status: 'running', output: `↻ Versuch ${attempt}/${maxRetries}…` })
+            if (retryDelay > 0) {
+              // a cancel DURING the backoff must read as cancelled, not failed
+              try {
+                await sleep(retryDelay * 1000, deps.signal)
+              } catch {
+                cancelled = true
+                break
+              }
+            }
+            // the retry backoff must still respect the per-run wall-clock ceiling
+            if (Date.now() - run.startedAt > RUN_MAX_MS) {
+              rn.status = 'failed'
+              rn.error = 'Zeitbudget des Workflows überschritten — gestoppt.'
+              rn.endedAt = Date.now()
+              deps.emit({ type: 'workflow_node', runId: run.id, nodeId: current.id, status: 'failed', error: rn.error })
+              nodeFailed = true
+              hardStop = true
+              run.error = rn.error
+              break
+            }
+            continue
+          }
+          rn.status = 'failed'
+          rn.error = (e as Error).message
+          rn.endedAt = Date.now()
+          deps.emit({ type: 'workflow_node', runId: run.id, nodeId: current.id, status: 'failed', error: rn.error })
+          nodeFailed = true
           break
         }
-        rn.status = 'failed'
-        rn.error = (e as Error).message
+      }
+      if (cancelled) {
+        rn.status = 'cancelled'
         rn.endedAt = Date.now()
-        deps.emit({ type: 'workflow_node', runId: run.id, nodeId: current.id, status: 'failed', error: rn.error })
+        deps.emit({ type: 'workflow_node', runId: run.id, nodeId: current.id, status: 'cancelled' })
+        run.status = 'cancelled'
+        break
+      }
+      // a failed node stops the run UNLESS "continue on error" is set (then we follow the
+      // default edge with the prior {{last}} and carry on). A hardStop (budget) always stops.
+      if (nodeFailed && (!continueOnError || hardStop)) {
         run.status = 'failed'
         break
       }
       saveRun(run)
 
       const outgoing = wfEdges.filter((e) => e.source === current!.id)
+      // branched node (condition/switch): take the matching handle, else fall back to a
+      // 'default' handle if one is wired; unbranched: the plain (handle-less) edge.
       const next = branch
-        ? outgoing.find((e) => e.sourceHandle === branch)
+        ? outgoing.find((e) => e.sourceHandle === branch) ?? outgoing.find((e) => e.sourceHandle === 'default')
         : outgoing.find((e) => !e.sourceHandle) ?? outgoing[0]
       current = next ? byId.get(next.target) : undefined
     }

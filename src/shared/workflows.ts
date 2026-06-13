@@ -17,8 +17,13 @@ const REQUIRED_FIELD: Partial<Record<WorkflowNode['type'], { key: string; label:
   shell: { key: 'command', label: 'Befehl' },
   http: { key: 'url', label: 'URL' },
   condition: { key: 'expression', label: 'Ausdruck' },
+  switch: { key: 'cases', label: 'Fälle (kommagetrennt)' },
   subworkflow: { key: 'workflowId', label: 'Workflow-ID' }
 }
+
+const KNOWN_NODE_TYPES = new Set<string>([
+  'trigger', 'agent', 'tool', 'shell', 'http', 'condition', 'switch', 'transform', 'subworkflow', 'delay', 'notify', 'output'
+])
 
 function nonEmpty(v: unknown): boolean {
   return typeof v === 'string' ? v.trim().length > 0 : v != null
@@ -65,6 +70,9 @@ export function validateWorkflow(def: WorkflowDef): WorkflowIssue[] {
     }
     // a config problem on an UNREACHABLE node is only a warning (it can't break the run)
     const sev: 'error' | 'warn' = reachable ? 'error' : 'warn'
+    if (!KNOWN_NODE_TYPES.has(n.type)) {
+      issues.push({ nodeId: n.id, severity: sev, message: `Unbekannter Knotentyp: ${n.type}` })
+    }
     const req = REQUIRED_FIELD[n.type]
     if (req && !nonEmpty(cfg[req.key])) {
       issues.push({ nodeId: n.id, severity: sev, message: `${req.label} fehlt.` })
@@ -95,6 +103,21 @@ export function validateWorkflow(def: WorkflowDef): WorkflowIssue[] {
     }
     if (n.type === 'delay' && cfg.seconds !== undefined && !Number.isFinite(Number(cfg.seconds))) {
       issues.push({ nodeId: n.id, severity: sev, message: 'Warten: Sekunden muss eine Zahl sein.' })
+    }
+    // switch: warn on missing case/default edges + a reserved 'default' case name
+    if (n.type === 'switch') {
+      const cases = [...new Set(String(cfg.cases ?? '').split(',').map((s) => s.trim()).filter(Boolean))]
+      if (cases.includes('default')) {
+        issues.push({ nodeId: n.id, severity: sev, message: 'Switch: „default" ist reserviert (Fallback-Zweig) — als Fallnamen umbenennen.' })
+      }
+      const out = edges.filter((e) => e.source === n.id)
+      if (!out.length) issues.push({ nodeId: n.id, severity: 'warn', message: 'Switch hat keine ausgehende Kante.' })
+      else {
+        for (const c of cases.filter((c) => c !== 'default')) {
+          if (!out.some((e) => e.sourceHandle === c)) issues.push({ nodeId: n.id, severity: 'warn', message: `Switch: Fall „${c}" ohne Kante — endet hier bei diesem Wert.` })
+        }
+        if (!out.some((e) => e.sourceHandle === 'default')) issues.push({ nodeId: n.id, severity: 'warn', message: 'Switch: kein default-Zweig — endet hier, wenn kein Fall passt.' })
+      }
     }
     // condition must wire BOTH branches, else a taken branch dead-ends the run silently (warn)
     if (n.type === 'condition') {

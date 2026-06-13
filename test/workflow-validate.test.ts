@@ -98,6 +98,36 @@ describe('validateWorkflow', () => {
     expect(iss.some((i) => i.nodeId === 'orphan' && i.severity === 'warn')).toBe(true)
   })
 
+  it('blocks an unknown node type', () => {
+    const d = def({
+      nodes: [
+        { id: 't', type: 'trigger', config: {} },
+        { id: 'x', type: 'bogus' as never, config: {} }
+      ],
+      edges: [{ id: 'e', source: 't', target: 'x' }]
+    })
+    expect(hasBlockingErrors(validateWorkflow(d))).toBe(true)
+  })
+
+  it('warns a switch with case edges but no default branch', () => {
+    const d = def({
+      nodes: [
+        { id: 't', type: 'trigger', config: {} },
+        { id: 's', type: 'switch', config: { input: '{{last}}', cases: 'a,b' } },
+        { id: 'oa', type: 'output', config: {} },
+        { id: 'ob', type: 'output', config: {} }
+      ],
+      edges: [
+        { id: 'e0', source: 't', target: 's' },
+        { id: 'e1', source: 's', target: 'oa', sourceHandle: 'a' },
+        { id: 'e2', source: 's', target: 'ob', sourceHandle: 'b' } // no 'default' edge
+      ]
+    })
+    const iss = validateWorkflow(d)
+    expect(iss.some((i) => i.nodeId === 's' && /default-Zweig/.test(i.message))).toBe(true)
+    expect(hasBlockingErrors(iss)).toBe(false) // missing branch edges are warnings
+  })
+
   it('passes a well-formed workflow', () => {
     const d = def({
       nodes: [
