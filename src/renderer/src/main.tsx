@@ -1,7 +1,8 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
-import '@xyflow/react/dist/style.css'
+// @xyflow/react CSS is imported inside WorkflowEditor (lazy-loaded) so React Flow's styles +
+// code only load when the workflow editor is actually opened — not on every cold start.
 import './styles.css'
 
 // Catches render-time crashes so a single bad message can't white-screen the app.

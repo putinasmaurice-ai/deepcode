@@ -157,6 +157,22 @@ function scan(dir: string, cwd: string, out: ScannedFile[]): void {
   }
 }
 
+// The recursive scan is synchronous (up to MAX_FILES statSync calls) and blocks the main process.
+// The agent often calls semantic_search several times in one turn — cache the scan briefly per cwd
+// so a burst of searches re-walks the tree at most once every SCAN_TTL_MS instead of every call.
+const SCAN_TTL_MS = 3000
+const scanCache = new Map<string, { at: number; files: ScannedFile[] }>()
+function scanCached(cwd: string): ScannedFile[] {
+  const c = scanCache.get(cwd)
+  if (c && Date.now() - c.at < SCAN_TTL_MS) return c.files
+  const out: ScannedFile[] = []
+  scan(cwd, cwd, out)
+  scanCache.set(cwd, { at: Date.now(), files: out })
+  // bound the cache so a long-lived process opening many cwds can't grow it without limit
+  if (scanCache.size > 16) scanCache.delete(scanCache.keys().next().value as string)
+  return out
+}
+
 function filesChanged(oldMap: Record<string, number>, scanned: ScannedFile[]): boolean {
   const keys = Object.keys(oldMap)
   if (keys.length !== scanned.length) return true

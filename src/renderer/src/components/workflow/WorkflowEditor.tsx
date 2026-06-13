@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import '@xyflow/react/dist/style.css' // co-located so it loads only with the (lazy) editor
 import {
   ReactFlow,
   Background,

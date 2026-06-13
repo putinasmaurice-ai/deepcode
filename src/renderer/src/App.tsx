@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from 'react'
 import type {
   AgentEvent,
   AppSettings,
@@ -13,19 +13,21 @@ export type AgentMode = 'interactive' | 'plan' | 'full'
 import { Composer } from './components/Composer'
 import { MessageView } from './components/MessageView'
 import { ProjectsPanel } from './components/ProjectsPanel'
-import { UsagePanel } from './components/UsagePanel'
-import { AuditPanel } from './components/AuditPanel'
-import { NightShiftPanel } from './components/NightShiftPanel'
 import { Welcome, TodoStrip, ContextPill, WorkingIndicator, basename, relTime } from './components/ChatExtras'
 import { contextLimit } from '../../shared/models'
 import { FirstRunModal } from './components/FirstRunModal'
-import { MarketPanel } from './components/MarketPanel'
 import { Sidebar, NAV } from './components/Sidebar'
 import { CommandPalette, PaletteItem } from './components/CommandPalette'
 import { FindBar } from './components/FindBar'
 import { PreviewPane } from './components/PreviewPane'
 import { CrystalBall } from './components/CrystalBall'
-import { WorkflowsPanel } from './components/workflow/WorkflowsPanel'
+// Heavy, view-gated panels are code-split (lazy) so the cold-start bundle stays small — the big
+// one is the workflow editor (React Flow). Each loads its chunk on first open.
+const WorkflowsPanel = lazy(() => import('./components/workflow/WorkflowsPanel').then((m) => ({ default: m.WorkflowsPanel })))
+const MarketPanel = lazy(() => import('./components/MarketPanel').then((m) => ({ default: m.MarketPanel })))
+const AuditPanel = lazy(() => import('./components/AuditPanel').then((m) => ({ default: m.AuditPanel })))
+const NightShiftPanel = lazy(() => import('./components/NightShiftPanel').then((m) => ({ default: m.NightShiftPanel })))
+const UsagePanel = lazy(() => import('./components/UsagePanel').then((m) => ({ default: m.UsagePanel })))
 import { inOffPeak } from '../../shared/offpeak'
 import {
   SettingsPanel,
@@ -1081,6 +1083,7 @@ export function App(): JSX.Element {
           )}
         </div>
 
+        <Suspense fallback={<div className="panel"><div className="panel-inner" style={{ color: 'var(--text-faint)' }}>Lädt…</div></div>}>
         {view === 'chat' ? (
           <div className={'chat-split' + (previewOpen ? ' with-preview' : '')}>
            <div className="chat-col">
@@ -1268,6 +1271,7 @@ export function App(): JSX.Element {
             onAutomationPrefillUsed={() => setAutomationPrefill(null)}
           />
         )}
+        </Suspense>
       </main>
       {settings && !settings.provider.apiKey && !firstRunDismissed && (
         <FirstRunModal

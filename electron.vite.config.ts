@@ -46,6 +46,16 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/renderer/index.html')
+        },
+        output: {
+          // keep the cold-start entry lean: split big libs into their own cacheable chunks.
+          // @xyflow/react additionally only loads via the lazy WorkflowEditor import.
+          manualChunks(id: string): string | undefined {
+            if (id.includes('@xyflow')) return 'xyflow'
+            if (id.includes('highlight.js')) return 'highlight'
+            if (id.includes('markdown-it')) return 'markdown'
+            return undefined
+          }
         }
       }
     }
