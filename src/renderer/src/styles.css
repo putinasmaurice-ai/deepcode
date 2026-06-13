@@ -1584,6 +1584,12 @@ kbd {
   border: 1px solid rgba(227, 179, 65, 0.35);
   color: var(--yellow);
 }
+/* 👁 online/local vision toggle */
+.vision-btn.on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
 
 /* toasts */
 .toasts {
@@ -1956,6 +1962,360 @@ kbd {
 .btn.ghost.on {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* ---- visual workflow editor ---- */
+.wf-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.wf-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+  flex-wrap: wrap;
+}
+.wf-toolbar .wf-name {
+  font-size: 14px;
+}
+.wf-palette {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.wf-dirty {
+  color: var(--yellow);
+}
+.wf-canvas-wrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+}
+.wf-canvas-wrap .react-flow {
+  flex: 1;
+  background: var(--bg);
+}
+.wf-node {
+  min-width: 150px;
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+  border-radius: 9px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text);
+  box-shadow: var(--shadow-card);
+}
+.wf-node.sel {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.wf-node.st-running {
+  border-color: var(--yellow);
+}
+.wf-node.st-done {
+  border-color: var(--green);
+}
+.wf-node.st-failed {
+  border-color: var(--red);
+}
+.wf-node.st-cancelled {
+  border-color: var(--text-faint);
+  opacity: 0.8;
+}
+.wf-node.invalid {
+  border-color: var(--red);
+  border-style: dashed;
+}
+/* validation issues panel (bottom-left, click an issue to focus its node) */
+.wf-issues {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: 320px;
+  max-height: 40%;
+  overflow: auto;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-card);
+  z-index: 5;
+  font-size: 12px;
+}
+.wf-issues-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-faint);
+}
+.wf-issue {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border-2);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+}
+.wf-issue:hover {
+  background: var(--bg-3);
+}
+.wf-issue.error {
+  color: var(--red);
+}
+.wf-issue.warn {
+  color: var(--yellow);
+}
+/* run-history overlay (right side): run list + per-node detail */
+.wf-runs {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 460px;
+  max-width: 80%;
+  background: var(--bg-2);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  z-index: 6;
+  box-shadow: var(--shadow-card);
+}
+.wf-runs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.wf-runs-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.wf-runs-list {
+  width: 170px;
+  border-right: 1px solid var(--border);
+  overflow: auto;
+}
+.wf-run-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border-2);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 11px;
+}
+.wf-run-item.sel {
+  background: var(--bg-3);
+}
+.wf-run-when {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-run-dur {
+  color: var(--text-faint);
+  font-size: 10px;
+  margin-left: auto;
+}
+.wf-run-detail {
+  flex: 1;
+  overflow: auto;
+  padding: 10px 12px;
+  min-width: 0;
+}
+.wf-run-meta {
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+.wf-run-node {
+  border: 1px solid var(--border-2);
+  border-radius: 7px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+}
+.wf-run-node-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.wf-run-out {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  background: var(--bg-1);
+  border-radius: 6px;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow: auto;
+}
+.wf-run-out.err {
+  color: var(--red);
+}
+/* the data flowing out of (or the error from) a node — visible, not just a status dot */
+.wf-node-out {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px dashed var(--border-2);
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-faint);
+  max-height: 44px;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.wf-node-out.err {
+  color: var(--red);
+}
+.wf-node-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.wf-ic {
+  font-size: 14px;
+}
+.wf-ttl {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-st {
+  margin-left: auto;
+}
+.wf-branches {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  margin-top: 4px;
+}
+.wf-branches .t {
+  color: var(--green);
+  font-weight: 600;
+}
+.wf-branches .f {
+  color: var(--red);
+  font-weight: 600;
+}
+/* terminal run-result banner over the canvas */
+.wf-runbanner {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 70%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  box-shadow: var(--shadow-card);
+  z-index: 5;
+}
+.wf-runbanner.done {
+  background: color-mix(in srgb, var(--green) 16%, var(--bg-2));
+  border: 1px solid var(--green);
+}
+.wf-runbanner.error {
+  background: color-mix(in srgb, var(--red) 16%, var(--bg-2));
+  border: 1px solid var(--red);
+}
+.wf-runbanner.cancelled {
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+}
+.wf-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 320px;
+  background: var(--bg-2);
+  border-left: 1px solid var(--border);
+  padding: 12px 14px;
+  overflow-y: auto;
+  z-index: 5;
+}
+.wf-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.wf-drawer .field {
+  margin-bottom: 10px;
+}
+.wf-drawer textarea {
+  min-height: 80px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.wf-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+  line-height: 1.6;
+}
+/* variable picker (data-flow): click a chip to insert {{var}} at the caret */
+.wf-varbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.wf-varbar-label {
+  font-size: 11px;
+  color: var(--text-faint);
+  width: 100%;
+}
+.wf-varchip {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--border-2);
+  background: var(--bg-3);
+  color: var(--accent);
+  cursor: pointer;
+}
+.wf-varchip:hover {
+  border-color: var(--accent);
+}
+.wf-drawer textarea.invalid {
+  border-color: var(--danger, #e5484d);
+  outline-color: var(--danger, #e5484d);
+}
+.wf-field-err {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--danger, #e5484d);
+  line-height: 1.5;
 }
 
 /* 🔮 Cost & Time Crystal Ball strip (above the composer) */

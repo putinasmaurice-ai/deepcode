@@ -76,6 +76,16 @@ export const IPC = {
   listPlugins: 'plugins:list',
   togglePlugin: 'plugins:toggle',
 
+  // visual workflows
+  listWorkflows: 'workflows:list',
+  getWorkflow: 'workflows:get',
+  saveWorkflow: 'workflows:save',
+  deleteWorkflow: 'workflows:delete',
+  runWorkflow: 'workflows:run',
+  cancelWorkflow: 'workflows:cancel',
+  listWorkflowRuns: 'workflows:runs',
+  getWorkflowRun: 'workflows:getRun',
+
   // automations
   listAutomations: 'automations:list',
   saveAutomation: 'automations:save',

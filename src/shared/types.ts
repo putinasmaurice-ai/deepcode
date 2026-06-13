@@ -37,6 +37,10 @@ export interface ChatMessage {
   variant?: 'second-opinion' | 'arena' // alternative/parallel answers
   variantModel?: string
   images?: string[] // attached images as data URIs (for vision models)
+  // textual description of the attached image(s), produced by the vision model
+  // (Gemini online / local) before the turn — this is what the text model (DeepSeek)
+  // actually reads, since it can't see images itself.
+  imageDescription?: string
 }
 
 export interface ProjectDef {
@@ -153,10 +157,17 @@ export interface ProviderSettings {
   localBaseUrl: string
   // model the 🔓 Uncensored toggle switches to (a local, unaligned model)
   uncensoredModel: string
-  // vision-capable model used automatically when a message has image attachments
+  // LOCAL vision-capable model used for image understanding in LOKAL mode (Ollama)
   visionModel: string
   // local embedding model for semantic_search (free/offline; e.g. nomic-embed-text)
   embeddingModel: string
+  // ---- online vision (Google AI Studio / Gemini) ----
+  // separate API key for Google AI Studio (Gemini). Stored encrypted like apiKey.
+  googleApiKey: string
+  // Google's OpenAI-compatible base URL (Gemini speaks the same /chat/completions)
+  googleBaseUrl: string
+  // online vision model used in ONLINE mode (e.g. gemini-2.5-flash-lite)
+  onlineVisionModel: string
 }
 
 export interface AppSettings {
@@ -178,6 +189,10 @@ export interface AppSettings {
   // monthly cost budget in USD (0 = off); the usage panel warns when exceeded
   monthlyBudget: number
   theme: 'dark' | 'light'
+  // how attached images are understood: 'online' = Gemini (Google AI Studio),
+  // 'local' = the configured local vision model (Ollama). Either way the vision model
+  // only DESCRIBES the image; the text model (DeepSeek) does the actual work.
+  visionMode: 'online' | 'local'
   // notify when project files change outside the agent (editor saves, git)
   watcherEnabled: boolean
   // after a turn that changed files, run one extra self-review pass (≈2x tokens)
@@ -215,7 +230,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
     localBaseUrl: 'http://localhost:11434/v1',
     uncensoredModel: 'local:dolphin3',
     visionModel: 'local:qwen2.5vl:7b',
-    embeddingModel: 'nomic-embed-text'
+    embeddingModel: 'nomic-embed-text',
+    googleApiKey: '',
+    googleBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    onlineVisionModel: 'gemini-2.5-flash-lite'
   },
   autoApprove: {
     read: true,
@@ -228,6 +246,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   compactThreshold: 100_000, // auto-compact long sessions (large token saver)
   monthlyBudget: 0,
   theme: 'dark',
+  visionMode: 'online', // default to Gemini; falls back to local if no Google key is set
   watcherEnabled: false,
   selfReview: false,
   autoRouteModels: true,
@@ -279,6 +298,9 @@ export type AgentEvent =
   | { type: 'turn_done'; sessionId: string }
   | { type: 'status'; sessionId?: string; message: string }
   | { type: 'error'; message: string }
+  // visual workflow runs: per-run and per-node status so the editor can trace live
+  | { type: 'workflow_run'; runId: string; workflowId: string; status: 'start' | 'done' | 'error' | 'cancelled'; message?: string }
+  | { type: 'workflow_node'; runId: string; nodeId: string; status: WorkflowNodeStatus; output?: string; error?: string }
 
 // ---- Feature system descriptors (Skills / Hooks / Commands / Subagents / MCP / Plugins / Automations) ----
 
@@ -368,4 +390,69 @@ export interface MemoryEntry {
   type: 'user' | 'feedback' | 'project' | 'reference'
   body: string
   path: string
+}
+
+// ---- Visual workflow builder (n8n-style, simpler) ----
+
+export type WorkflowNodeType =
+  | 'trigger' // entry point (manual / cron / on-chat)
+  | 'agent' // run a prompt through the full agent loop
+  | 'tool' // run one built-in tool directly (no LLM)
+  | 'shell' // run a shell command
+  | 'http' // fetch a URL (web_fetch)
+  | 'condition' // branch on a simple expression (true/false edges)
+  | 'transform' // template / regex-extract / set a variable
+  | 'subworkflow' // run another workflow
+  | 'delay' // wait N seconds (rate-limiting / polling pauses)
+  | 'notify' // send a desktop notification
+  | 'output' // emit a result (notify / return to chat)
+
+export interface WorkflowNode {
+  id: string
+  type: WorkflowNodeType
+  label?: string
+  // free-form per-type configuration (prompt, tool name+args, command, url,
+  // expression, template, target workflow id, output var name, …); typed per node in the UI
+  config: Record<string, unknown>
+  x?: number // canvas position (set by the editor)
+  y?: number
+}
+
+export interface WorkflowEdge {
+  id: string
+  source: string // node id
+  target: string // node id
+  sourceHandle?: string // 'true' | 'false' for condition branches; undefined = default
+}
+
+export interface WorkflowDef {
+  id: string
+  name: string
+  description?: string
+  nodes: WorkflowNode[]
+  edges: WorkflowEdge[]
+  createdAt: number
+  updatedAt: number
+}
+
+export type WorkflowNodeStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'cancelled'
+
+export interface WorkflowRunNode {
+  nodeId: string
+  status: WorkflowNodeStatus
+  output?: string
+  error?: string
+  startedAt?: number
+  endedAt?: number
+}
+
+export interface WorkflowRun {
+  id: string
+  workflowId: string
+  status: 'running' | 'done' | 'failed' | 'cancelled'
+  nodes: WorkflowRunNode[]
+  vars?: Record<string, string>
+  startedAt: number
+  endedAt?: number
+  error?: string // why the run failed (node error / loop or step limit) — surfaced terminally
 }

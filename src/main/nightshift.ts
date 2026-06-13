@@ -103,7 +103,9 @@ export async function runNightShift(
       try {
         beginAgentOp()
         try {
-          await engine.runTurn(session, task.prompt, emit, state.autonomy)
+          // Night Shift is fully unattended (runs overnight while the user is away) → gate
+          // high-blast-radius tools (MCP/claude_code/task/git push|pr), like workflows/automations.
+          await engine.runTurn(session, task.prompt, emit, state.autonomy, undefined, true)
         } finally {
           endAgentOp()
         }

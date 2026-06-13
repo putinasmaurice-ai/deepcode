@@ -147,7 +147,7 @@ export function SettingsPanel({
           />
         </div>
         <div className="field">
-          <label>👁 Vision-Modell (automatisch genutzt, wenn du ein Bild anhängst)</label>
+          <label>👁 Vision-Modell LOKAL (Ollama — genutzt im LOKAL-Modus, wenn du ein Bild anhängst)</label>
           <input
             value={p.visionModel ?? 'local:qwen2.5vl:7b'}
             onChange={(e) => updateProvider({ visionModel: e.target.value })}
@@ -253,6 +253,44 @@ export function SettingsPanel({
               onChange={(e) => updateProvider({ reasonerCachedPricePerMillionInput: Number(e.target.value) })}
             />
           </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <h3>👁 Bild-Analyse (Vision)</h3>
+        <p>
+          DeepSeek kann keine Bilder sehen. Hängst du eines an, beschreibt es ein Vision-Modell zuerst —
+          <b> ONLINE</b> via Gemini (Google AI Studio) oder <b>LOKAL</b> via Ollama — und DeepSeek arbeitet
+          dann mit dieser Beschreibung weiter. Den Modus schaltest du auch direkt oben rechts im Chat um.
+        </p>
+        <label className="toggle" style={{ marginTop: 12 }}>
+          <Switch on={s.visionMode === 'online'} onClick={() => update({ visionMode: s.visionMode === 'online' ? 'local' : 'online' })} />
+          Bild-Analyse <b>ONLINE</b> (Gemini) — aus = <b>LOKAL</b> (Ollama)
+        </label>
+        <div className="field" style={{ marginTop: 12 }}>
+          <label>Google-AI-Studio-Key (Gemini) — verschlüsselt gespeichert</label>
+          <input
+            type="password"
+            value={p.googleApiKey ?? ''}
+            placeholder="AIza…"
+            onChange={(e) => updateProvider({ googleApiKey: e.target.value })}
+          />
+        </div>
+        <div className="field">
+          <label>Online-Vision-Modell (Gemini)</label>
+          <input
+            value={p.onlineVisionModel ?? 'gemini-2.5-flash-lite'}
+            onChange={(e) => updateProvider({ onlineVisionModel: e.target.value })}
+            placeholder="gemini-2.5-flash-lite"
+          />
+        </div>
+        <div className="field">
+          <label>Google Base URL (OpenAI-kompatibel)</label>
+          <input
+            value={p.googleBaseUrl ?? 'https://generativelanguage.googleapis.com/v1beta/openai'}
+            onChange={(e) => updateProvider({ googleBaseUrl: e.target.value })}
+            placeholder="https://generativelanguage.googleapis.com/v1beta/openai"
+          />
         </div>
       </div>
 

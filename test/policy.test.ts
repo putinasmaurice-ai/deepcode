@@ -15,6 +15,25 @@ describe('isDangerousCommand', () => {
     expect(isDangerousCommand(':(){ :|:& };:')).toBe(true)
   })
 
+  it('flags destructive disk FORMAT (drive letter / flag) but not build tooling', () => {
+    // genuinely destructive — must stay blocked
+    expect(isDangerousCommand('format C:')).toBe(true)
+    expect(isDangerousCommand('format /q D:')).toBe(true)
+    expect(isDangerousCommand('format /fs:ntfs X:')).toBe(true)
+    expect(isDangerousCommand('format.exe C:')).toBe(true)
+    expect(isDangerousCommand('format "C:"')).toBe(true)
+    // destructive PowerShell disk cmdlets (regression: narrowed pattern once missed these)
+    expect(isDangerousCommand('Format-Volume -DriveLetter D -Force')).toBe(true)
+    expect(isDangerousCommand('Clear-Disk -Number 1 -RemoveData')).toBe(true)
+    expect(isDangerousCommand('Initialize-Disk -Number 2')).toBe(true)
+    // build/format tooling — must NOT be blocked (was a false positive that hard-broke
+    // unattended workflow/automation steps once dangerous commands stopped auto-running)
+    expect(isDangerousCommand('dotnet format')).toBe(false)
+    expect(isDangerousCommand('clang-format -i main.c')).toBe(false)
+    expect(isDangerousCommand('npm run format')).toBe(false)
+    expect(isDangerousCommand('git format-patch -1 HEAD')).toBe(false)
+  })
+
   it('allows ordinary commands', () => {
     expect(isDangerousCommand('npm test')).toBe(false)
     expect(isDangerousCommand('git status')).toBe(false)

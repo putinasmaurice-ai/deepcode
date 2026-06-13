@@ -1,4 +1,4 @@
-import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron'
+import { app, ipcMain, dialog, shell, BrowserWindow, Notification } from 'electron'
 import { previewToolDiff } from './preview-diff'
 import { isImagePath, imageToDataUri } from './images'
 import { checkForUpdates } from './updater'
@@ -37,6 +37,20 @@ import { listApprovedCommands, removeApprovedCommand } from './approvals'
 import { detectPreview } from './preview'
 import { forecastTurn } from './samples'
 import { estimateTokens } from './agent/pricing'
+import { buildTools } from './agent/toolset'
+import { ToolContext } from './agent/tools/types'
+import {
+  listWorkflows,
+  getWorkflow,
+  saveWorkflow,
+  deleteWorkflow,
+  listRuns as listWorkflowRuns,
+  getRun as getWorkflowRun
+} from './workflows/store'
+import { runWorkflow, WorkflowDeps } from './workflows/executor'
+import { WorkflowScheduler } from './workflows/scheduler'
+import { isDangerousCommand } from './agent/policy'
+import { WorkflowDef } from '@shared/types'
 import { runBuiltin } from './builtins'
 import { execFile } from 'child_process'
 import type { ApprovalPolicy } from './agent/engine'
@@ -279,18 +293,29 @@ export function registerIpc(win: BrowserWindow): void {
       const idx = session.messages.findIndex((m) => m.id === messageId && m.role === 'user')
       if (idx < 0) throw new Error('User message not found')
       const original = session.messages[idx].content
+      // Recover the original message's images BEFORE truncating — otherwise regenerate/edit
+      // re-runs blind (the vision pass never sees them) and the persisted description is
+      // lost. Newly-attached images (edit) override; otherwise reuse the originals.
+      const origImages = session.messages[idx].images
       session.messages = session.messages.slice(0, idx)
       saveSession(session)
       let text = newText ?? original
+      let images: string[] | undefined = origImages
       if (attachments?.length) {
-        const ctx = buildAttachmentContext(attachments, session.cwd)
-        if (ctx) text = `${ctx}\n\n${text}`
+        const imgPaths = attachments.filter(isImagePath)
+        const filePaths = attachments.filter((pth) => !isImagePath(pth))
+        if (filePaths.length) {
+          const ctx = buildAttachmentContext(filePaths, session.cwd)
+          if (ctx) text = `${ctx}\n\n${text}`
+        }
+        const uris = imgPaths.map(imageToDataUri).filter((u): u is string => !!u)
+        if (uris.length) images = uris // newly attached images replace the originals
       }
       // No 'session' event here: the renderer truncates its transcript locally,
       // keeping its optimistic user message visible during the rerun.
       beginAgentOp()
       try {
-        await engine.runTurn(session, text, emit, mode)
+        await engine.runTurn(session, text, emit, mode, images)
       } finally {
         endAgentOp()
       }
@@ -503,6 +528,140 @@ export function registerIpc(win: BrowserWindow): void {
     return loadPlugins()
   })
 
+  // ---- visual workflows ----
+  const wfAborters = new Map<string, AbortController>()
+  // Build the executor deps: reuse the real agent loop (agent nodes), the built-in tools
+  // (tool/shell/http nodes), and recursion (sub-workflow nodes). `depth` guards recursion.
+  const makeWfDeps = (cwd: string, signal: AbortSignal, depth: number): WorkflowDeps => ({
+    cwd,
+    signal,
+    depth,
+    emit,
+    runAgent: async (prompt, c) => {
+      // workflow already cancelled before this node started → don't even create a
+      // throwaway session or burn a turn (engine.cancel here would be a no-op anyway,
+      // since the turn hasn't registered its aborter yet).
+      if (signal.aborted) return ''
+      const session: Session = {
+        id: randomUUID(),
+        title: '[wf] ' + prompt.replace(/\s+/g, ' ').slice(0, 45),
+        cwd: c,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        messages: [],
+        model: settings.provider.model
+      }
+      saveSession(session)
+      // bridge a workflow cancel to the in-flight engine turn. engine.runTurn owns its own
+      // per-session AbortController; pass recordIfPending so a cancel that races ahead of
+      // the turn's registration is remembered and applied by acquireSession.
+      const onAbort = (): void => engine.cancel(session.id, true)
+      signal.addEventListener('abort', onAbort, { once: true })
+      // catch an abort that fired in the gap between the early check and this listener
+      if (signal.aborted) onAbort()
+      try {
+        // unattended=true → the engine's approval gate blocks MCP / claude_code / task /
+        // git push|pr for this agent node (no user to approve), closing the hole where the
+        // agent node would otherwise bypass the tool-node gate under policy 'full'.
+        await engine.runTurn(session, prompt, emit, 'full', undefined, true)
+        const last = [...session.messages].reverse().find((m) => m.role === 'assistant')
+        return last?.content ?? ''
+      } finally {
+        signal.removeEventListener('abort', onAbort)
+        // turn is done → drop any pending cancel a late-firing abort may have recorded for
+        // this throwaway session, so pendingCancels can't grow unbounded across runs.
+        engine.clearPendingCancel(session.id)
+        try {
+          deleteSession(session.id) // throwaway — don't clutter the chat list
+        } catch {
+          /* ignore */
+        }
+      }
+    },
+    runTool: async (name, args, c) => {
+      // A workflow tool node runs UNATTENDED with no approval prompt. High-blast-radius
+      // tools (any MCP tool — could drop tables / delete branches; the Claude Code CLI;
+      // delegating to a subagent) must not fire unscreened — block them in a workflow.
+      if (name.startsWith('mcp__') || name === 'claude_code' || name === 'task') {
+        return { ok: false, content: `Blocked: "${name}" darf in einem unbeaufsichtigten Workflow nicht ohne Freigabe laufen. Nutze dafür einen Agent-Step (mit Genehmigung) oder einen sicheren Tool-Step.` }
+      }
+      // irreversible/outward git actions are likewise not allowed unattended
+      if (name === 'git' && /^(push|pr)$/i.test(String((args as { action?: unknown }).action ?? ''))) {
+        return { ok: false, content: 'Blocked: git push/pr ist in einem unbeaufsichtigten Workflow nicht erlaubt.' }
+      }
+      // still screen catastrophic shell commands — no rm -rf / format etc. unattended.
+      if (
+        (name === 'run_command' || name === 'run_background_command') &&
+        isDangerousCommand((args as { command?: unknown }).command)
+      ) {
+        return { ok: false, content: 'Blocked: this command is flagged dangerous and is not allowed in an unattended workflow.' }
+      }
+      const tool = buildTools(settings, c).find((t) => t.name === name)
+      if (!tool) return { ok: false, content: `Unknown tool: ${name}` }
+      const ctx: ToolContext = { cwd: c, signal, confineToCwd: settings.confineToCwd }
+      try {
+        const r = await tool.execute(args, ctx)
+        return { ok: r.ok, content: r.content }
+      } catch (e) {
+        return { ok: false, content: (e as Error).message }
+      }
+    },
+    notify: (title, body) => {
+      try {
+        if (Notification.isSupported()) new Notification({ title, body }).show()
+      } catch {
+        /* ignore — notifications are best-effort */
+      }
+    },
+    runSubworkflow: async (subId, vars, d) => {
+      if (d > 5) throw new Error('sub-workflow depth limit (5) reached')
+      const child = getWorkflow(subId)
+      if (!child) throw new Error(`sub-workflow not found: ${subId}`)
+      const r = await runWorkflow(child, makeWfDeps(cwd, signal, d), { vars, runId: randomUUID() })
+      // a sub-workflow that failed/was-cancelled/hit a limit must not look like success to
+      // the parent node — propagate it as an error instead of returning a partial result.
+      if (r.status !== 'done') throw new Error(`Sub-Workflow „${child.name}" endete mit Status ${r.status}${r.error ? ': ' + r.error : ''}`)
+      return r.vars?.last ?? ''
+    }
+  })
+
+  ipcMain.handle(IPC.listWorkflows, () => listWorkflows())
+  ipcMain.handle(IPC.getWorkflow, (_e, id: string) => getWorkflow(id))
+  ipcMain.handle(IPC.saveWorkflow, (_e, def: WorkflowDef) => saveWorkflow(def))
+  ipcMain.handle(IPC.deleteWorkflow, (_e, id: string) => deleteWorkflow(id))
+  ipcMain.handle(IPC.listWorkflowRuns, (_e, workflowId?: string) => listWorkflowRuns(workflowId))
+  ipcMain.handle(IPC.getWorkflowRun, (_e, runId: string) => getWorkflowRun(runId))
+  ipcMain.handle(IPC.cancelWorkflow, (_e, runId: string) => {
+    wfAborters.get(runId)?.abort()
+    return true
+  })
+  ipcMain.handle(IPC.runWorkflow, (_e, id: string, clientRunId?: string, vars?: Record<string, string>, fromNodeId?: string) => {
+    const def = getWorkflow(id)
+    if (!def) throw new Error('Workflow not found')
+    // honour the renderer-supplied runId (it set its event-matching ref to this BEFORE
+    // calling, so the first workflow_* events aren't missed) — but only if it's a safe
+    // slug, since it ends up in a run filename; otherwise mint our own.
+    const runId = typeof clientRunId === 'string' && /^[A-Za-z0-9_-]+$/.test(clientRunId) ? clientRunId : randomUUID()
+    const ac = new AbortController()
+    wfAborters.set(runId, ac)
+    const cwd = validDir(settings.defaultCwd) || homedir()
+    // fire-and-forget: progress streams via workflow_* events; the renderer polls getRun
+    runWorkflow(def, makeWfDeps(cwd, ac.signal, 0), { vars, fromNodeId, runId })
+      .catch((e: unknown) => {
+        // executor already persists/streams failures per node, but guard the rare case
+        // where the whole call rejects before any node ran (e.g. malformed def).
+        emit({
+          type: 'workflow_run',
+          runId,
+          workflowId: id,
+          status: 'error',
+          message: (e as Error)?.message ?? String(e)
+        })
+      })
+      .finally(() => wfAborters.delete(runId))
+    return runId
+  })
+
   // ---- automations ----
   ipcMain.handle(IPC.listAutomations, () => loadAutomations())
   ipcMain.handle(IPC.saveAutomation, (_e, a: AutomationDef) => upsertAutomation(a))
@@ -565,6 +724,24 @@ export function registerIpc(win: BrowserWindow): void {
   // ---- automation scheduler ----
   const scheduler = new AutomationScheduler((a) => runAutomationNow(a, emit))
   scheduler.start()
+
+  // ---- workflow trigger scheduler (cron) ----
+  // fires saved workflows whose trigger node is set to mode='cron'. Runs unattended via
+  // the same guarded deps as a manual run (dangerous-command screen, MCP/claude_code gate).
+  const wfScheduler = new WorkflowScheduler((def) => {
+    const runId = randomUUID()
+    const ac = new AbortController()
+    wfAborters.set(runId, ac)
+    const cwd = validDir(settings.defaultCwd) || homedir()
+    // return the promise so the scheduler's in-flight guard knows when this run finishes
+    return runWorkflow(def, makeWfDeps(cwd, ac.signal, 0), { runId })
+      .catch((e: unknown) =>
+        emit({ type: 'workflow_run', runId, workflowId: def.id, status: 'error', message: (e as Error)?.message ?? String(e) })
+      )
+      .finally(() => wfAborters.delete(runId))
+      .then(() => undefined)
+  })
+  wfScheduler.start()
 }
 
 async function runAutomationNow(a: AutomationDef, emit: (e: AgentEvent) => void): Promise<void> {
@@ -583,7 +760,9 @@ async function runAutomationNow(a: AutomationDef, emit: (e: AgentEvent) => void)
   emit({ type: 'status', sessionId: session.id, message: `Automation "${a.name}" running...` })
   // 'safe' = only auto-approved reads run unattended; 'full' = writes + shell too.
   const policy = a.autonomy === 'full' ? 'full' : 'safe'
-  await engine.runTurn(session, a.prompt, emit, policy)
+  // automations are headless/unattended too → same gate as workflow agent nodes: block
+  // MCP / claude_code / task / git push|pr (no user present to approve outward actions).
+  await engine.runTurn(session, a.prompt, emit, policy, undefined, true)
 }
 
 function validDir(p?: string): string | null {

@@ -58,8 +58,9 @@ export async function maybeRunE2E(): Promise<boolean> {
       }
     }
 
-    // 'full' policy: headless run, no approval UI available
-    await engine.runTurn(session, prompt, emit, 'full')
+    // 'full' policy: headless run, no approval UI available → unattended gate (consistent
+    // with workflows/automations/night-shift: no MCP/claude_code/task/git push|pr)
+    await engine.runTurn(session, prompt, emit, 'full', undefined, true)
 
     let tokens = 0
     let cost = 0

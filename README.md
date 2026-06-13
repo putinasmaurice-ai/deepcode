@@ -32,6 +32,7 @@ On first launch, open **Settings** and paste your DeepSeek API key + model.
 | **Memory** | `~/.deepcode/memory/*.md` (+ `MEMORY.md` index) | Durable knowledge injected into every system prompt. |
 | **Automation / Routine** | `~/.deepcode/automations.json` | Cron-scheduled prompts that run the agent headlessly. |
 | **Slash Command** | `~/.deepcode/commands/<name>.md` | Prompt template triggered by typing `/name` in chat. |
+| **Workflow** | `~/.deepcode/workflows/<id>.json` (runs under `workflows/runs/`) | Visual node-graph automation (n8n-style): wire Agent/Tool/Shell/HTTP/Condition/Transform/Sub-workflow/Output nodes on a canvas, run them, watch per-node status live. |
 
 Everything is file-based and editable — use **Open config folder** in any panel.
 
@@ -51,6 +52,21 @@ File changes are checkpointed — `/rewind` undoes the last turn. Dangerous comm
 
 Built-in slash commands: `/help /init /goal /cost /model /compact /rewind /jobs` + file-based custom commands.
 
+**🕸️ Visual workflow builder** — a graphical canvas (React Flow) where you wire nodes into an
+automation and run it: **Agent** (a full DeepSeek tool-loop turn), **Tool** (any built-in tool),
+**Shell**, **HTTP**, **Condition** (true/false branches), **Transform** (template/regex/set),
+**Delay** (wait), **Notify** (desktop notification), **Sub-workflow**, **Output**. Connections are
+visible and animated; each node shows live ⏳/✅/❌ status **and the data/error it produced** while
+the run streams; results flow between nodes via `{{variables}}` (click a variable chip to insert one).
+- **Cron triggers** — set a trigger node to a schedule and the workflow runs unattended (`0 9 * * *`).
+- **Pre-run validation** — disconnected nodes, missing config and dangling edges are caught and
+  highlighted *before* a run, with a plain-language issue list (click an issue to jump to the node).
+- **Run history** — inspect every past run: per-node input/output, errors, duration, final result.
+- **Safe unattended** — runs block dangerous shell commands and gate high-blast-radius tools
+  (MCP / Claude Code / sub-agent / `git push`); loops and step counts are bounded.
+
+It's your KI-coding app and a `/goal` automation tool in one — like n8n, only simpler and clearer.
+
 **👁 Live preview pane** — a side panel next to the chat that renders the project you're building
 (static `index.html` or a dev-server URL, auto-detected) in an isolated webview, like Claude Code's preview.
 
@@ -65,8 +81,14 @@ Per-command **approval allowlist** ("Immer erlauben" — exact command, scoped t
 model-aware (knows each model's real context window).
 
 Local models: pick any Ollama/LM Studio model with the `local:` prefix (free, offline).
-🔓 Uncensored toggle (local unaligned model) and 👁 image analysis — attach a screenshot
-and a local vision model describes/analyzes it (auto-routed; DeepSeek text models can't see images).
+🔓 Uncensored toggle (local unaligned model).
+
+**👁 Bild-Analyse — ONLINE/LOKAL:** DeepSeek can't see images, so when you attach one a
+**vision model describes it first** and DeepSeek works from that description. A one-click topbar
+toggle (and a Settings card) switches between **ONLINE** — Google **Gemini 2.5 Flash-Lite**
+(Google AI Studio, OpenAI-compatible; key stored encrypted) — and **LOKAL** — a local Ollama
+vision model (free, offline). Online mode auto-engages Gemini on image attachments and falls
+back to the local model with a notice if no Google key is set.
 
 ## Architecture
 

@@ -36,10 +36,19 @@ export function loadSettings(): AppSettings {
           /* leave whatever plaintext key may exist */
         }
       }
+      // Google AI Studio key — same encrypted-at-rest treatment as the DeepSeek key.
+      if (raw._googleKeyEnc && encryptionOk()) {
+        try {
+          merged.provider.googleApiKey = safeStorage.decryptString(Buffer.from(raw._googleKeyEnc, 'base64'))
+        } catch {
+          /* leave whatever plaintext key may exist */
+        }
+      }
       // Dev/test hook only: lets automated launches (Playwright/CI) supply a key when
       // safeStorage can't decrypt outside the interactive user session. Never set in
       // normal use.
       if (process.env.DEEPCODE_DEV_API_KEY) merged.provider.apiKey = process.env.DEEPCODE_DEV_API_KEY
+      if (process.env.DEEPCODE_DEV_GOOGLE_KEY) merged.provider.googleApiKey = process.env.DEEPCODE_DEV_GOOGLE_KEY
       return merged
     }
   } catch (err) {
@@ -53,10 +62,11 @@ export function loadSettings(): AppSettings {
 export function saveSettings(settings: AppSettings): void {
   ensureConfigDirs()
   const key = settings.provider.apiKey ?? ''
-  // Persist the key encrypted; never write it in plaintext when encryption works.
+  const gkey = settings.provider.googleApiKey ?? ''
+  // Persist keys encrypted; never write them in plaintext when encryption works.
   const onDisk: any = {
     ...settings,
-    provider: { ...settings.provider, apiKey: '' }
+    provider: { ...settings.provider, apiKey: '', googleApiKey: '' }
   }
   if (key && encryptionOk()) {
     try {
@@ -66,6 +76,15 @@ export function saveSettings(settings: AppSettings): void {
     }
   } else if (key) {
     onDisk.provider.apiKey = key // encryption unavailable on this platform
+  }
+  if (gkey && encryptionOk()) {
+    try {
+      onDisk._googleKeyEnc = safeStorage.encryptString(gkey).toString('base64')
+    } catch {
+      onDisk.provider.googleApiKey = gkey
+    }
+  } else if (gkey) {
+    onDisk.provider.googleApiKey = gkey
   }
   writeFileSync(PATHS.settings, JSON.stringify(onDisk, null, 2), 'utf8')
 }

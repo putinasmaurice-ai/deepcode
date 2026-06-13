@@ -94,7 +94,7 @@ await step('expand-more', async () => {
 })
 const views = [
   'Projekte', 'Kosten', 'Nachtschicht', 'Settings',
-  'Marketplace', 'Skills', 'Slash', 'Subagents', 'MCP', 'Hooks', 'Memory', 'Automations', 'Plugins', 'Audit-Log'
+  'Marketplace', 'Skills', 'Slash', 'Subagents', 'MCP', 'Hooks', 'Memory', 'Automations', 'Workflows', 'Plugins', 'Audit-Log'
 ]
 for (const label of views) {
   await step(`view:${label}`, async () => {
@@ -108,6 +108,46 @@ for (const label of views) {
   })
 }
 await shot('03-settings')
+
+// open the visual workflow editor (React Flow canvas) and confirm it mounts cleanly
+await step('workflow-editor', async () => {
+  await win.locator('.nav button:has-text("Workflows")').first().click()
+  await win.waitForTimeout(400)
+  const create = win.locator('button:has-text("Neuer Workflow")')
+  if (await create.count()) {
+    await create.first().click()
+    await win.waitForSelector('.react-flow', { timeout: 8000 }) // canvas mounted
+    await win.waitForTimeout(600)
+    // add an agent node from the palette
+    const addAgent = win.locator('.wf-palette button:has-text("Agent")')
+    if (await addAgent.count()) await addAgent.first().click()
+    await win.waitForTimeout(400)
+    // exercise the new feature buttons (validation + run history) — must not error
+    const check = win.locator('.wf-toolbar button:has-text("Prüfen")')
+    if (await check.count()) {
+      await check.first().click()
+      await win.waitForTimeout(300)
+    }
+    const history = win.locator('.wf-toolbar button:has-text("Verlauf")')
+    if (await history.count()) {
+      await history.first().click()
+      await win.waitForSelector('.wf-runs', { timeout: 4000 })
+      await win.waitForTimeout(300)
+      await history.first().click() // close it again
+    }
+    await shot('05-workflow-editor')
+    // save first so leaving doesn't trip the unsaved-changes guard
+    const saveBtn = win.locator('.wf-toolbar button:has-text("Speichern")')
+    if (await saveBtn.count()) {
+      await saveBtn.first().click()
+      await win.waitForTimeout(300)
+    }
+    const back = win.locator('button:has-text("Zurück")')
+    if (await back.count()) await back.first().click()
+  } else {
+    failures.push('workflow: "Neuer Workflow" button not found')
+  }
+})
 
 // settings: confirm the new cards render
 await step('settings-cards', async () => {
@@ -125,6 +165,23 @@ await step('theme-toggle', async () => {
   await win.waitForTimeout(300)
   await shot('04-light')
   await win.click('.theme-toggle')
+})
+
+// 👁 ONLINE/LOKAL vision toggle round-trip (must persist + not error)
+await step('vision-toggle', async () => {
+  await win.locator('.nav button:has-text("Chat")').first().click()
+  await win.waitForTimeout(200)
+  const vb = win.locator('.vision-btn')
+  if (await vb.count()) {
+    const before = (await vb.first().innerText()).trim()
+    await vb.first().click()
+    await win.waitForTimeout(250)
+    const after = (await vb.first().innerText()).trim()
+    if (before === after) failures.push(`vision-toggle: label did not change (${before})`)
+    await vb.first().click() // back to original
+  } else {
+    failures.push('vision-toggle: .vision-btn not found')
+  }
 })
 
 // back to chat

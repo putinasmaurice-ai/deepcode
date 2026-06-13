@@ -1,6 +1,8 @@
 import { spawn } from 'child_process'
 import { platform } from 'os'
+import { isAbsolute, resolve } from 'path'
 import { Tool, ok, fail } from './types'
+import { assertCwdInside } from './fs'
 import { auditLog } from '../../audit'
 
 const isWin = platform() === 'win32'
@@ -26,7 +28,17 @@ export const bashTool: Tool = {
   summarize: (a) => `$ ${String(a.command).split('\n')[0].slice(0, 80)}`,
   async execute(args, ctx) {
     const timeout = Math.min(args.timeout_ms ?? 120_000, 600_000)
-    const cwd = args.cwd || ctx.cwd
+    // a cwd override must not escape the working directory when confinement is on —
+    // otherwise a (workflow/agent) shell node could run anywhere on the machine.
+    let cwd = ctx.cwd
+    if (args.cwd) {
+      cwd = isAbsolute(args.cwd) ? args.cwd : resolve(ctx.cwd, args.cwd)
+      try {
+        assertCwdInside(cwd, ctx.cwd, ctx.confineToCwd)
+      } catch (e) {
+        return fail((e as Error).message)
+      }
+    }
     auditLog('run_command', `${cwd} :: ${args.command}`)
     const shell = isWin ? 'powershell.exe' : '/bin/bash'
     const shellArgs = isWin

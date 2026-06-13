@@ -93,15 +93,24 @@ export class DeepSeekClient {
     modelOverride?: string
   ): Promise<StreamResult> {
     const rawModel = modelOverride || this.settings.model
-    // "local:<name>" routes to the local OpenAI-compatible endpoint (Ollama /
-    // LM Studio): keyless, free, offline-capable.
+    // Routing by model-id prefix:
+    //  "local:<name>"  → local OpenAI-compatible endpoint (Ollama/LM Studio): keyless, free.
+    //  "google:<name>" → Google AI Studio (Gemini), OpenAI-compatible: needs googleApiKey.
+    //  otherwise       → the configured DeepSeek endpoint.
     const isLocal = rawModel.startsWith('local:')
-    const model = isLocal ? rawModel.slice('local:'.length) : rawModel
+    const isGoogle = rawModel.startsWith('google:')
+    const model = isLocal ? rawModel.slice('local:'.length) : isGoogle ? rawModel.slice('google:'.length) : rawModel
     const base = isLocal
       ? this.settings.localBaseUrl || 'http://localhost:11434/v1'
-      : this.settings.baseUrl
+      : isGoogle
+        ? this.settings.googleBaseUrl || 'https://generativelanguage.googleapis.com/v1beta/openai'
+        : this.settings.baseUrl
+    const apiKey = isGoogle ? this.settings.googleApiKey : this.settings.apiKey
 
-    if (!isLocal && (!this.settings.apiKey || !this.settings.apiKey.trim())) {
+    if (isGoogle && (!this.settings.googleApiKey || !this.settings.googleApiKey.trim())) {
+      throw new Error('Kein Google-AI-Studio-Key konfiguriert. Trage ihn in den Settings ein (für Bild-Analyse online).')
+    }
+    if (!isLocal && !isGoogle && (!this.settings.apiKey || !this.settings.apiKey.trim())) {
       throw new Error('DeepSeek API key is not configured. Add it in Settings.')
     }
 
@@ -133,7 +142,7 @@ export class DeepSeekClient {
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
       try {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-        if (!isLocal) headers.Authorization = `Bearer ${this.settings.apiKey}`
+        if (!isLocal) headers.Authorization = `Bearer ${apiKey}`
         res = await fetch(url, {
           method: 'POST',
           headers,
@@ -158,6 +167,11 @@ export class DeepSeekClient {
       if (res.ok && res.body) break
 
       const text = await res.text().catch(() => '')
+      // Google AI Studio answers an invalid/missing key with HTTP 400 ("Please pass a
+      // valid API key"), not 401 — surface a clear, provider-correct message.
+      if (isGoogle && (res.status === 400 || res.status === 401 || res.status === 403) && /api[_ ]?key|invalid/i.test(text)) {
+        throw new Error('Google-AI-Studio-Key ungültig oder fehlt — bitte in den Settings prüfen (für Online-Bildanalyse).')
+      }
       if (res.status === 401 || res.status === 403) {
         throw new Error('API-Key ungültig oder abgelaufen — bitte in den Settings prüfen.')
       }

@@ -98,6 +98,17 @@ const api: DeepCodeApi = {
   togglePlugin: (name: string, enabled: boolean) =>
     ipcRenderer.invoke(IPC.togglePlugin, name, enabled),
 
+  // visual workflows
+  listWorkflows: () => ipcRenderer.invoke(IPC.listWorkflows),
+  getWorkflow: (id: string) => ipcRenderer.invoke(IPC.getWorkflow, id),
+  saveWorkflow: (def: unknown) => ipcRenderer.invoke(IPC.saveWorkflow, def),
+  deleteWorkflow: (id: string) => ipcRenderer.invoke(IPC.deleteWorkflow, id),
+  runWorkflow: (id: string, runId: string, vars?: Record<string, string>, fromNodeId?: string) =>
+    ipcRenderer.invoke(IPC.runWorkflow, id, runId, vars, fromNodeId),
+  cancelWorkflow: (runId: string) => ipcRenderer.invoke(IPC.cancelWorkflow, runId),
+  listWorkflowRuns: (workflowId?: string) => ipcRenderer.invoke(IPC.listWorkflowRuns, workflowId),
+  getWorkflowRun: (runId: string) => ipcRenderer.invoke(IPC.getWorkflowRun, runId),
+
   // automations
   listAutomations: () => ipcRenderer.invoke(IPC.listAutomations),
   saveAutomation: (a: unknown) => ipcRenderer.invoke(IPC.saveAutomation, a),

@@ -1,6 +1,6 @@
 {
   "name": "deepcode",
-  "version": "0.2.16",
+  "version": "0.2.17",
   "description": "DeepCode — an agentic coding desktop app powered by DeepSeek. A Claude-Code / Codex style assistant with Plugins, Skills, MCP, Subagents, Hooks, Memory, Automations and Slash Commands.",
   "main": "./out/main/index.js",
   "author": "Maurice",
@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
+    "@xyflow/react": "^12.11.0",
     "electron-updater": "^6.8.9",
     "highlight.js": "^11.11.1",
     "markdown-it": "^14.2.0"

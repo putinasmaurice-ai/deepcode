@@ -13,7 +13,9 @@ import type {
   SkillDef,
   SlashCommandDef,
   SubagentDef,
-  UsageSummary
+  UsageSummary,
+  WorkflowDef,
+  WorkflowRun
 } from './types'
 
 // Approval mode the renderer can request for a turn (mirrors the engine's ApprovalPolicy).
@@ -146,6 +148,16 @@ export interface DeepCodeApi {
   // plugins
   listPlugins(): Promise<PluginDef[]>
   togglePlugin(name: string, enabled: boolean): Promise<PluginDef[]>
+
+  // visual workflows
+  listWorkflows(): Promise<WorkflowDef[]>
+  getWorkflow(id: string): Promise<WorkflowDef | null>
+  saveWorkflow(def: WorkflowDef): Promise<WorkflowDef>
+  deleteWorkflow(id: string): Promise<boolean>
+  runWorkflow(id: string, runId: string, vars?: Record<string, string>, fromNodeId?: string): Promise<string>
+  cancelWorkflow(runId: string): Promise<boolean>
+  listWorkflowRuns(workflowId?: string): Promise<WorkflowRun[]>
+  getWorkflowRun(runId: string): Promise<WorkflowRun | null>
 
   // automations
   listAutomations(): Promise<AutomationDef[]>

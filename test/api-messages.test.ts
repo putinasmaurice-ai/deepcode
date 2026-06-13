@@ -36,12 +36,23 @@ describe('toApiMessages', () => {
     expect(newest.length).toBeGreaterThan(1000) // recent kept (capped at 30k)
   })
 
-  it('formats image attachments as multimodal content parts', () => {
+  it('inlines the vision description as text and never sends raw image parts to the text model', () => {
+    // DeepSeek is blind — the vision model (Gemini/local) described the image up front; that
+    // description must reach the text model as plain text, NOT as image_url parts.
+    const out = toApiMessages('S', [
+      msg({ role: 'user', content: 'look', images: ['data:image/png;base64,AAA'], imageDescription: 'a red button labeled Submit' })
+    ])
+    const u = out.find((m) => m.role === 'user')
+    expect(typeof u?.content).toBe('string')
+    expect(u!.content as string).toContain('look')
+    expect(u!.content as string).toContain('a red button labeled Submit')
+    expect(u!.content as string).not.toContain('data:image')
+  })
+
+  it('falls back to a placeholder when an image has no description', () => {
     const out = toApiMessages('S', [msg({ role: 'user', content: 'look', images: ['data:image/png;base64,AAA'] })])
     const u = out.find((m) => m.role === 'user')
-    expect(Array.isArray(u?.content)).toBe(true)
-    const parts = u!.content as { type: string }[]
-    expect(parts.some((x) => x.type === 'text')).toBe(true)
-    expect(parts.some((x) => x.type === 'image_url')).toBe(true)
+    expect(typeof u?.content).toBe('string')
+    expect(u!.content as string).toMatch(/keine Analyse verfügbar/)
   })
 })

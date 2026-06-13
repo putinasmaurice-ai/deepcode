@@ -5,6 +5,10 @@ export interface ToolContext {
   signal: AbortSignal
   // When true, file tools refuse paths that resolve outside the working directory.
   confineToCwd?: boolean
+  // When true, the turn runs UNATTENDED (workflow agent node / cron) — the approval gate
+  // blocks high-blast-radius tools (MCP / claude_code / task / git push|pr) that can't be
+  // approved with no user present.
+  unattended?: boolean
   // Allows a tool (e.g. the subagent/Task tool) to call back into the agent engine.
   spawnSubagent?: (agentName: string, prompt: string) => Promise<string>
   emitStatus?: (msg: string) => void

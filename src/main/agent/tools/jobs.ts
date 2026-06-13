@@ -1,4 +1,6 @@
+import { isAbsolute, resolve } from 'path'
 import { Tool, ok, fail } from './types'
+import { assertCwdInside } from './fs'
 import { startJob, getJob, listJobs, killJob } from '../../jobs'
 
 // Background job tools: start long-running commands (dev servers, watch builds)
@@ -21,7 +23,12 @@ export const runBackgroundTool: Tool = {
   summarize: (a) => `⏳ ${String(a.command).split('\n')[0].slice(0, 70)}`,
   async execute(args, ctx) {
     try {
-      const job = startJob(args.command, args.cwd || ctx.cwd)
+      let cwd = ctx.cwd
+      if (args.cwd) {
+        cwd = isAbsolute(args.cwd) ? args.cwd : resolve(ctx.cwd, args.cwd)
+        assertCwdInside(cwd, ctx.cwd, ctx.confineToCwd) // block escaping the working dir
+      }
+      const job = startJob(args.command, cwd)
       return ok(
         `Background job started.\nid: ${job.id}\ncommand: ${job.command}\n\nCheck progress with job_status (id "${job.id}").`,
         { jobId: job.id }

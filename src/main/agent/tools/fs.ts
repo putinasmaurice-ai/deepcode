@@ -52,6 +52,13 @@ function ensureInside(resolved: string, cwd: string, confine?: boolean): void {
   }
 }
 
+// Public guard for non-fs tools (shell/jobs) that take a `cwd` override: throws if the
+// override escapes the working directory when confinement is on. Reuses the same
+// symlink-resolved check as the file tools so a junction can't be used to break out.
+export function assertCwdInside(cwd: string, baseCwd: string, confine?: boolean): void {
+  ensureInside(resolvePath(baseCwd, cwd), baseCwd, confine)
+}
+
 // Compact unified-ish line diff for the UI. Not a real LCS — good enough to show
 // what changed for a write/edit. Exported for the pre-approval diff preview.
 export function lineDiff(before: string, after: string): { diff: string; added: number; removed: number } {

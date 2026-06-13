@@ -1,6 +1,9 @@
 import { Tool, ok, fail } from './types'
 import { lookup } from 'dns/promises'
-import { isIP } from 'net'
+import { isIP, type LookupFunction } from 'net'
+import { request as httpsRequest, type RequestOptions } from 'https'
+import { request as httpRequest, type IncomingMessage } from 'http'
+import { createGunzip, createInflate, createBrotliDecompress } from 'zlib'
 
 // Built-in web access: fetch a URL and return readable text. No API key needed.
 // HTML is crudely stripped to text; JSON/text pass through. Capped output.
@@ -31,19 +34,110 @@ function isPrivateIp(ip: string): boolean {
   return false
 }
 
-async function assertSafeHost(url: URL): Promise<void> {
+// Resolve + validate the host, returning the vetted IP to PIN for the actual connection.
+// Pinning closes the DNS-rebinding TOCTOU: validating with one DNS query and then letting
+// the HTTP client do its own second query would let a short-TTL attacker domain return a
+// public IP to the check and 127.0.0.1 / 169.254.169.254 to the connection.
+async function resolveAndPin(url: URL): Promise<string> {
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '')
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) {
     throw new Error(`blocked: ${host} resolves to a local/loopback address`)
   }
   if (isIP(host)) {
     if (isPrivateIp(host)) throw new Error(`blocked: ${host} is a private/loopback address`)
-    return
+    return host
   }
   const addrs = await lookup(host, { all: true })
+  if (!addrs.length) throw new Error(`blocked: ${host} did not resolve`)
   for (const a of addrs) {
     if (isPrivateIp(a.address)) throw new Error(`blocked: ${host} resolves to private address ${a.address}`)
   }
+  return addrs[0].address // pin the first vetted address — the connection MUST use this IP
+}
+
+interface PinnedResponse {
+  status: number
+  headers: IncomingMessage['headers']
+  body: string
+}
+
+// GET `url` but connect to `pinnedIp` (via a custom socket lookup), keeping the real
+// hostname for SNI + Host header so TLS cert validation still works. Decompresses
+// gzip/deflate/br. Caps raw bytes to avoid OOM on a hostile/huge response.
+function fetchPinned(url: URL, pinnedIp: string, signal: AbortSignal, timeoutMs: number): Promise<PinnedResponse> {
+  return new Promise((resolve, reject) => {
+    const isHttps = url.protocol === 'https:'
+    const family = isIP(pinnedIp) === 6 ? 6 : 4
+    // pin: every DNS lookup the socket attempts returns ONLY the pre-validated IP.
+    // Node's Happy-Eyeballs connect calls lookup with { all: true } and expects an ARRAY
+    // ([{address, family}]); the legacy form expects (err, address, family). Handle both,
+    // or the socket gets `undefined` and the fetch throws ERR_INVALID_IP_ADDRESS.
+    const pinnedLookup = ((
+      _host: string,
+      opts: { all?: boolean } | number | undefined,
+      cb: (err: NodeJS.ErrnoException | null, addr: string | { address: string; family: number }[], fam?: number) => void
+    ): void => {
+      if (opts && typeof opts === 'object' && opts.all) cb(null, [{ address: pinnedIp, family }])
+      else cb(null, pinnedIp, family)
+    }) as unknown as LookupFunction
+
+    const opts: RequestOptions = {
+      method: 'GET',
+      lookup: pinnedLookup,
+      servername: isHttps ? url.hostname : undefined, // SNI uses the real host, not the IP
+      headers: {
+        'User-Agent': 'DeepCode/0.1 (desktop coding assistant)',
+        'Accept-Encoding': 'gzip, deflate, br',
+        Accept: 'text/html,application/json;q=0.9,*/*;q=0.8'
+      },
+      signal,
+      timeout: timeoutMs
+    }
+    // single-settle guard: destroying the stream on overflow fires neither 'end' nor a
+    // useful 'error' on every path, so we must resolve/reject exactly once ourselves.
+    let settled = false
+    const onRes = (res: IncomingMessage): void => {
+      const enc = String(res.headers['content-encoding'] || '').toLowerCase()
+      let stream: NodeJS.ReadableStream = res
+      if (enc === 'gzip' || enc === 'x-gzip') stream = res.pipe(createGunzip())
+      else if (enc === 'deflate') stream = res.pipe(createInflate())
+      else if (enc === 'br') stream = res.pipe(createBrotliDecompress())
+      const chunks: Buffer[] = []
+      let len = 0
+      const finish = (): void => {
+        if (settled) return
+        settled = true
+        resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks).toString('utf8') })
+      }
+      stream.on('data', (c: Buffer) => {
+        if (settled) return
+        len += c.length
+        if (len <= 4_000_000) chunks.push(c) // ~4 MB raw cap
+        else {
+          // over cap: stop, tear down the (possibly piped) decompressor + socket, and
+          // RETURN the truncated body now instead of hanging until the 30s timeout.
+          stream.removeAllListeners('data')
+          if (stream !== res) (stream as NodeJS.ReadableStream & { destroy?: () => void }).destroy?.()
+          res.destroy()
+          finish()
+        }
+      })
+      stream.on('end', finish)
+      stream.on('error', (e: Error) => {
+        if (settled) return
+        settled = true
+        reject(e)
+      })
+    }
+    const req = isHttps ? httpsRequest(url, opts, onRes) : httpRequest(url, opts, onRes)
+    req.on('timeout', () => req.destroy(new Error(`timeout after ${timeoutMs}ms`)))
+    req.on('error', (e: Error) => {
+      if (settled) return
+      settled = true
+      reject(e)
+    })
+    req.end()
+  })
 }
 
 function htmlToText(html: string): string {
@@ -94,21 +188,19 @@ export const webFetchTool: Tool = {
     const onAbort = (): void => ctrl.abort()
     ctx.signal.addEventListener('abort', onAbort, { once: true })
     try {
-      // Follow redirects manually so each hop's host is re-validated against the
-      // SSRF guard (a public URL must not be able to bounce us to 127.0.0.1).
+      // Follow redirects manually so each hop's host is re-validated AND re-pinned
+      // against the SSRF guard (a public URL must not bounce us to 127.0.0.1, and the
+      // pinned IP must match the host we just validated — never a re-resolved one).
       let current = url
-      let res: Awaited<ReturnType<typeof fetch>>
+      let res: PinnedResponse
       let hop = 0
       for (;;) {
-        await assertSafeHost(current)
-        res = await fetch(current, {
-          signal: ctrl.signal,
-          headers: { 'User-Agent': 'DeepCode/0.1 (desktop coding assistant)' },
-          redirect: 'manual'
-        })
-        if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
+        const pinnedIp = await resolveAndPin(current)
+        res = await fetchPinned(current, pinnedIp, ctrl.signal, 30_000)
+        const loc = res.headers['location']
+        if (res.status >= 300 && res.status < 400 && loc) {
           if (++hop > 5) return fail(`Too many redirects for ${url}`)
-          current = new URL(res.headers.get('location') as string, current)
+          current = new URL(Array.isArray(loc) ? loc[0] : loc, current)
           if (current.protocol !== 'http:' && current.protocol !== 'https:') {
             return fail(`Refusing to follow non-http(s) redirect to ${current.protocol}`)
           }
@@ -116,13 +208,11 @@ export const webFetchTool: Tool = {
         }
         break
       }
-      const type = res.headers.get('content-type') ?? ''
-      const raw = await res.text()
-      const text = type.includes('html') ? htmlToText(raw) : raw
+      const type = String(res.headers['content-type'] ?? '')
+      const text = type.includes('html') ? htmlToText(res.body) : res.body
       const body = text.slice(0, cap) + (text.length > cap ? '\n… (truncated)' : '')
-      return res.ok
-        ? ok(`[${res.status}] ${url}\n\n${body}`)
-        : fail(`HTTP ${res.status} for ${url}\n\n${body}`)
+      const okStatus = res.status >= 200 && res.status < 300
+      return okStatus ? ok(`[${res.status}] ${url}\n\n${body}`) : fail(`HTTP ${res.status} for ${url}\n\n${body}`)
     } catch (e) {
       return fail(`Fetch failed: ${(e as Error).message}`)
     } finally {

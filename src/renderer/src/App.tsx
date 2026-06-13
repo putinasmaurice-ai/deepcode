@@ -25,6 +25,7 @@ import { CommandPalette, PaletteItem } from './components/CommandPalette'
 import { FindBar } from './components/FindBar'
 import { PreviewPane } from './components/PreviewPane'
 import { CrystalBall } from './components/CrystalBall'
+import { WorkflowsPanel } from './components/workflow/WorkflowsPanel'
 import { inOffPeak } from '../../shared/offpeak'
 import {
   SettingsPanel,
@@ -56,6 +57,7 @@ export type View =
   | 'mcp'
   | 'plugins'
   | 'automations'
+  | 'workflows'
 
 export interface ToolState {
   result?: ToolResult
@@ -309,6 +311,20 @@ export function App(): JSX.Element {
     await api.saveSettings(next).catch((e) => addToast(String(e), 'error'))
   }
 
+  // 👁 ONLINE/LOKAL: which model understands attached images (Gemini vs local Ollama).
+  async function toggleVisionMode(): Promise<void> {
+    if (!settings) return
+    const mode = settings.visionMode === 'online' ? ('local' as const) : ('online' as const)
+    const next = { ...settings, visionMode: mode }
+    setSettings(next)
+    await api.saveSettings(next).catch((e) => addToast(String(e), 'error'))
+    if (mode === 'online' && !settings.provider.googleApiKey?.trim()) {
+      addToast('👁 Online-Bildanalyse (Gemini) aktiv — aber kein Google-Key gesetzt. Trage ihn in den Settings ein.', 'error')
+    } else {
+      addToast(mode === 'online' ? '👁 Bildanalyse ONLINE (Gemini 2.5 Flash-Lite).' : '👁 Bildanalyse LOKAL (Ollama).')
+    }
+  }
+
   async function secondOpinion(): Promise<void> {
     if (!session || busy) return
     setBusy(true)
@@ -371,7 +387,9 @@ export function App(): JSX.Element {
     // Drop events from a background session (night shift / automations) so they
     // don't bleed into the open chat. Still refresh the sidebar when one finishes.
     const sid = 'sessionId' in e ? (e as { sessionId?: string }).sessionId : undefined
-    if (sid && sessionIdRef.current && sid !== sessionIdRef.current) {
+    // Drop any event whose session doesn't match the open chat — even when no chat is
+    // open (sessionIdRef.current === null), a stamped background event must not bleed in.
+    if (sid && sid !== sessionIdRef.current) {
       if (e.type === 'turn_done') refreshSessions()
       return
     }
@@ -988,6 +1006,17 @@ export function App(): JSX.Element {
               >
                 {uncensoredActive ? '🔓 Uncensored' : '🔒'}
               </button>
+              <button
+                className={'btn ghost sm vision-btn' + (settings?.visionMode === 'online' ? ' on' : '')}
+                onClick={toggleVisionMode}
+                title={
+                  settings?.visionMode === 'online'
+                    ? `Bild-Analyse ONLINE (Gemini ${settings?.provider.onlineVisionModel || '2.5 Flash-Lite'}) — klicken für LOKAL`
+                    : `Bild-Analyse LOKAL (${(settings?.provider.visionModel || 'lokal').replace('local:', '')}) — klicken für ONLINE (Gemini)`
+                }
+              >
+                {settings?.visionMode === 'online' ? '👁 Online' : '👁 Lokal'}
+              </button>
             </>
           )}
           {view !== 'chat' && (
@@ -1174,6 +1203,8 @@ export function App(): JSX.Element {
           <NightShiftPanel />
         ) : view === 'market' ? (
           <MarketPanel />
+        ) : view === 'workflows' ? (
+          <WorkflowsPanel />
         ) : view === 'audit' ? (
           <AuditPanel />
         ) : (

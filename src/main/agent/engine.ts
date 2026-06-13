@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import { appendFileSync } from 'fs'
 import { join, relative } from 'path'
 import { AgentEvent, AppSettings, ChatMessage, Session, ToolResult } from '@shared/types'
-import { DeepSeekClient } from './deepseek'
+import { DeepSeekClient, ApiMessage } from './deepseek'
 import { Tool, toApiTools } from './tools'
 import { ToolContext } from './tools/types'
 import { buildSystemPrompt } from './prompt'
@@ -32,6 +32,15 @@ export type { ApprovalPolicy } from './policy'
 const MAX_STEPS = 60
 const MAX_QUALITY_ROUNDS = 4 // initial pass + self-review + 2 verify fixes
 
+// Vision pre-extraction prompt: turn an image into precise text the (blind) coding model
+// can act on. Emphasises verbatim text/code/errors over interpretation.
+const DESCRIBE_PROMPT =
+  'Du bist ein präzises Vision-Modul für einen Coding-Assistenten, der das Bild NICHT sehen kann. ' +
+  'Beschreibe das/die Bild(er) vollständig, sachlich und strukturiert. Erfasse insbesondere: ' +
+  'jeglichen sichtbaren Text, Code und Fehlermeldungen WÖRTLICH (inkl. Zeilen/Formatierung), ' +
+  'UI-Elemente und ihren Zustand, Diagramme/Architektur, Tabellen, Layout und – falls relevant – Farben. ' +
+  'Keine Interpretation und keine Lösung — nur eine genaue, neutrale Beschreibung des Inhalts.'
+
 // The engine owns: per-session locking, tool approval, and the main turn loop.
 // Everything else (variants, compaction, distillation, subagents, verify) lives
 // in focused modules and receives capabilities via EngineDeps.
@@ -43,6 +52,10 @@ export class AgentEngine {
   // persist it scoped to the directory it was approved in
   private pendingCommand = new Map<string, { command: string; cwd: string }>()
   private aborters = new Map<string, AbortController>()
+  // cancels that arrived BEFORE a turn registered its aborter (e.g. a workflow cancelled
+  // at the instant an agent node starts). acquireSession honours these so the race can't
+  // let an already-cancelled turn run to completion.
+  private pendingCancels = new Set<string>()
   // the live session object of each in-flight turn, so mid-turn edits (rename / cwd /
   // model) mutate the SAME object the turn will save — otherwise the turn's saveSession
   // overwrites the edit (last-writer-wins).
@@ -66,6 +79,8 @@ export class AgentEngine {
     }
     const aborter = new AbortController()
     this.aborters.set(sessionId, aborter)
+    // a cancel that raced ahead of this registration still takes effect
+    if (this.pendingCancels.delete(sessionId)) aborter.abort()
     return aborter
   }
 
@@ -101,8 +116,75 @@ export class AgentEngine {
     else this.pendingCommand.delete(callId)
   }
 
-  cancel(sessionId: string): void {
-    this.aborters.get(sessionId)?.abort()
+  // recordIfPending: only the workflow agent path (fresh per-node uuid sessions, never
+  // reused) opts in to remembering a cancel that arrived before the turn registered its
+  // aborter. Foreground callers must NOT — otherwise pressing Esc while idle would leave a
+  // pending cancel that instantly kills the user's NEXT message on that chat session.
+  cancel(sessionId: string, recordIfPending = false): void {
+    const aborter = this.aborters.get(sessionId)
+    if (aborter) aborter.abort()
+    else if (recordIfPending) this.pendingCancels.add(sessionId)
+  }
+
+  // Drop any pending cancel recorded for a session whose turn is already complete — stops
+  // a throwaway workflow session id from leaking into pendingCancels forever when an abort
+  // races in after the turn finished but before its listener was removed.
+  clearPendingCancel(sessionId: string): void {
+    this.pendingCancels.delete(sessionId)
+  }
+
+  // DeepSeek is blind — so when a message carries images, the configured vision model
+  // DESCRIBES them first and the text model works from that description. ONLINE mode uses
+  // Gemini (Google AI Studio); LOKAL uses the configured local vision model (Ollama).
+  // Returns the description text, or null if it failed (the caller then proceeds text-only).
+  private async describeImages(images: string[], signal: AbortSignal, emit: Emit): Promise<string | null> {
+    const p = this.settings.provider
+    const online = this.settings.visionMode === 'online'
+    const hasGoogleKey = !!(p.googleApiKey && p.googleApiKey.trim())
+    // Force the LOKAL model id to carry a routable prefix. Without this, a bare/empty
+    // model name falls through to the DeepSeek text endpoint in deepseek.ts — which would
+    // send the raw image bytes to the cloud, defeating the whole point of LOKAL mode.
+    // LOKAL mode must ALWAYS route to Ollama — coerce to a 'local:' id even if the user
+    // typed a bare name or (mis)typed a 'google:' id into the local field, so selecting
+    // LOKAL can never silently send image bytes to the Google cloud.
+    const localId = (): string => {
+      const vm = (p.visionModel || 'local:qwen2.5vl:7b').trim()
+      return vm.startsWith('local:') ? vm : `local:${vm.replace(/^google:/, '')}`
+    }
+    let modelId: string
+    let label: string
+    if (online && hasGoogleKey) {
+      const vm = p.onlineVisionModel?.trim() || 'gemini-2.5-flash-lite'
+      modelId = `google:${vm}`
+      label = `Gemini (${vm})`
+    } else if (online && !hasGoogleKey) {
+      modelId = localId()
+      label = 'lokal (kein Google-Key)'
+      emit({ type: 'status', message: '👁 Kein Google-Key gesetzt — nutze lokales Vision-Modell. Trage den Key in den Settings ein für Gemini.' })
+    } else {
+      modelId = localId()
+      label = `lokal (${modelId.replace('local:', '')})`
+    }
+    emit({ type: 'status', message: `👁 Analysiere ${images.length} Bild(er) mit ${label}…` })
+    const messages: ApiMessage[] = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: DESCRIBE_PROMPT },
+          ...images.map((url) => ({ type: 'image_url' as const, image_url: { url } }))
+        ]
+      }
+    ]
+    try {
+      // no tools — the vision model only describes; cost is negligible (Flash-Lite) and
+      // not metered here since online vision pricing isn't configured.
+      const res = await this.client.streamChat(messages, [], {}, signal, modelId)
+      return res.content.trim() || null
+    } catch (e) {
+      if ((e as Error).name === 'AbortError' || signal.aborted) throw e
+      emit({ type: 'status', message: `👁 Bildanalyse fehlgeschlagen (${label}): ${(e as Error).message}` })
+      return null
+    }
   }
 
   // Wrap an emit so every per-turn event carries its sessionId. The renderer uses
@@ -176,8 +258,21 @@ export class AgentEngine {
     policy: ApprovalPolicy,
     emit: Emit,
     cwd: string,
-    signal: AbortSignal
+    signal: AbortSignal,
+    unattended = false
   ): Promise<string | null> {
+    // Unattended (workflow agent node / cron): block high-blast-radius tools that can't be
+    // approved because no user is present — mirrors the workflow tool-node gate, and also
+    // stops the agent node from being an open door around it (MCP drop-table, claude_code,
+    // delegating to a subagent via `task`, git push/PR). Read-only + file/safe-shell stay.
+    if (unattended) {
+      if (call.name.startsWith('mcp__') || call.name === 'claude_code' || call.name === 'task') {
+        return `Blocked: „${call.name}" darf in einem unbeaufsichtigten Workflow nicht ohne Freigabe laufen.`
+      }
+      if (call.name === 'git' && /^(push|pr)$/i.test(String(parsedArgs?.action ?? ''))) {
+        return 'Blocked: git push/pr ist in einem unbeaufsichtigten Workflow nicht erlaubt.'
+      }
+    }
     const isCmd = call.name === 'run_command'
     // Screen both foreground and background shell commands for catastrophic patterns.
     const cmdArg =
@@ -190,6 +285,14 @@ export class AgentEngine {
     const mutating = tool.permission === 'write' || tool.permission === 'bash'
     if (policy === 'plan' && mutating) {
       return `Plan mode: "${call.name}" was NOT executed. Describe this change as part of your plan instead.`
+    }
+    // A catastrophic shell command NEVER auto-runs — not under Auto (full), not in a
+    // trusted project, not in an unattended workflow/automation. Only Interaktiv may run
+    // it, and only after an explicit approval prompt (handled below). This closes the hole
+    // where `policy === 'full'` returned auto-approve before the `dangerous` flag was ever
+    // consulted (workflow agent nodes run under 'full').
+    if (dangerous && policy !== 'interactive') {
+      return `Blocked: „${call.name}" wurde als gefährlicher Befehl eingestuft und darf unbeaufsichtigt (Modus: ${policy}) nicht laufen. Wechsle in den Interaktiv-Modus, um ihn ausdrücklich zu bestätigen.`
     }
     if (policy === 'full') return null
     if (this.autoApproved(tool.permission) && !dangerous && !isMcp) return null
@@ -222,7 +325,8 @@ export class AgentEngine {
     userText: string,
     rawEmit: Emit,
     policy: ApprovalPolicy = 'interactive',
-    images?: string[]
+    images?: string[],
+    unattended = false
   ): Promise<void> {
     const aborter = this.acquireSession(session.id)
     const signal = aborter.signal
@@ -253,10 +357,17 @@ export class AgentEngine {
       // so Regenerate/Edit work on a freshly-sent message (not just after reopen).
       emit({ type: 'user_message', sessionId: session.id, id: userMsgId })
 
-      // images present → only the FIRST pass (which carries the image) runs on the
-      // vision model; later self-review/verify rounds are pure code work and must
-      // use the real coding model, not the small local vision model.
-      const visionFirstPass = !!images?.length
+      // images present → the vision model (Gemini online / local) describes them, then the
+      // text model works from that description. Persist the description on the message so a
+      // reopen/regenerate keeps it (and the transcript thumbnails still render the image).
+      if (images?.length) {
+        const desc = await this.describeImages(images, signal, emit)
+        const msg = session.messages.find((m) => m.id === userMsgId)
+        if (msg) {
+          msg.imageDescription = desc ?? '[Bild konnte nicht analysiert werden — bitte beschreibe es kurz im Text.]'
+          saveSession(session)
+        }
+      }
 
       if (this.settings.compactThreshold > 0 && estimateTokens(session) > this.settings.compactThreshold) {
         await this.compactSession(session, emit)
@@ -284,6 +395,7 @@ export class AgentEngine {
         cwd: session.cwd,
         signal,
         confineToCwd: this.settings.confineToCwd,
+        unattended,
         emitStatus: (m) => emit({ type: 'status', message: m }),
         snapshot: (absPath) => recordSnapshot(session.id, turnTag, absPath),
         emitTodos: (todos) => {
@@ -303,7 +415,7 @@ export class AgentEngine {
       const turnStart = Date.now()
       const cap = this.settings.maxCostPerTurn
       for (let round = 0; round < MAX_QUALITY_ROUNDS; round++) {
-        const roundModel = visionFirstPass && round === 0 ? this.settings.provider.visionModel : session.model
+        const roundModel = session.model
         await this.runSteps(session, system, tools, ctx, policy, emit, signal, hooks, roundModel, budget)
         if (signal.aborted) break
         // budget breached inside runSteps → stop the whole turn (don't run more rounds)
@@ -474,7 +586,7 @@ export class AgentEngine {
       return { ok: false, content: `Invalid JSON arguments: ${call.arguments}` }
     }
 
-    const denial = await this.gateToolCall(tool, call, parsedArgs, policy, emit, cwd, ctx.signal)
+    const denial = await this.gateToolCall(tool, call, parsedArgs, policy, emit, cwd, ctx.signal, ctx.unattended ?? false)
     if (denial) return { ok: false, content: denial }
 
     await runHooks('PreToolUse', { toolName: call.name, toolArgs: parsedArgs, cwd }, hooks)

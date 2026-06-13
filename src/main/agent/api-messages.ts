@@ -39,14 +39,14 @@ export function toApiMessages(system: string, messages: ChatMessage[]): ApiMessa
   for (const m of messages) {
     if (m.role === 'user') {
       if (m.images?.length) {
-        // multimodal: text + image parts (vision models)
-        out.push({
-          role: 'user',
-          content: [
-            { type: 'text', text: m.content || 'Beschreibe / analysiere das Bild.' },
-            ...m.images.map((url) => ({ type: 'image_url' as const, image_url: { url } }))
-          ]
-        })
+        // The text model (DeepSeek) can't see images — the vision model (Gemini/local)
+        // already DESCRIBED them before the turn. Inline that description as text instead
+        // of sending raw image parts (which DeepSeek would reject). Never emit image_url
+        // parts here: this builder only ever targets the text model now.
+        const note = m.imageDescription
+          ? `\n\n[👁 Bildanalyse]\n${m.imageDescription}`
+          : `\n\n[👁 ${m.images.length} Bild(er) angehängt — keine Analyse verfügbar]`
+        out.push({ role: 'user', content: (m.content || '') + note })
       } else {
         out.push({ role: 'user', content: m.content })
       }
