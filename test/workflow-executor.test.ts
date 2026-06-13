@@ -205,6 +205,30 @@ describe('workflow executor', () => {
     expect(run.vars?.last).toBe('reached') // downstream node still ran
   })
 
+  it('a failed shell node still publishes its output to {{last}} under continueOnError', async () => {
+    // the summary step exists for the FAILING case (e.g. a red `npm test`); it must see the real
+    // command output, not the stale {{last}} seeded at run start.
+    const def: WorkflowDef = {
+      id: 'soe', name: 'soe', createdAt: 0, updatedAt: 0,
+      nodes: [
+        { id: 'trig', type: 'trigger', config: {} },
+        { id: 'sh', type: 'shell', config: { command: 'npm test', continueOnError: true } },
+        { id: 'o', type: 'output', config: { template: 'SUMMARY: {{last}}' } }
+      ],
+      edges: [
+        { id: 'e1', source: 'trig', target: 'sh' },
+        { id: 'e2', source: 'sh', target: 'o' }
+      ]
+    }
+    const deps = mockDeps([])
+    deps.runTool = async () => ({ ok: false, content: '2 failing tests' })
+    const run = await runWorkflow(def, deps, { vars: { last: 'STALE-INPUT' } })
+    expect(run.status).toBe('done')
+    expect(run.nodes.find((n) => n.nodeId === 'sh')?.status).toBe('failed')
+    // built from the FAILED command output, not the stale seed
+    expect(run.vars?.last).toBe('SUMMARY: 2 failing tests')
+  })
+
   it('treats a cancel during a retry backoff as cancelled, not failed', async () => {
     const def: WorkflowDef = {
       id: 'rc', name: 'rc', createdAt: 0, updatedAt: 0,

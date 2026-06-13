@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { WorkflowDef } from '../../../../shared/types'
+import { WORKFLOW_TEMPLATES, instantiateTemplate } from '../../../../shared/workflow-templates'
 import { WorkflowEditor } from './WorkflowEditor'
 
 const api = window.deepcode
@@ -33,6 +34,15 @@ export function WorkflowsPanel(): JSX.Element {
     await api.saveWorkflow(def)
     refresh()
     setEditing(def)
+  }
+
+  async function createFromTemplate(key: string): Promise<void> {
+    if (!key) return
+    const def = instantiateTemplate(key, uid(), Date.now())
+    if (!def) return
+    await api.saveWorkflow(def)
+    refresh()
+    setEditing(def) // open it so the user can tweak before running
   }
 
   async function remove(id: string, name: string): Promise<void> {
@@ -87,8 +97,24 @@ export function WorkflowsPanel(): JSX.Element {
           Baue visuelle Automatisierungen aus Knoten (Agent, Tool, Shell, HTTP, Bedingung, Output) — verdrahtet,
           ausführbar und live nachvollziehbar. Wie n8n, nur klarer.
         </p>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
           <button className="btn" onClick={create}>+ Neuer Workflow</button>
+          <select
+            className="btn ghost"
+            value=""
+            onChange={(e) => {
+              createFromTemplate(e.target.value)
+              e.target.value = '' // reset so the same template can be picked again
+            }}
+            title="Einen sofort lauffähigen Starter-Workflow anlegen"
+          >
+            <option value="">📋 Aus Vorlage…</option>
+            {WORKFLOW_TEMPLATES.map((t) => (
+              <option key={t.key} value={t.key}>
+                {t.name} · {t.category}
+              </option>
+            ))}
+          </select>
           <button className="btn ghost" onClick={doImport}>⬆ Importieren</button>
         </div>
         {list.length === 0 ? (

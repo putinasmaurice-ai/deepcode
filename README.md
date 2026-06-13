@@ -74,6 +74,10 @@ produced** while the run streams; results flow between nodes via `{{variables}}`
 - **Run from chat** — `/wf` lists your workflows and `/wf <Name> [Eingabe]` runs one inline: the
   text becomes `{{input}}`, the run streams, and its result (`output`/`result`/`last`, secret-masked)
   is posted back into the chat. The coding app and the automation tool, fused in one prompt.
+- **Starter templates** — a "Aus Vorlage" picker spins up ready-to-run workflows in one click
+  (Code-Review, run-tests-and-summarize, URL→summary, git→changelog, project overview, a daily
+  cron dependency check). Each is self-contained, so you can run it from chat immediately, then
+  tweak it on the canvas.
 - **Import / Export** — share or back up a workflow as a single `.json` file.
 - **Safe unattended** — every unattended entry point (workflow agent node, tool node, cron
   trigger, **and delegated sub-agents**) shares ONE screen: no dangerous shell (`rm -rf`,

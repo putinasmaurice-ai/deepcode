@@ -269,20 +269,22 @@ async function runNode(
       const args: Record<string, unknown> = {}
       for (const [k, val] of Object.entries(raw)) args[k] = typeof val === 'string' ? resolve(val, rctx) : val
       const r = await deps.runTool(name, args, deps.cwd)
-      if (!r.ok) throw new Error(r.content.slice(0, 400))
+      // publish the output to {{last}} BEFORE a possible throw, so that with continueOnError a
+      // downstream node sees this node's ACTUAL output (incl. the failure text), not stale {{last}}.
       setVar(r.content)
+      if (!r.ok) throw new Error(r.content.slice(0, 400))
       return { output: r.content }
     }
     case 'shell': {
       const r = await deps.runTool('run_command', { command: resolve(cfg.command, rctx) }, deps.cwd)
+      setVar(r.content) // see 'tool' — carry real output into {{last}} even on a continued failure
       if (!r.ok) throw new Error(r.content.slice(0, 400))
-      setVar(r.content)
       return { output: r.content }
     }
     case 'http': {
       const r = await deps.runTool('web_fetch', { url: resolve(cfg.url, rctx) }, deps.cwd)
+      setVar(r.content) // see 'tool' — carry real output into {{last}} even on a continued failure
       if (!r.ok) throw new Error(r.content.slice(0, 400))
-      setVar(r.content)
       return { output: r.content }
     }
     case 'transform': {
@@ -642,8 +644,9 @@ export async function runWorkflow(
         run.status = 'cancelled'
         break
       }
-      // a failed node stops the run UNLESS "continue on error" is set (then we follow the
-      // default edge with the prior {{last}} and carry on). A hardStop (budget) always stops.
+      // a failed node stops the run UNLESS "continue on error" is set (then we follow the default
+      // edge and carry on — tool/shell/http nodes publish their output to {{last}} even on failure,
+      // so the next node sees the real error text). A hardStop (budget) always stops.
       if (nodeFailed && (!continueOnError || hardStop)) {
         run.status = 'failed'
         break
