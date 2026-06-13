@@ -509,3 +509,40 @@ export interface WorkflowRun {
   endedAt?: number
   error?: string // why the run failed (node error / loop or step limit) — surfaced terminally
 }
+
+// ---- Agent run trace (observability) ----
+// A correlated, persisted tree of what one chat TURN actually did: quality rounds,
+// each LLM call (with cost), each tool call (with duration / ok-error), nested
+// subagents, verify + compaction. Mirrors the WorkflowRun shape but adds the
+// cost/tokens + a parentId tree the workflow analog lacks. One JSON per turn.
+export type TraceStatus = 'running' | 'ok' | 'error' | 'cancelled'
+export type TraceSpanKind = 'round' | 'llm' | 'tool' | 'subagent' | 'verify' | 'compact'
+
+export interface TraceSpan {
+  id: string
+  parentId?: string // undefined = top-level (direct child of the turn); otherwise nests under that span
+  kind: TraceSpanKind
+  name: string // model id / tool name / "Runde 1" / "Verify: npm test" / subagent name
+  status: TraceStatus
+  startedAt: number
+  endedAt?: number
+  costUsd?: number // llm / subagent / compact spans only (tools are free compute)
+  tokens?: number
+  detail?: string // short, already-truncated action summary (no full tool I/O)
+  error?: string // short error head when status==='error'
+}
+
+export interface Trace {
+  id: string
+  sessionId: string
+  title: string // first ~80 chars of the user prompt
+  cwd: string
+  model: string
+  status: TraceStatus
+  startedAt: number
+  endedAt?: number
+  costUsd: number // sum of all cost-bearing spans (includes subagents)
+  tokens: number
+  spans: TraceSpan[] // flat; the tree is rebuilt via parentId in the UI
+  unattended?: boolean
+}

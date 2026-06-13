@@ -26,6 +26,7 @@ import { CrystalBall } from './components/CrystalBall'
 const WorkflowsPanel = lazy(() => import('./components/workflow/WorkflowsPanel').then((m) => ({ default: m.WorkflowsPanel })))
 const MarketPanel = lazy(() => import('./components/MarketPanel').then((m) => ({ default: m.MarketPanel })))
 const AuditPanel = lazy(() => import('./components/AuditPanel').then((m) => ({ default: m.AuditPanel })))
+const TracePanel = lazy(() => import('./components/TracePanel').then((m) => ({ default: m.TracePanel })))
 const NightShiftPanel = lazy(() => import('./components/NightShiftPanel').then((m) => ({ default: m.NightShiftPanel })))
 const UsagePanel = lazy(() => import('./components/UsagePanel').then((m) => ({ default: m.UsagePanel })))
 import { inOffPeak } from '../../shared/offpeak'
@@ -50,6 +51,7 @@ export type View =
   | 'night'
   | 'market'
   | 'audit'
+  | 'traces'
   | 'settings'
   | 'skills'
   | 'commands'
@@ -1261,6 +1263,8 @@ export function App(): JSX.Element {
           <WorkflowsPanel />
         ) : view === 'audit' ? (
           <AuditPanel />
+        ) : view === 'traces' ? (
+          <TracePanel />
         ) : (
           <Panel
             view={view}

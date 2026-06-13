@@ -63,6 +63,7 @@ import type { ApprovalPolicy } from './agent/engine'
 import { loadProjects, getProject, upsertProject, deleteProject as removeProject } from './projects'
 import { computeUsageSummary } from './usage'
 import { listAudit, searchSessions } from './history'
+import { listTraces, getTrace } from './trace-store'
 import { getNightShift, saveNightShift, runNightShift, requestStop } from './nightshift'
 import { overDailyCap } from './ledger'
 import { startWatch, stopWatch, beginAgentOp, endAgentOp } from './watcher'
@@ -758,6 +759,8 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.deleteWorkflow, (_e, id: string) => deleteWorkflow(id))
   ipcMain.handle(IPC.listWorkflowRuns, (_e, workflowId?: string) => listWorkflowRuns(workflowId))
   ipcMain.handle(IPC.getWorkflowRun, (_e, runId: string) => getWorkflowRun(runId))
+  ipcMain.handle(IPC.listTraces, (_e, sessionId?: string) => listTraces(sessionId))
+  ipcMain.handle(IPC.getTrace, (_e, id: string) => getTrace(id))
   // export a workflow to a .json file the user picks (share / back up / move between machines)
   ipcMain.handle(IPC.exportWorkflow, async (_e, id: string) => {
     const def = getWorkflow(id)

@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { ChatMessage, ToolResult } from '@shared/types'
+import { ChatMessage, ToolResult, TokenUsage } from '@shared/types'
 import { EngineDeps, Emit } from './deps'
 import { buildSystemPrompt } from './prompt'
 import { toApiMessages, toolResultMessage } from './api-messages'
@@ -24,7 +24,8 @@ export async function runSubagent(
   prompt: string,
   cwd: string,
   emit: Emit,
-  signal: AbortSignal
+  signal: AbortSignal,
+  onUsage?: (u: TokenUsage) => void // trace/cost bubbling: called per billed round
 ): Promise<string> {
   const agent = getSubagent(agentName, cwd) ?? pluginSubagents().find((a) => a.name === agentName)
   const systemBase = buildSystemPrompt({
@@ -82,6 +83,7 @@ export async function runSubagent(
     if (result.usage) {
       assistantMsg.usage = costOf(deps.settings.provider, result.usage, agent?.model)
       recordUsage(assistantMsg.usage)
+      onUsage?.(assistantMsg.usage)
     }
     messages.push(assistantMsg)
     finalText = result.content || finalText

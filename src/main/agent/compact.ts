@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { ChatMessage, Session } from '@shared/types'
+import { ChatMessage, Session, TokenUsage } from '@shared/types'
 import { EngineDeps, Emit } from './deps'
 import { saveSession } from '../store'
 import { costOf } from './pricing'
@@ -11,7 +11,8 @@ import { distillMemories } from './distill'
 export async function compactSession(
   deps: EngineDeps,
   session: Session,
-  emit: Emit
+  emit: Emit,
+  onUsage?: (u: TokenUsage) => void // trace/cost bubbling for the compaction round
 ): Promise<Session> {
   const msgs = session.messages
   if (msgs.length < 8) {
@@ -56,7 +57,11 @@ export async function compactSession(
       session.model
     )
     summary = res.content
-    if (res.usage) recordUsage(costOf(deps.settings.provider, res.usage, session.model))
+    if (res.usage) {
+      const u = costOf(deps.settings.provider, res.usage, session.model)
+      recordUsage(u)
+      onUsage?.(u)
+    }
   } catch (e) {
     emit({ type: 'error', message: `Compaction failed: ${(e as Error).message}` })
     return session

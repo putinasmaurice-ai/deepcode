@@ -21,7 +21,8 @@ export const PATHS = {
   automations: join(CONFIG_DIR, 'automations.json'),
   workflows: join(CONFIG_DIR, 'workflows'),
   workflowRuns: join(CONFIG_DIR, 'workflows', 'runs'),
-  secrets: join(CONFIG_DIR, 'workflows', 'secrets.json')
+  secrets: join(CONFIG_DIR, 'workflows', 'secrets.json'),
+  traces: join(CONFIG_DIR, 'traces')
 }
 
 // Per-project config dir (.deepcode inside the opened workspace)
@@ -50,7 +51,8 @@ export function ensureConfigDirs(): void {
     PATHS.plugins,
     PATHS.memory,
     PATHS.workflows,
-    PATHS.workflowRuns
+    PATHS.workflowRuns,
+    PATHS.traces
   ]
   for (const d of dirs) {
     if (!existsSync(d)) mkdirSync(d, { recursive: true })

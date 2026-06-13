@@ -119,6 +119,12 @@ plus time, Notion, Docker and more — activate and connect in a click. Built-in
 ship out of the box: code-review, ast-grep, webapp-testing (Playwright), frontend-design,
 mcp-builder, xlsx/pdf/docx, postgres-best-practices.
 
+**🔬 Run traces (observability)** — a Traces panel that replays each chat turn as a correlated
+**tree**: every LLM call (with its cost + tokens), every tool call (with duration and ok/error),
+nested **subagents**, plus verify and context-compaction — so you can see exactly where a turn spent
+its time and money. One JSON per turn under `~/.deepcode/traces/` (kept local), pruned to the newest
+few hundred; a cancelled or errored turn still produces a complete tree.
+
 More: Projects (instructions + goal + trust level), cost dashboard (per chat/project/total —
 accurate to the DeepSeek **off-peak discount** and a **per-vendor price card** for DeepInfra/Google),
 @-file mentions, drag&drop attachments, edit-and-resend, regenerate, GitHub-flavored

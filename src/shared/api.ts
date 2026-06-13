@@ -15,7 +15,8 @@ import type {
   SubagentDef,
   UsageSummary,
   WorkflowDef,
-  WorkflowRun
+  WorkflowRun,
+  Trace
 } from './types'
 
 // Approval mode the renderer can request for a turn (mirrors the engine's ApprovalPolicy).
@@ -159,6 +160,8 @@ export interface DeepCodeApi {
   cancelWorkflow(runId: string): Promise<boolean>
   listWorkflowRuns(workflowId?: string): Promise<WorkflowRun[]>
   getWorkflowRun(runId: string): Promise<WorkflowRun | null>
+  listTraces(sessionId?: string): Promise<Trace[]>
+  getTrace(id: string): Promise<Trace | null>
   exportWorkflow(id: string): Promise<boolean>
   importWorkflow(): Promise<WorkflowDef | null>
   secretsList(): Promise<string[]>

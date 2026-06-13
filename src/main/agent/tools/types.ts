@@ -1,8 +1,12 @@
 import { ToolResult } from '@shared/types'
+import type { TraceRecorder } from '../trace'
 
 export interface ToolContext {
   cwd: string
   signal: AbortSignal
+  // Run-trace recorder for the current turn (observability). Absent in subagent runs
+  // and tests. executeToolCall opens/closes a tool span around tool.execute via this.
+  trace?: TraceRecorder
   // When true, file tools refuse paths that resolve outside the working directory.
   confineToCwd?: boolean
   // When true, the turn runs UNATTENDED (workflow agent node / cron) — the approval gate

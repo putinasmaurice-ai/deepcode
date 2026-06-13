@@ -1711,6 +1711,134 @@ kbd {
   word-break: break-all;
 }
 
+/* run traces (observability) */
+.trace-body {
+  display: flex;
+  gap: 14px;
+  margin-top: 10px;
+  align-items: stretch;
+  min-height: 0;
+}
+.trace-list {
+  flex: 0 0 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.trace-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-2);
+  color: var(--text);
+  cursor: pointer;
+}
+.trace-item:hover {
+  border-color: var(--border-2);
+}
+.trace-item.sel {
+  border-color: var(--accent);
+}
+.trace-item .trace-title {
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.trace-item .trace-st {
+  font-size: 11px;
+}
+.trace-meta-row {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-faint);
+  font-family: var(--mono);
+}
+.trace-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.trace-head {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+}
+.trace-head-title {
+  font-size: 14px;
+  margin-bottom: 5px;
+}
+.trace-head-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  font-family: var(--mono);
+}
+.trace-span {
+  border-left: 2px solid var(--border-2);
+  padding: 4px 0 4px 8px;
+  margin-top: 2px;
+}
+.trace-span.st-error {
+  border-left-color: var(--red);
+}
+.trace-span.st-running {
+  border-left-color: var(--accent);
+}
+.trace-span-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 12.5px;
+}
+.trace-span-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trace-span-tail {
+  display: flex;
+  gap: 9px;
+  align-items: baseline;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--text-faint);
+  flex: 0 0 auto;
+}
+.trace-span-tail .trace-cost {
+  color: var(--accent);
+}
+.trace-span-detail {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  margin: 2px 0 0 22px;
+  word-break: break-word;
+}
+.trace-span-err {
+  font-size: 11px;
+  color: var(--red);
+  font-family: var(--mono);
+  margin: 3px 0 0 22px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* markdown tables */
 .md-table {
   border-collapse: collapse;

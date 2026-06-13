@@ -22,7 +22,8 @@ export const NAV_MORE: { view: View; icon: string; label: string }[] = [
   { view: 'automations', icon: '⏰', label: 'Automations' },
   { view: 'workflows', icon: '🕸️', label: 'Workflows' },
   { view: 'plugins', icon: '🧩', label: 'Plugins' },
-  { view: 'audit', icon: '🧾', label: 'Audit-Log' }
+  { view: 'audit', icon: '🧾', label: 'Audit-Log' },
+  { view: 'traces', icon: '🔬', label: 'Traces' }
 ]
 export const NAV = [...NAV_MAIN, ...NAV_MORE]
 

@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { appendFileSync } from 'fs'
 import { join, relative } from 'path'
-import { AgentEvent, AppSettings, ChatMessage, Session, ToolResult, WorkflowDef } from '@shared/types'
+import { AgentEvent, AppSettings, ChatMessage, Session, TokenUsage, ToolResult, TraceStatus, WorkflowDef } from '@shared/types'
 import { DeepSeekClient, ApiMessage } from './deepseek'
 import { Tool, toApiTools } from './tools'
 import { ToolContext } from './tools/types'
@@ -30,6 +30,7 @@ import { getProject } from '../projects'
 import { saveSession } from '../store'
 import { recordUsage } from '../ledger'
 import { recordTurnSample } from '../samples'
+import { TraceRecorder } from './trace'
 
 export type { ApprovalPolicy } from './policy'
 
@@ -210,8 +211,8 @@ export class AgentEngine {
   estimateTokens(session: Session): number {
     return estimateTokens(session)
   }
-  compactSession(session: Session, emit: Emit): Promise<Session> {
-    return compactSession(this.deps(), session, emit)
+  compactSession(session: Session, emit: Emit, onUsage?: (u: TokenUsage) => void): Promise<Session> {
+    return compactSession(this.deps(), session, emit, onUsage)
   }
   secondOpinion(session: Session, emit: Emit): Promise<void> {
     return runSecondOpinion(this.deps(), session, emit)
@@ -374,6 +375,9 @@ export class AgentEngine {
     // session-scoped emit: stamps sessionId so background turns don't bleed into
     // the foreground chat (see scoped()).
     const emit = this.scoped(session.id, rawEmit)
+    // run-trace: outer-scoped so the finally can close it on every exit (ok/cancel/error)
+    let trace: TraceRecorder | null = null
+    let turnStatus: TraceStatus = 'ok'
 
     try {
       const hooks = [...loadHooks(session.cwd), ...pluginHooks()]
@@ -397,6 +401,16 @@ export class AgentEngine {
       // so Regenerate/Edit work on a freshly-sent message (not just after reopen).
       emit({ type: 'user_message', sessionId: session.id, id: userMsgId })
 
+      // open the run-trace now so a running turn shows up in the Trace panel immediately
+      const tr = new TraceRecorder({
+        sessionId: session.id,
+        title: userText,
+        cwd: session.cwd,
+        model: session.model || this.settings.provider.model,
+        unattended
+      })
+      trace = tr
+
       // images present → the vision model (Gemini online / local) describes them, then the
       // text model works from that description. Persist the description on the message so a
       // reopen/regenerate keeps it (and the transcript thumbnails still render the image).
@@ -410,7 +424,14 @@ export class AgentEngine {
       }
 
       if (this.settings.compactThreshold > 0 && estimateTokens(session) > this.settings.compactThreshold) {
-        await this.compactSession(session, emit)
+        const cs = tr.begin('compact', 'Kontext verdichten')
+        let cCost = 0
+        let cTok = 0
+        await this.compactSession(session, emit, (u) => {
+          cCost += u.cost
+          cTok += u.totalTokens
+        })
+        tr.end(cs, { status: 'ok', costUsd: cCost, tokens: cTok })
       }
 
       const project = session.projectId ? getProject(session.projectId) : null
@@ -453,8 +474,41 @@ export class AgentEngine {
           saveSession(session)
           emit({ type: 'todos', sessionId: session.id, todos })
         },
-        spawnSubagent: (agent, prompt) =>
-          runSubagent(this.deps(), (p) => this.autoApproved(p), agent, prompt, session.cwd, emit, signal)
+        trace: tr,
+        spawnSubagent: async (agentName, prompt) => {
+          // nest the subagent under the tool span that spawned it (the 'task' tool);
+          // bubble its summed cost/tokens onto the span via onUsage.
+          const ss = tr.begin('subagent', agentName || 'subagent', tr.currentToolSpanId)
+          let sc = 0
+          let st = 0
+          try {
+            const text = await runSubagent(
+              this.deps(),
+              (p) => this.autoApproved(p),
+              agentName,
+              prompt,
+              session.cwd,
+              emit,
+              signal,
+              (u) => {
+                sc += u.cost
+                st += u.totalTokens
+              }
+            )
+            // runSubagent returns normally even on abort (it breaks the loop, doesn't throw),
+            // so check the signal here — otherwise a cancelled subagent shows ✅ in the trace.
+            tr.end(ss, { status: signal.aborted ? 'cancelled' : 'ok', costUsd: sc, tokens: st })
+            return text
+          } catch (e) {
+            tr.end(ss, {
+              status: signal.aborted ? 'cancelled' : 'error',
+              costUsd: sc,
+              tokens: st,
+              error: (e as Error).message
+            })
+            throw e
+          }
+        }
       }
 
       // quality loop: agent works → optional self-review → optional verify
@@ -466,10 +520,17 @@ export class AgentEngine {
       const cap = this.settings.maxCostPerTurn
       for (let round = 0; round < MAX_QUALITY_ROUNDS; round++) {
         const roundModel = session.model
-        await this.runSteps(session, system, tools, ctx, policy, emit, signal, hooks, roundModel, budget)
-        if (signal.aborted) break
+        const roundSpan = tr.begin('round', `Runde ${round + 1}`)
+        await this.runSteps(session, system, tools, ctx, policy, emit, signal, hooks, roundModel, budget, roundSpan)
+        if (signal.aborted) {
+          tr.end(roundSpan, { status: 'cancelled' })
+          break
+        }
         // budget breached inside runSteps → stop the whole turn (don't run more rounds)
-        if (cap > 0 && budget.usd >= cap) break
+        if (cap > 0 && budget.usd >= cap) {
+          tr.end(roundSpan, { status: 'ok' })
+          break
+        }
 
         const feedback = await this.qualityFeedback(
           session,
@@ -480,8 +541,11 @@ export class AgentEngine {
           signal,
           () => (reviewDone ? null : ((reviewDone = true), 'review')),
           // returns the attempt number (1-based) or null when exhausted
-          () => (verifyAttempts < 2 ? ++verifyAttempts : null)
+          () => (verifyAttempts < 2 ? ++verifyAttempts : null),
+          tr,
+          roundSpan
         )
+        tr.end(roundSpan, { status: 'ok' })
         if (!feedback) break
         session.messages.push({ id: randomUUID(), role: 'user', content: feedback, createdAt: Date.now() })
         saveSession(session)
@@ -502,12 +566,16 @@ export class AgentEngine {
       emit({ type: 'turn_done', sessionId: session.id })
     } catch (e) {
       if ((e as Error).name === 'AbortError' || signal.aborted) {
+        turnStatus = 'cancelled'
         emit({ type: 'status', message: 'Turn cancelled.' })
       } else {
+        turnStatus = 'error'
         emit({ type: 'error', message: (e as Error).message })
       }
       emit({ type: 'turn_done', sessionId: session.id })
     } finally {
+      // close the trace on EVERY path — a cancelled/errored turn still gets a complete tree
+      trace?.finish(turnStatus)
       this.aborters.delete(session.id)
       this.liveSessions.delete(session.id)
       saveSession(session)
@@ -525,7 +593,8 @@ export class AgentEngine {
     signal: AbortSignal,
     hooks: ReturnType<typeof loadHooks>,
     model?: string,
-    budget?: { usd: number; tokens: number }
+    budget?: { usd: number; tokens: number },
+    roundSpanId?: string // trace: parent span for this round's llm/tool spans
   ): Promise<void> {
     const baseModel = model ?? session.model
     const apiTools = toApiTools(tools)
@@ -553,13 +622,20 @@ export class AgentEngine {
 
       const assistantMsg = newAssistantMessage()
       emit({ type: 'message_start', message: assistantMsg })
-      const result = await this.client.streamChat(
-        toApiMessages(system, session.messages),
-        apiTools,
-        streamCallbacksFor(assistantMsg, emit),
-        signal,
-        stepModel
-      )
+      const llmSpan = ctx.trace?.begin('llm', stepModel || 'model', roundSpanId)
+      let result: Awaited<ReturnType<typeof this.client.streamChat>>
+      try {
+        result = await this.client.streamChat(
+          toApiMessages(system, session.messages),
+          apiTools,
+          streamCallbacksFor(assistantMsg, emit),
+          signal,
+          stepModel
+        )
+      } catch (e) {
+        ctx.trace?.end(llmSpan, { status: signal.aborted ? 'cancelled' : 'error', error: (e as Error).message })
+        throw e
+      }
 
       assistantMsg.toolCalls = result.toolCalls.map((tc) => ({
         id: tc.id || randomUUID(),
@@ -576,6 +652,15 @@ export class AgentEngine {
         }
         emit({ type: 'usage', messageId: assistantMsg.id, usage: assistantMsg.usage })
       }
+      // close the LLM span with its cost/tokens + a brief detail (finish reason / tool count)
+      ctx.trace?.end(llmSpan, {
+        status: 'ok',
+        costUsd: assistantMsg.usage?.cost,
+        tokens: assistantMsg.usage?.totalTokens,
+        detail: assistantMsg.toolCalls.length
+          ? `${assistantMsg.toolCalls.length} Tool-Call(s)`
+          : result.finishReason || undefined
+      })
       session.messages.push(assistantMsg)
       emit({ type: 'message_done', message: assistantMsg })
       saveSession(session)
@@ -604,7 +689,7 @@ export class AgentEngine {
         if (signal.aborted) break
         const res = await this.executeToolCall(call, tools, ctx, policy, emit, hooks, session.cwd, (s) => {
           lastFailedCmd = s(lastFailedCmd)
-        })
+        }, roundSpanId)
         emit({ type: 'tool_result', callId: call.id, name: call.name, result: res })
         session.messages.push(toolResultMessage(call.id, call.name, res))
       }
@@ -630,54 +715,84 @@ export class AgentEngine {
     emit: Emit,
     hooks: ReturnType<typeof loadHooks>,
     cwd: string,
-    errMem: (update: (s: { program: string; errorHead: string } | null) => { program: string; errorHead: string } | null) => void
+    errMem: (update: (s: { program: string; errorHead: string } | null) => { program: string; errorHead: string } | null) => void,
+    roundSpanId?: string // trace: parent (round) span for this tool span
   ): Promise<ToolResult> {
     const tool = tools.find((t) => t.name === call.name)
-    if (!tool) return { ok: false, content: `Unknown tool: ${call.name}` }
+    if (!tool) {
+      // record these error modes too — they cost a follow-up LLM round and an operator
+      // auditing the trace wants to see them (no currentToolSpanId: nothing spawns under them).
+      const es = ctx.trace?.begin('tool', call.name, roundSpanId, call.name)
+      ctx.trace?.end(es, { status: 'error', error: `Unknown tool: ${call.name}` })
+      return { ok: false, content: `Unknown tool: ${call.name}` }
+    }
 
     let parsedArgs: any = {}
     try {
       parsedArgs = call.arguments ? JSON.parse(call.arguments) : {}
     } catch {
+      const es = ctx.trace?.begin('tool', call.name, roundSpanId, call.name)
+      ctx.trace?.end(es, { status: 'error', error: `Invalid JSON arguments: ${call.arguments}` })
       return { ok: false, content: `Invalid JSON arguments: ${call.arguments}` }
     }
 
-    const denial = await this.gateToolCall(tool, call, parsedArgs, policy, emit, cwd, ctx.signal, ctx.unattended ?? false)
-    if (denial) return { ok: false, content: denial }
-
-    await runHooks('PreToolUse', { toolName: call.name, toolArgs: parsedArgs, cwd }, hooks)
-    let res: ToolResult
+    // open a tool span; label it with the tool's own summary (never raw secrets/args). The
+    // span is set as the "current tool" so a subagent spawned inside it nests beneath it.
+    let label: string | undefined
     try {
-      res = await tool.execute(parsedArgs, ctx)
-    } catch (e) {
-      res = { ok: false, content: `Tool threw: ${(e as Error).message}` }
+      label = tool.summarize?.(parsedArgs)
+    } catch {
+      /* summarize must never break the call */
     }
-    await runHooks('PostToolUse', { toolName: call.name, toolArgs: parsedArgs, cwd }, hooks)
+    const toolSpan = ctx.trace?.begin('tool', call.name, roundSpanId, label || call.name)
+    if (ctx.trace && toolSpan) ctx.trace.currentToolSpanId = toolSpan
+    try {
+      const denial = await this.gateToolCall(tool, call, parsedArgs, policy, emit, cwd, ctx.signal, ctx.unattended ?? false)
+      if (denial) {
+        ctx.trace?.end(toolSpan, { status: 'error', error: denial })
+        return { ok: false, content: denial }
+      }
 
-    // error memory: failed command followed by a working variant of the same
-    // program → remember the fix for future sessions
-    if (call.name === 'run_command' && typeof parsedArgs.command === 'string') {
-      const program = parsedArgs.command.trim().split(/\s+/)[0] ?? ''
-      errMem((last) => {
-        if (!res.ok) {
-          const errorHead =
-            res.content.split('\n').find((l) => /error|fehler|exception|fatal/i.test(l)) ??
-            res.content.split('\n')[0] ??
-            ''
-          return { program, errorHead: errorHead.trim() }
-        }
-        if (last && last.program === program && last.errorHead) {
-          try {
-            recordErrorSolution(last.errorHead, parsedArgs.command.trim())
-          } catch {
-            /* memory write must never break the loop */
+      await runHooks('PreToolUse', { toolName: call.name, toolArgs: parsedArgs, cwd }, hooks)
+      let res: ToolResult
+      try {
+        res = await tool.execute(parsedArgs, ctx)
+      } catch (e) {
+        res = { ok: false, content: `Tool threw: ${(e as Error).message}` }
+      }
+      await runHooks('PostToolUse', { toolName: call.name, toolArgs: parsedArgs, cwd }, hooks)
+
+      // error memory: failed command followed by a working variant of the same
+      // program → remember the fix for future sessions
+      if (call.name === 'run_command' && typeof parsedArgs.command === 'string') {
+        const program = parsedArgs.command.trim().split(/\s+/)[0] ?? ''
+        errMem((last) => {
+          if (!res.ok) {
+            const errorHead =
+              res.content.split('\n').find((l) => /error|fehler|exception|fatal/i.test(l)) ??
+              res.content.split('\n')[0] ??
+              ''
+            return { program, errorHead: errorHead.trim() }
           }
-          return null
-        }
-        return last
+          if (last && last.program === program && last.errorHead) {
+            try {
+              recordErrorSolution(last.errorHead, parsedArgs.command.trim())
+            } catch {
+              /* memory write must never break the loop */
+            }
+            return null
+          }
+          return last
+        })
+      }
+      ctx.trace?.end(toolSpan, {
+        status: res.ok ? 'ok' : ctx.signal.aborted ? 'cancelled' : 'error',
+        error: res.ok ? undefined : res.content
       })
+      return res
+    } finally {
+      if (ctx.trace) ctx.trace.currentToolSpanId = undefined
     }
-    return res
   }
 
   // Decide whether another quality round is needed; returns the feedback prompt.
@@ -689,7 +804,9 @@ export class AgentEngine {
     emit: Emit,
     signal: AbortSignal,
     takeReview: () => 'review' | null,
-    takeVerifyAttempt: () => number | null
+    takeVerifyAttempt: () => number | null,
+    trace?: TraceRecorder,
+    roundSpanId?: string
   ): Promise<string | null> {
     const changed = getTurnFiles(session.id, turnTag)
     if (!changed.length || policy === 'plan') return null
@@ -705,7 +822,9 @@ export class AgentEngine {
 
     if (project?.verifyCommand) {
       emit({ type: 'status', message: `⚙ Verify: ${project.verifyCommand}` })
+      const vs = trace?.begin('verify', `Verify: ${project.verifyCommand}`, roundSpanId)
       const v = await runVerify(project.verifyCommand, session.cwd, signal)
+      trace?.end(vs, { status: v.ok ? 'ok' : 'error', error: v.ok ? undefined : 'Verify-Befehl fehlgeschlagen' })
       if (v.ok) {
         emit({ type: 'status', message: '✅ Verify bestanden.' })
         return null
