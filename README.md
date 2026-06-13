@@ -72,8 +72,9 @@ produced** while the run streams; results flow between nodes via `{{variables}}`
   tool/shell/http args; values are masked out of every run record, event and log, and barred
   from agent prompts.
 - **Run from chat** — `/wf` lists your workflows and `/wf <Name> [Eingabe]` runs one inline: the
-  text becomes `{{input}}`, the run streams, and its result (`output`/`result`/`last`, secret-masked)
-  is posted back into the chat. The coding app and the automation tool, fused in one prompt.
+  text becomes `{{input}}`, **each node's progress shows live** in the chat, the run is **cancellable
+  with Stop/Escape**, and its result (`output`/`result`/`last`, secret-masked) is posted back into
+  the chat. The coding app and the automation tool, fused in one prompt.
 - **Starter templates** — a "Aus Vorlage" picker spins up ready-to-run workflows in one click
   (Code-Review, run-tests-and-summarize, URL→summary, git→changelog, project overview, a daily
   cron dependency check). Each is self-contained, so you can run it from chat immediately, then

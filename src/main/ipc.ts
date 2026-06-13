@@ -254,10 +254,28 @@ export function registerIpc(win: BrowserWindow): void {
           const runId = randomUUID()
           const ac = new AbortController()
           wfAborters.set(runId, ac)
+          chatWfAborters.set(session.id, ac) // so cancelTurn(session.id) (Stop/Escape) aborts it
           const stopDeadline = armDeadline(ac)
           const wfCwd = validDir(session.cwd) || validDir(settings.defaultCwd) || homedir()
           const deps = makeWfDeps(wfCwd, ac.signal, 0, undefined, new Set([def.id]))
           const mask = deps.mask ?? ((s: string) => s)
+          // live progress in the chat: each node emits a 'running' workflow_node event as the walk
+          // enters it — surface it as a (session-scoped) status line so a long workflow isn't a
+          // silent multi-minute wait. The WorkingIndicator (busy=true during /wf) renders it.
+          const labelOf = new Map(def.nodes.map((n) => [n.id, (n.label || n.type) as string]))
+          const baseEmit = deps.emit
+          deps.emit = (e: AgentEvent) => {
+            baseEmit(e)
+            // only the node-ENTRY 'running' (no output) — not the throttled loop/parallel
+            // heartbeats or retry re-emits (which carry output) — so a long fan-out node doesn't
+            // spam ~4 status lines/sec. NOTE: this status goes through the raw (unmasked) emit;
+            // it is safe ONLY because def.name + node label/type are STATIC def text — never
+            // interpolate a resolved {{var}} here.
+            if (e && e.type === 'workflow_node' && e.status === 'running' && e.output === undefined) {
+              const lbl = labelOf.get(e.nodeId) || 'Schritt'
+              emit({ type: 'status', sessionId: session.id, message: `⚙ „${def.name}": ${lbl}…` })
+            }
+          }
           try {
             const run = await runWorkflow(def, deps, { vars: { input, last: input }, runId })
             // Prefer an explicit result var (so a workflow ending in notify/delay still surfaces a
@@ -272,6 +290,9 @@ export function registerIpc(win: BrowserWindow): void {
           } finally {
             stopDeadline()
             wfAborters.delete(runId)
+            // only clear OUR entry — if a later run for the same session somehow replaced it,
+            // don't delete the newer run's aborter (keeps Stop/Escape working for it).
+            if (chatWfAborters.get(session.id) === ac) chatWfAborters.delete(session.id)
           }
         }
       })
@@ -485,6 +506,8 @@ export function registerIpc(win: BrowserWindow): void {
   })
   ipcMain.handle(IPC.cancelTurn, (_e, sessionId: string) => {
     engine.cancel(sessionId)
+    // a /wf workflow running in this chat isn't an engine turn — abort it too so Stop/Escape work
+    chatWfAborters.get(sessionId)?.abort()
     return true
   })
   ipcMain.handle(IPC.approveTool, (_e, callId: string, approved: boolean, remember?: boolean) => {
@@ -568,6 +591,9 @@ export function registerIpc(win: BrowserWindow): void {
 
   // ---- visual workflows ----
   const wfAborters = new Map<string, AbortController>()
+  // workflows launched from chat via /wf, keyed by the CHAT session id, so Stop/Escape
+  // (cancelTurn) can abort them — they run inside sendMessage, not a normal agent turn.
+  const chatWfAborters = new Map<string, AbortController>()
   // Hard wall-clock ceiling: the executor only checks the deadline BETWEEN nodes, so a single
   // stuck node could outlive RUN_MAX_MS. Schedule an abort at the deadline (the signal threads
   // through every node + sub-run), making the documented ceiling real. Returns a clear fn.
