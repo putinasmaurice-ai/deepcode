@@ -82,6 +82,11 @@ produced** while the run streams; results flow between nodes via `{{variables}}`
 - **Generate from a description** — "✨ Aus Beschreibung": describe what you want in a sentence and
   DeepSeek builds the graph for you. The result is validated (and auto-repaired once) before it's
   saved, then opened on the canvas to review and tweak. You describe the automation; you don't draw it.
+- **Outbound HTTP (POST/PUT/headers/body/auth)** — the HTTP node does real API calls now, not just
+  GET — so a workflow can hit a **Telegram bot, a webhook, Slack/Discord, or an email API**. Bot
+  tokens live in encrypted `{{secret.NAME}}`; same SSRF guard (private/loopback blocked) as web_fetch.
+  Starter templates included: **Telegram-Nachricht**, **Webhook senden**, **Täglicher Reminder**,
+  **Wöchentliche Zusammenfassung** (cron timers).
 - **Import / Export** — share or back up a workflow as a single `.json` file.
 - **Safe unattended** — every unattended entry point (workflow agent node, tool node, cron
   trigger, **and delegated sub-agents**) shares ONE screen: no dangerous shell (`rm -rf`,

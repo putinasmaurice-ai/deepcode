@@ -77,7 +77,12 @@ interface PinnedResponse {
 // GET `url` but connect to `pinnedIp` (via a custom socket lookup), keeping the real
 // hostname for SNI + Host header so TLS cert validation still works. Decompresses
 // gzip/deflate/br. Caps raw bytes to avoid OOM on a hostile/huge response.
-function fetchPinned(url: URL, pinnedIp: string, signal: AbortSignal, timeoutMs: number): Promise<PinnedResponse> {
+interface ReqInit {
+  method?: string
+  headers?: Record<string, string>
+  body?: string
+}
+function fetchPinned(url: URL, pinnedIp: string, signal: AbortSignal, timeoutMs: number, init?: ReqInit): Promise<PinnedResponse> {
   return new Promise((resolve, reject) => {
     const isHttps = url.protocol === 'https:'
     const family = isIP(pinnedIp) === 6 ? 6 : 4
@@ -94,14 +99,26 @@ function fetchPinned(url: URL, pinnedIp: string, signal: AbortSignal, timeoutMs:
       else cb(null, pinnedIp, family)
     }) as unknown as LookupFunction
 
+    const body = init?.body
+    // strip caller-supplied length/framing headers (case-insensitive) so the auto Content-Length
+    // stays authoritative — a mismatched caller value would desync the body / enable smuggling.
+    const callerHeaders: Record<string, string> = { ...(init?.headers ?? {}) }
+    for (const k of Object.keys(callerHeaders)) {
+      const lk = k.toLowerCase()
+      if (lk === 'content-length' || lk === 'transfer-encoding') delete callerHeaders[k]
+    }
     const opts: RequestOptions = {
-      method: 'GET',
+      method: (init?.method || 'GET').toUpperCase(),
       lookup: pinnedLookup,
       servername: isHttps ? url.hostname : undefined, // SNI uses the real host, not the IP
       headers: {
         'User-Agent': 'DeepCode/0.1 (desktop coding assistant)',
         'Accept-Encoding': 'gzip, deflate, br',
-        Accept: 'text/html,application/json;q=0.9,*/*;q=0.8'
+        Accept: 'text/html,application/json;q=0.9,*/*;q=0.8',
+        // caller headers win (e.g. Content-Type, Authorization); auto Content-Length set LAST so it
+        // always matches the actual body bytes.
+        ...callerHeaders,
+        ...(body !== undefined ? { 'Content-Length': String(Buffer.byteLength(body)) } : {})
       },
       signal,
       timeout: timeoutMs
@@ -149,6 +166,7 @@ function fetchPinned(url: URL, pinnedIp: string, signal: AbortSignal, timeoutMs:
       settled = true
       reject(e)
     })
+    if (body !== undefined) req.write(body)
     req.end()
   })
 }
@@ -230,6 +248,69 @@ export const webFetchTool: Tool = {
       return okStatus ? ok(`[${res.status}] ${url}\n\n${body}`) : fail(`HTTP ${res.status} for ${url}\n\n${body}`)
     } catch (e) {
       return fail(`Fetch failed: ${(e as Error).message}`)
+    } finally {
+      clearTimeout(timer)
+      ctx.signal.removeEventListener('abort', onAbort)
+    }
+  }
+}
+
+// Full HTTP request (any method + headers + body) — the substrate for webhooks and messaging
+// channels (Telegram/Slack/Discord/email-API). Same SSRF guard (pin + private-IP block) as
+// web_fetch; does NOT auto-follow redirects (a POST must not be silently replayed to a new host).
+export const webRequestTool: Tool = {
+  name: 'web_request',
+  description:
+    'Make an HTTP request (GET/POST/PUT/PATCH/DELETE) to a URL with optional headers and a body. ' +
+    'Use for calling REST APIs and webhooks (e.g. a Telegram/Slack/Discord bot, an email-sending API). ' +
+    'Only http/https; private/loopback/metadata addresses are blocked.',
+  permission: 'bash',
+  parameters: {
+    type: 'object',
+    properties: {
+      url: { type: 'string', description: 'The http(s) URL.' },
+      method: { type: 'string', description: 'GET | POST | PUT | PATCH | DELETE (default GET).' },
+      headers: { type: 'object', description: 'Header map, e.g. {"Content-Type":"application/json","Authorization":"Bearer …"}.' },
+      body: { type: 'string', description: 'Request body (e.g. a JSON string). Set Content-Type in headers to match.' },
+      max_chars: { type: 'number', description: 'Max response characters to return (default 20000).' }
+    },
+    required: ['url']
+  },
+  summarize: (a) => `${String(a.method || 'GET').toUpperCase()} ${String(a.url).slice(0, 80)}`,
+  async execute(args, ctx) {
+    let url: URL
+    try {
+      url = new URL(args.url)
+    } catch {
+      return fail(`Invalid URL: ${args.url}`)
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return fail('Only http/https URLs are allowed.')
+    const method = String(args.method || 'GET').toUpperCase()
+    const headers: Record<string, string> = {}
+    if (args.headers && typeof args.headers === 'object') {
+      for (const [k, v] of Object.entries(args.headers as Record<string, unknown>)) headers[k] = String(v)
+    }
+    const body =
+      args.body === undefined || args.body === null
+        ? undefined
+        : typeof args.body === 'string'
+          ? args.body
+          : JSON.stringify(args.body)
+    const cap = Math.min(args.max_chars ?? 20_000, 80_000)
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 30_000)
+    const onAbort = (): void => ctrl.abort()
+    ctx.signal.addEventListener('abort', onAbort, { once: true })
+    try {
+      // resolve+pin against the SSRF guard (no manual redirect-follow for a body-bearing request)
+      const pinnedIp = await Promise.race([resolveAndPin(url), abortReject(ctrl.signal)])
+      const res = await fetchPinned(url, pinnedIp, ctrl.signal, 30_000, { method, headers, body })
+      const text = res.body.slice(0, cap) + (res.body.length > cap ? '\n… (truncated)' : '')
+      const okStatus = res.status >= 200 && res.status < 400
+      const line = `[${res.status}] ${method} ${url}`
+      return okStatus ? ok(`${line}\n\n${text}`) : fail(`${line}\n\n${text}`)
+    } catch (e) {
+      return fail(`Request failed: ${(e as Error).message}`)
     } finally {
       clearTimeout(timer)
       ctx.signal.removeEventListener('abort', onAbort)

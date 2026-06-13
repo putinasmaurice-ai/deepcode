@@ -164,6 +164,77 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
       },
       { id: 'notify', type: 'notify', label: 'Benachrichtigen', config: { title: 'Dependency-Check', message: '{{last}}' } }
     ]
+  ),
+  tpl(
+    'telegram-nachricht',
+    'Telegram-Nachricht senden',
+    'Schickt {{input}} an deinen Telegram-Bot. Secrets nötig: TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (Settings → Secrets).',
+    'Benachrichtigung',
+    [
+      { id: 'trigger', type: 'trigger', label: 'Start', config: { mode: 'manual' } },
+      {
+        id: 'send',
+        type: 'http',
+        label: 'Telegram sendMessage',
+        config: {
+          url: 'https://api.telegram.org/bot{{secret.TELEGRAM_BOT_TOKEN}}/sendMessage',
+          method: 'POST',
+          headers: '{"Content-Type":"application/json"}',
+          body: '{"chat_id":"{{secret.TELEGRAM_CHAT_ID}}","text":"{{input}}"}'
+        }
+      },
+      { id: 'out', type: 'output', label: 'Ergebnis', config: { template: '{{last}}' } }
+    ]
+  ),
+  tpl(
+    'webhook-senden',
+    'Webhook senden (POST)',
+    'POSTet {{input}} als JSON an einen Webhook. Trage die Ziel-URL im HTTP-Knoten ein (oder nutze {{secret.WEBHOOK_URL}}).',
+    'Benachrichtigung',
+    [
+      { id: 'trigger', type: 'trigger', label: 'Start', config: { mode: 'manual' } },
+      {
+        id: 'post',
+        type: 'http',
+        label: 'Webhook POST',
+        config: {
+          url: 'https://example.com/webhook',
+          method: 'POST',
+          headers: '{"Content-Type":"application/json"}',
+          body: '{"text":"{{input}}"}'
+        }
+      },
+      { id: 'out', type: 'output', label: 'Ergebnis', config: { template: '{{last}}' } }
+    ]
+  ),
+  tpl(
+    'taeglicher-reminder',
+    'Täglicher Reminder',
+    'Läuft täglich um 09:00 und zeigt eine Desktop-Benachrichtigung. Cron im Trigger anpassbar.',
+    'Timer',
+    [
+      { id: 'trigger', type: 'trigger', label: 'Täglich 09:00', config: { mode: 'cron', cron: '0 9 * * *' } },
+      { id: 'notify', type: 'notify', label: 'Erinnern', config: { title: 'DeepCode Reminder', message: 'Dein täglicher Reminder ⏰' } }
+    ]
+  ),
+  tpl(
+    'woechentliche-zusammenfassung',
+    'Wöchentliche Zusammenfassung',
+    'Läuft montags 09:00: ein Agent erstellt eine kurze Wochen-Zusammenfassung und benachrichtigt dich.',
+    'Timer',
+    [
+      { id: 'trigger', type: 'trigger', label: 'Mo 09:00', config: { mode: 'cron', cron: '0 9 * * 1' } },
+      {
+        id: 'summary',
+        type: 'agent',
+        label: 'Wochen-Report',
+        config: {
+          prompt:
+            'Erstelle eine kurze, motivierende Wochen-Zusammenfassung für mich als Entwickler: was diese Woche anstehen könnte und ein konkreter Fokus-Tipp. Halte es knapp.'
+        }
+      },
+      { id: 'notify', type: 'notify', label: 'Benachrichtigen', config: { title: 'Wochen-Report', message: '{{last}}' } }
+    ]
   )
 ]
 

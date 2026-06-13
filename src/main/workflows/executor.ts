@@ -282,7 +282,30 @@ async function runNode(
       return { output: r.content }
     }
     case 'http': {
-      const r = await deps.runTool('web_fetch', { url: resolve(cfg.url, rctx) }, deps.cwd)
+      const url = resolve(cfg.url, rctx)
+      const method = String(cfg.method || 'GET').toUpperCase()
+      const hasHeaders = cfg.headers !== undefined && cfg.headers !== ''
+      const hasBody = cfg.body !== undefined && cfg.body !== ''
+      let r: { ok: boolean; content: string }
+      if (method === 'GET' && !hasHeaders && !hasBody) {
+        // plain GET → keep web_fetch (HTML→readable text). secrets resolve in this http node.
+        r = await deps.runTool('web_fetch', { url }, deps.cwd)
+      } else {
+        // full request (POST/PUT/… or custom headers/body) → web_request. Headers are a JSON object
+        // or string; resolve() expands {{secret.*}} (allowed in http nodes) into the real values.
+        let headers: Record<string, unknown> | undefined
+        if (hasHeaders) {
+          try {
+            headers = JSON.parse(resolve(typeof cfg.headers === 'string' ? cfg.headers : JSON.stringify(cfg.headers), rctx))
+          } catch {
+            headers = undefined // malformed header JSON → send none rather than crash the node
+          }
+        }
+        const body = hasBody
+          ? resolve(typeof cfg.body === 'string' ? cfg.body : JSON.stringify(cfg.body), rctx)
+          : undefined
+        r = await deps.runTool('web_request', { url, method, headers, body }, deps.cwd)
+      }
       setVar(r.content) // see 'tool' — carry real output into {{last}} even on a continued failure
       if (!r.ok) throw new Error(r.content.slice(0, 400))
       return { output: r.content }

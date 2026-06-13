@@ -4,7 +4,7 @@ import { bashTool } from './bash'
 import { makeTaskTool } from './task'
 import { makeSkillTool } from './skill'
 import { todoTool } from './todo'
-import { webFetchTool } from './web'
+import { webFetchTool, webRequestTool } from './web'
 import { jobTools } from './jobs'
 import { gitStatusTool, gitTool } from './git'
 import { makeSemanticSearchTool, SemanticSearchConfig } from './search'
@@ -26,7 +26,7 @@ export function buildToolset(opts: {
   memories?: MemoryEntry[] // stored memory entries, exposed via use_memory
   semanticSearch?: SemanticSearchConfig // local-embedding search config
 }): Tool[] {
-  let tools: Tool[] = [...fsTools, bashTool, ...jobTools, gitStatusTool, gitTool, webFetchTool, todoTool]
+  let tools: Tool[] = [...fsTools, bashTool, ...jobTools, gitStatusTool, gitTool, webFetchTool, webRequestTool, todoTool]
   if (opts.semanticSearch) tools.push(makeSemanticSearchTool(opts.semanticSearch))
   if (opts.includeTask !== false) tools.push(makeTaskTool(opts.subagents))
   if (opts.skills?.length) tools.push(makeSkillTool(opts.skills))

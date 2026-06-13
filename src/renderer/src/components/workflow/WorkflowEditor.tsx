@@ -72,6 +72,9 @@ const NODE_DEFS: Record<WorkflowNodeType, NodeDef> = {
     label: 'HTTP',
     fields: [
       { key: 'url', label: 'URL (nutzt {{var}})', kind: 'text' },
+      { key: 'method', label: 'Methode (GET/POST/PUT/PATCH/DELETE — leer = GET)', kind: 'text' },
+      { key: 'headers', label: 'Header (JSON, z.B. {"Content-Type":"application/json"})', kind: 'json', emptyDefault: '{}' },
+      { key: 'body', label: 'Body (z.B. JSON — nutzt {{var}}/{{secret.NAME}})', kind: 'textarea' },
       { key: 'outputVar', label: 'Ergebnis-Variable', kind: 'text' }
     ]
   },
