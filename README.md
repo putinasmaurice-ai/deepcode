@@ -99,6 +99,13 @@ It's your KI-coding app and a `/goal` automation tool in one — like n8n, only 
 **👁 Live preview pane** — a side panel next to the chat that renders the project you're building
 (static `index.html` or a dev-server URL, auto-detected) in an isolated webview, like Claude Code's preview.
 
+**🛒 Marketplace** — a curated, one-click **MCP-connector catalog (30+, searchable, by category)**:
+code-intelligence (Serena, ast-grep, Repomix), RAG/vector (Chroma, local-RAG, Qdrant), web/search
+(DuckDuckGo, SearXNG, Brave), browser (Chrome DevTools), databases (Postgres/MySQL/MongoDB/DuckDB),
+plus time, Notion, Docker and more — activate and connect in a click. Built-in **agent skills**
+ship out of the box: code-review, ast-grep, webapp-testing (Playwright), frontend-design,
+mcp-builder, xlsx/pdf/docx, postgres-best-practices.
+
 More: Projects (instructions + goal + trust level), cost dashboard (per chat/project/total —
 accurate to the DeepSeek **off-peak discount** and a **per-vendor price card** for DeepInfra/Google),
 @-file mentions, drag&drop attachments, edit-and-resend, regenerate, GitHub-flavored

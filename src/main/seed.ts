@@ -36,6 +36,173 @@ When asked to review code or a diff:
 `
   )
 
+  // --- Skill: ast-grep structural search/rewrite (CLI via run_command) ---
+  writeIfMissing(
+    join(PATHS.skills, 'ast-grep', 'SKILL.md'),
+    `---
+name: ast-grep
+description: Structural (AST-aware) code search and safe codemods with ast-grep — precise where text grep is noisy
+---
+
+# ast-grep (structural code search & rewrite)
+
+Use this for *structural* code queries and safe, project-wide refactors — far more precise than text \`grep\` because it matches the syntax tree, not characters.
+
+Prerequisite: the \`ast-grep\` (alias \`sg\`) CLI. Check with \`ast-grep --version\`; if missing, install via \`npm i -g @ast-grep/cli\` (ask first).
+
+1. **Search by pattern** — metavariables (\`$VAR\`, \`$$$ARGS\`) match any node:
+   - \`ast-grep run -p 'console.log($$$)' -l ts\` — find all console.log calls.
+   - \`ast-grep run -p 'useEffect($CB, [])' -l tsx\` — find mount-only effects.
+2. **Rewrite (codemod)** — preview first, then apply:
+   - \`ast-grep run -p 'var $X = $Y' -r 'const $X = $Y' -l js\` (preview)
+   - add \`-U\` (or \`--update-all\`) to write the changes once the preview looks right.
+3. Prefer ast-grep over regex when matching code shapes (calls, imports, JSX elements, function signatures). Use plain \`grep\`/\`semantic_search\` for free-text or natural-language queries.
+4. Always show the matches/diff before applying a rewrite, and re-run tests afterwards.
+`
+  )
+
+  // --- Skill: webapp testing via the Playwright MCP (closes the build->run->verify loop) ---
+  writeIfMissing(
+    join(PATHS.skills, 'webapp-testing', 'SKILL.md'),
+    `---
+name: webapp-testing
+description: Drive and verify a running web app (click, fill, screenshot, read console) via the Playwright MCP — confirm a change actually works in the browser
+---
+
+# Webapp testing (Playwright)
+
+Use this to VERIFY a frontend change in the real browser, not just by reading code.
+
+Prerequisite: the **Playwright** MCP connector (Marketplace → 1-click activate, or it's in mcp.json). Its tools appear as \`mcp__*\` (navigate, click, fill, snapshot/screenshot, read console/network).
+
+1. Make sure the app is running (start the dev server with a background command if needed, e.g. \`npm run dev\`).
+2. Navigate to the page, then reproduce the user flow with the Playwright tools: click, fill forms, submit.
+3. Verify the result: read the visible text / DOM snapshot, check for the expected element, and read the **browser console + network** for errors.
+4. On a failure, capture a screenshot and the console output, form a hypothesis, fix the code, and re-run the flow until it passes.
+5. Report what you exercised and the outcome (pass/fail + evidence).
+`
+  )
+
+  // --- Skill: frontend-design ---
+  writeIfMissing(
+    join(PATHS.skills, 'frontend-design', 'SKILL.md'),
+    `---
+name: frontend-design
+description: Build distinctive, production-grade UIs (sites, landing pages, dashboards, React/HTML-CSS) that avoid the generic AI look
+---
+
+# Frontend design
+
+When building or restyling any web UI, aim for a polished, intentional result — not the default AI aesthetic.
+
+1. **Set a direction** before coding: pick a real visual concept (typography pairing, a restrained palette with one confident accent, spacing scale, a motif). State it in one sentence.
+2. **Avoid AI-generic tells**: no centered everything, no purple-blue gradients by default, no equal-weight cards. Use deliberate hierarchy, asymmetry where it helps, and generous whitespace.
+3. **Type & color**: choose distinctive web fonts; define a small token set (bg/surface/text/muted/accent) as CSS variables and use them consistently. Ensure WCAG-AA contrast.
+4. **Detail**: hover/focus states, smooth but subtle motion, empty/loading/error states, responsive at real breakpoints.
+5. Match the project's existing stack/conventions; ship semantic, accessible HTML.
+`
+  )
+
+  // --- Skill: mcp-builder ---
+  writeIfMissing(
+    join(PATHS.skills, 'mcp-builder', 'SKILL.md'),
+    `---
+name: mcp-builder
+description: Scaffold a high-quality MCP server (TypeScript MCP SDK or Python FastMCP) — research, implement, review
+---
+
+# MCP builder
+
+To build a Model Context Protocol server DeepCode (or any MCP client) can connect to:
+
+1. **Pick the stack**: TypeScript (\`@modelcontextprotocol/sdk\`) or Python (\`fastmcp\`). Prefer the one matching the target API's SDK.
+2. **Design tools first**: each tool = a clear name, a JSON-schema input, and a focused description. Keep tools small and composable; return concise, structured text.
+3. **Implement** over stdio transport. Validate inputs, handle errors as tool results (don't crash), and never block on unbounded I/O.
+4. **Secrets** via environment variables, never hardcoded. Document required env keys in the README.
+5. **Test** with a dev MCP client; verify each tool's schema + a happy path + an error path.
+6. Ship a README with the exact \`npx\`/\`uvx\` run command so it drops straight into a catalog/mcp.json.
+`
+  )
+
+  // --- Skill: xlsx ---
+  writeIfMissing(
+    join(PATHS.skills, 'xlsx', 'SKILL.md'),
+    `---
+name: xlsx
+description: Create, read and edit spreadsheets (.xlsx/.xlsm/.csv) — formulas, formatting, charts, data cleaning — via Python
+---
+
+# Spreadsheets (xlsx/csv)
+
+Use Python via the shell tool. Ensure libs: \`pip install openpyxl pandas\` (ask before installing).
+
+- **Read/analyze**: \`pandas.read_excel\`/\`read_csv\` → inspect with \`.head()\`, \`.describe()\`, group/pivot.
+- **Create/edit .xlsx**: \`openpyxl\` for cell values, formulas (\`ws['C2'] = '=A2*B2'\`), number formats, column widths, and charts (\`openpyxl.chart\`).
+- **Clean messy data**: fix headers, types, dedupe, handle NaNs before writing back.
+- Write a short Python script, run it with \`python script.py\`, then confirm the output file. Don't hand-edit the binary.
+`
+  )
+
+  // --- Skill: pdf ---
+  writeIfMissing(
+    join(PATHS.skills, 'pdf', 'SKILL.md'),
+    `---
+name: pdf
+description: Work with PDFs — extract text/tables, merge/split/rotate, fill forms, watermark, OCR — via Python
+---
+
+# PDF toolkit
+
+Use Python via the shell tool. Libs by task (ask before installing): \`pypdf\` (merge/split/rotate/encrypt), \`pdfplumber\` (extract text + tables), \`reportlab\` (create), \`pytesseract\`+\`pdf2image\` (OCR scanned PDFs).
+
+1. **Extract**: \`pdfplumber\` page-by-page for text and \`.extract_tables()\` for tables.
+2. **Manipulate**: \`pypdf.PdfWriter\` to merge/split/rotate/watermark/encrypt.
+3. **Create**: \`reportlab\` canvas/platypus for generated reports.
+4. **Scanned/no text layer**: rasterize with \`pdf2image\`, OCR with \`pytesseract\`.
+Write a script, run it, verify the result file + a sample of the extracted content.
+`
+  )
+
+  // --- Skill: docx ---
+  writeIfMissing(
+    join(PATHS.skills, 'docx', 'SKILL.md'),
+    `---
+name: docx
+description: Create, read and edit Word .docx — headings, tables, TOC, page numbers, find/replace — via Python
+---
+
+# Word documents (.docx)
+
+Use Python (\`pip install python-docx\`) via the shell tool.
+
+- **Create**: \`docx.Document()\` → add headings (\`add_heading\`), paragraphs, tables, page breaks; set styles for a consistent look.
+- **Read/extract**: iterate \`doc.paragraphs\` and \`doc.tables\` to pull text/structure.
+- **Edit/find-replace**: walk runs to preserve formatting while replacing text.
+- For TOC/letterheads/complex layout, build from styles; for PDF output, convert via LibreOffice (\`soffice --headless --convert-to pdf\`) if available.
+Write a script, run it, verify the output document.
+`
+  )
+
+  // --- Skill: postgres-best-practices ---
+  writeIfMissing(
+    join(PATHS.skills, 'postgres-best-practices', 'SKILL.md'),
+    `---
+name: postgres-best-practices
+description: Vendor-neutral Postgres optimization — query tuning, indexing, schema design, security
+---
+
+# Postgres best practices
+
+When designing or tuning Postgres (via the sqlite/postgres MCP or shell \`psql\`):
+
+1. **Tune queries with \`EXPLAIN (ANALYZE, BUFFERS)\`** — read the plan; fix seq-scans on big tables, bad row estimates (ANALYZE/stats), and N+1 access patterns.
+2. **Index deliberately**: B-tree for equality/range, composite in selectivity order, partial/expression indexes for filtered queries, GIN for jsonb/full-text. Don't over-index writes.
+3. **Schema**: correct types (timestamptz, numeric for money, jsonb over json), NOT NULL + sensible defaults, FKs with the right ON DELETE, normalize then denormalize only with evidence.
+4. **Concurrency/safety**: short transactions, explicit lock awareness, online DDL (\`CREATE INDEX CONCURRENTLY\`), RLS for multi-tenant.
+5. **Connections**: pool (pgbouncer) rather than many direct connections.
+`
+  )
+
   // --- Slash commands ---
   writeIfMissing(
     join(PATHS.commands, 'plan.md'),
