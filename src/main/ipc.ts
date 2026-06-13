@@ -238,7 +238,38 @@ export function registerIpc(win: BrowserWindow): void {
       const cmd = trimmed.slice(1).split(/\s+/)[0]
       const args = trimmed.slice(1 + cmd.length).trim()
 
-      const builtin = await runBuiltin(cmd, { session, args, emit, engine, settings })
+      const builtin = await runBuiltin(cmd, {
+        session,
+        args,
+        emit,
+        engine,
+        settings,
+        // run a saved workflow from chat, unattended, and hand back its MASKED final output so a
+        // workflow that touched a secret can't leak it into the chat transcript. Reuses wfAborters
+        // so the run is cancellable via the normal cancelWorkflow IPC, and streams workflow_* events.
+        runWorkflowFromChat: async (def, input) => {
+          const runId = randomUUID()
+          const ac = new AbortController()
+          wfAborters.set(runId, ac)
+          const wfCwd = validDir(session.cwd) || validDir(settings.defaultCwd) || homedir()
+          const deps = makeWfDeps(wfCwd, ac.signal, 0, undefined, new Set([def.id]))
+          const mask = deps.mask ?? ((s: string) => s)
+          try {
+            const run = await runWorkflow(def, deps, { vars: { input, last: input }, runId })
+            // Prefer an explicit result var (so a workflow ending in notify/delay still surfaces a
+            // meaningful value) and fall back to the executor's running `last`.
+            const v = run.vars ?? {}
+            const result = v.output ?? v.result ?? v.last ?? ''
+            return {
+              status: run.status === 'failed' ? 'error' : run.status === 'cancelled' ? 'cancelled' : 'done',
+              output: mask(String(result)),
+              error: run.error ? mask(run.error) : undefined
+            }
+          } finally {
+            wfAborters.delete(runId)
+          }
+        }
+      })
       if (builtin === 'handled') {
         emit({ type: 'turn_done', sessionId: session.id })
         return true

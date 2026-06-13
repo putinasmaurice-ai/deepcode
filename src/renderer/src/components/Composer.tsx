@@ -19,7 +19,9 @@ const BUILTIN: SlashCommandDef[] = [
   b('compact', 'Ältere Nachrichten zusammenfassen (Kontext sparen)'),
   b('rewind', 'Datei-Änderungen der letzten Runde rückgängig machen'),
   b('jobs', 'Hintergrund-Jobs anzeigen/stoppen — /jobs kill <id>'),
-  b('learn', 'Aus diesem Chat einen wiederverwendbaren Skill destillieren')
+  b('learn', 'Aus diesem Chat einen wiederverwendbaren Skill destillieren'),
+  b('remember', 'Bleibende Fakten aus diesem Chat ins Memory aufnehmen'),
+  b('wf', 'Workflow auflisten/starten — /wf <Name> [Eingabe]')
 ]
 
 export function Composer({

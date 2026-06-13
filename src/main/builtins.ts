@@ -1,7 +1,9 @@
 import { randomUUID } from 'crypto'
-import { AgentEvent, AppSettings, ChatMessage, Session } from '@shared/types'
+import { AgentEvent, AppSettings, ChatMessage, Session, WorkflowDef } from '@shared/types'
 import { AgentEngine } from './agent/engine'
 import { getProject, upsertProject } from './projects'
+import { listWorkflows } from './workflows/store'
+import { resolveWorkflow } from './workflows/wf-name-match'
 import { saveSession } from './store'
 import { usageSummaryText } from './usage'
 import { rewindLastTurn } from './checkpoints'
@@ -15,12 +17,23 @@ import { pluginCommands, pluginSkills, pluginSubagents } from './systems/plugins
 // inline if-chain in the IPC layer. Each handler fully services the command;
 // sendMessage returns early when one matched.
 
+// Result of running a workflow from chat. The output/error are already secret-MASKED by the
+// provider (ipc.ts owns the maskList), so the builtin can safely echo them into the transcript.
+export interface ChatWorkflowResult {
+  status: 'done' | 'error' | 'cancelled'
+  output: string
+  error?: string
+}
+
 export interface BuiltinCtx {
   session: Session
   args: string
   emit: (e: AgentEvent) => void
   engine: AgentEngine
   settings: AppSettings
+  // Run a saved workflow unattended and return its (masked) final output. Provided by the IPC
+  // layer, which holds the workflow-run machinery (makeWfDeps); absent in contexts that can't run.
+  runWorkflowFromChat?: (def: WorkflowDef, input: string) => Promise<ChatWorkflowResult>
 }
 
 type BuiltinHandler = (ctx: BuiltinCtx) => Promise<string | void> | string | void
@@ -55,6 +68,7 @@ builtins.set('help', ({ emit, session }) => {
   lines.push('- `/jobs [kill <id>]` — Hintergrund-Jobs anzeigen/stoppen')
   lines.push('- `/learn [Fokus]` — aus diesem Chat einen wiederverwendbaren Skill destillieren')
   lines.push('- `/remember` — bleibende Fakten aus diesem Chat ins Memory aufnehmen')
+  lines.push('- `/wf [Name] [Eingabe]` — gespeicherten Workflow auflisten/aus dem Chat starten')
   if (cmds.length) {
     lines.push('\n**Eigene Befehle:**')
     for (const c of cmds) lines.push(`- \`/${c.name}\` — ${c.description}`)
@@ -188,6 +202,55 @@ builtins.set('init', ({ args }) => {
     'DEEPCODE.md at the project root documenting all of that so future sessions have context. ' +
     (args ? `Extra guidance: ${args}` : '')
   )
+})
+
+builtins.set('wf', async ({ args, emit, runWorkflowFromChat }) => {
+  const all = listWorkflows()
+  if (!args.trim()) {
+    emitInfo(
+      emit,
+      all.length
+        ? `## Workflows (${all.length})\n${all
+            .map((w) => `- \`${w.name}\`${w.description ? ` — ${w.description}` : ''}`)
+            .join('\n')}\n\n_Starten mit \`/wf <Name> [Eingabe]\`. Die Eingabe steht im Workflow als \`{{input}}\` zur Verfügung; das Ergebnis kommt aus der Variable \`output\` (sonst \`result\`/\`last\`). Läuft unbeaufsichtigt (ohne Freigabe-Dialoge)._`
+        : 'Noch keine Workflows. Erstelle einen im **Workflows-Panel** (visueller Editor) und starte ihn dann hier mit `/wf <Name>`.'
+    )
+    return
+  }
+  if (!all.length) {
+    emitInfo(emit, 'Noch keine Workflows vorhanden. Erstelle einen im **Workflows-Panel**.')
+    return
+  }
+  const { def, input, matches } = resolveWorkflow(all, args.trim())
+  if (!def) {
+    emitInfo(
+      emit,
+      matches.length
+        ? `Kein Workflow „${args.trim()}" gefunden. Meintest du:\n${matches.map((w) => `- \`${w.name}\``).join('\n')}`
+        : `Kein Workflow „${args.trim()}" gefunden. \`/wf\` ohne Argumente listet alle.`
+    )
+    return
+  }
+  if (!runWorkflowFromChat) {
+    emitInfo(emit, 'Workflow-Ausführung steht in diesem Kontext nicht zur Verfügung.')
+    return
+  }
+  emit({ type: 'status', message: `Starte Workflow „${def.name}"…` })
+  try {
+    const res = await runWorkflowFromChat(def, input)
+    if (res.status === 'done') {
+      emitInfo(
+        emit,
+        `✅ **Workflow „${def.name}" abgeschlossen.**${res.output.trim() ? `\n\n${res.output.trim()}` : '\n\n_(keine Textausgabe)_'}`
+      )
+    } else if (res.status === 'cancelled') {
+      emitInfo(emit, `⏹️ Workflow „${def.name}" abgebrochen.`)
+    } else {
+      emitInfo(emit, `❌ Workflow „${def.name}" fehlgeschlagen: ${res.error || 'unbekannter Fehler'}`)
+    }
+  } catch (e) {
+    emitInfo(emit, `❌ Workflow „${def.name}" konnte nicht ausgeführt werden: ${(e as Error).message}`)
+  }
 })
 
 // Returns: 'handled' (turn done), a string (expanded prompt for a normal turn),

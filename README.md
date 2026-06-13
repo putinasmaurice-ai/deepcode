@@ -50,7 +50,7 @@ The agent runs a streaming tool-calling loop with these built-in tools:
 Modes: **Interaktiv** (asks before changes), **Plan** (read-only, proposes a plan), **Auto** (approves everything).
 File changes are checkpointed — `/rewind` undoes the last turn. Dangerous commands always require approval.
 
-Built-in slash commands: `/help /init /goal /cost /model /compact /rewind /jobs` + file-based custom commands.
+Built-in slash commands: `/help /init /goal /cost /model /compact /rewind /jobs /learn /remember /wf` + file-based custom commands.
 
 **🕸️ Visual workflow builder** — a graphical canvas (React Flow) where you wire nodes into an
 automation and run it: **Agent** (a full DeepSeek tool-loop turn), **Tool** (any built-in tool),
@@ -71,6 +71,9 @@ produced** while the run streams; results flow between nodes via `{{variables}}`
 - **Encrypted secrets** — store API tokens once (OS-encrypted) and use `{{secret.NAME}}` in
   tool/shell/http args; values are masked out of every run record, event and log, and barred
   from agent prompts.
+- **Run from chat** — `/wf` lists your workflows and `/wf <Name> [Eingabe]` runs one inline: the
+  text becomes `{{input}}`, the run streams, and its result (`output`/`result`/`last`, secret-masked)
+  is posted back into the chat. The coding app and the automation tool, fused in one prompt.
 - **Import / Export** — share or back up a workflow as a single `.json` file.
 - **Safe unattended** — runs block dangerous shell commands and gate high-blast-radius tools
   (MCP / Claude Code / sub-agent / `git push`); loops, step counts and total run time are bounded.
