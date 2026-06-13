@@ -30,6 +30,7 @@ export function buildTools(
     mcpTools: mcpManager.getTools(),
     includeTask: opts?.includeTask,
     allow: opts?.allow,
+    semanticSearch: { localBaseUrl: settings.provider.localBaseUrl, embeddingModel: settings.provider.embeddingModel },
     claudeCode: cc?.enabled
       ? {
           path: cc.path,

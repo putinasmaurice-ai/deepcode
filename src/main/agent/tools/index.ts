@@ -7,6 +7,7 @@ import { todoTool } from './todo'
 import { webFetchTool } from './web'
 import { jobTools } from './jobs'
 import { gitStatusTool, gitTool } from './git'
+import { makeSemanticSearchTool, SemanticSearchConfig } from './search'
 import { makeClaudeCodeTool, ClaudeCodeConfig } from './claude_code'
 import { makeMemoryTool } from './memory'
 import { SubagentDef, SkillDef, MemoryEntry } from '@shared/types'
@@ -23,8 +24,10 @@ export function buildToolset(opts: {
   allow?: string[] // restrict to these tool names ("*" = all); used by subagents
   claudeCode?: ClaudeCodeConfig // present only when the helper tool is enabled
   memories?: MemoryEntry[] // stored memory entries, exposed via use_memory
+  semanticSearch?: SemanticSearchConfig // local-embedding search config
 }): Tool[] {
   let tools: Tool[] = [...fsTools, bashTool, ...jobTools, gitStatusTool, gitTool, webFetchTool, todoTool]
+  if (opts.semanticSearch) tools.push(makeSemanticSearchTool(opts.semanticSearch))
   if (opts.includeTask !== false) tools.push(makeTaskTool(opts.subagents))
   if (opts.skills?.length) tools.push(makeSkillTool(opts.skills))
   if (opts.memories?.length) tools.push(makeMemoryTool(opts.memories))

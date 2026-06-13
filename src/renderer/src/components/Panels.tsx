@@ -154,6 +154,14 @@ export function SettingsPanel({
             placeholder="local:qwen2.5vl:7b"
           />
         </div>
+        <div className="field">
+          <label>🔎 Embedding-Modell (lokal, für semantic_search — z.B. nomic-embed-text)</label>
+          <input
+            value={p.embeddingModel ?? 'nomic-embed-text'}
+            onChange={(e) => updateProvider({ embeddingModel: e.target.value })}
+            placeholder="nomic-embed-text"
+          />
+        </div>
         <div className="row">
           <div className="field">
             <label>Model</label>

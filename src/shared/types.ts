@@ -155,6 +155,8 @@ export interface ProviderSettings {
   uncensoredModel: string
   // vision-capable model used automatically when a message has image attachments
   visionModel: string
+  // local embedding model for semantic_search (free/offline; e.g. nomic-embed-text)
+  embeddingModel: string
 }
 
 export interface AppSettings {
@@ -212,7 +214,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     reasonerCachedPricePerMillionInput: 0.14, // reasoner cache-hit input price
     localBaseUrl: 'http://localhost:11434/v1',
     uncensoredModel: 'local:dolphin3',
-    visionModel: 'local:qwen2.5vl:7b'
+    visionModel: 'local:qwen2.5vl:7b',
+    embeddingModel: 'nomic-embed-text'
   },
   autoApprove: {
     read: true,
