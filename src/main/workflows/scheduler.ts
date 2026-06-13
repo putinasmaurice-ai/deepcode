@@ -6,7 +6,8 @@ import { cronMatches } from '../systems/automations'
 // what turns the builder into "automation software". Mirrors AutomationScheduler: a 20s
 // ticker, at most one fire per workflow per absolute minute, no overlap with itself.
 
-export type WorkflowTriggerRunner = (def: WorkflowDef) => Promise<void> | void
+// `input` is passed by the file-watch trigger (the changed file list); cron passes nothing.
+export type WorkflowTriggerRunner = (def: WorkflowDef, input?: string) => Promise<void> | void
 
 export class WorkflowScheduler {
   private timer: NodeJS.Timeout | null = null

@@ -38,8 +38,10 @@ const NODE_DEFS: Record<WorkflowNodeType, NodeDef> = {
     icon: '▶️',
     label: 'Trigger',
     fields: [
-      { key: 'mode', label: 'Start: manual | cron', kind: 'text' },
-      { key: 'cron', label: 'Cron (Min Std Tag Mon Wochentag) — z.B. 0 9 * * *', kind: 'text' }
+      { key: 'mode', label: 'Start: manual | cron | filewatch', kind: 'text' },
+      { key: 'cron', label: 'Cron (Min Std Tag Mon Wochentag) — z.B. 0 9 * * *', kind: 'text' },
+      { key: 'path', label: 'Watch-Pfad (filewatch; leer = ganzes Projekt, z.B. src)', kind: 'text' },
+      { key: 'glob', label: 'Watch-Filter (filewatch; z.B. *.md — leer = alle)', kind: 'text' }
     ]
   },
   agent: {
@@ -194,13 +196,28 @@ const NODE_DEFS: Record<WorkflowNodeType, NodeDef> = {
       { key: 'message', label: 'Nachricht (nutzt {{var}})', kind: 'textarea' }
     ]
   },
+  email: {
+    icon: '✉️',
+    label: 'E-Mail (SMTP)',
+    fields: [
+      { key: 'host', label: 'SMTP-Host (z.B. smtp.gmail.com)', kind: 'text' },
+      { key: 'port', label: 'Port (465 = TLS, 587 = STARTTLS)', kind: 'text' },
+      { key: 'secure', label: 'Implizites TLS: true (465) / false (587)', kind: 'text' },
+      { key: 'user', label: 'Login-Benutzer (meist die Absender-Adresse)', kind: 'text' },
+      { key: 'pass', label: 'Passwort (leer = {{secret.SMTP_PASS}})', kind: 'text' },
+      { key: 'from', label: 'Absender (From)', kind: 'text' },
+      { key: 'to', label: 'Empfänger (To, kommagetrennt)', kind: 'text' },
+      { key: 'subject', label: 'Betreff (nutzt {{var}})', kind: 'text' },
+      { key: 'body', label: 'Text (Default {{last}})', kind: 'textarea' }
+    ]
+  },
   output: {
     icon: '📤',
     label: 'Output',
     fields: [{ key: 'template', label: 'Ausgabe-Template (Default {{last}})', kind: 'textarea' }]
   }
 }
-const PALETTE: WorkflowNodeType[] = ['agent', 'tool', 'shell', 'http', 'condition', 'switch', 'transform', 'code', 'parse', 'store', 'channel', 'loop', 'parallel', 'merge', 'delay', 'notify', 'subworkflow', 'output']
+const PALETTE: WorkflowNodeType[] = ['agent', 'tool', 'shell', 'http', 'condition', 'switch', 'transform', 'code', 'parse', 'store', 'channel', 'email', 'loop', 'parallel', 'merge', 'delay', 'notify', 'subworkflow', 'output']
 
 interface WfData extends Record<string, unknown> {
   node: WorkflowNode
@@ -237,6 +254,11 @@ function WfNodeView({ data, selected }: NodeProps): JSX.Element {
       {/* a cron-triggered start shows its schedule so "runs automatically" is visible */}
       {d.node.type === 'trigger' && d.node.config?.mode === 'cron' && d.node.config?.cron ? (
         <div className="wf-node-out" title="Cron-Zeitplan">⏰ {String(d.node.config.cron)}</div>
+      ) : d.node.type === 'trigger' && d.node.config?.mode === 'filewatch' ? (
+        <div className="wf-node-out" title="Datei-Überwachung">
+          👁 {String(d.node.config.path || 'Projekt')}
+          {d.node.config?.glob ? ` · ${String(d.node.config.glob)}` : ''}
+        </div>
       ) : null}
       {/* surface validation, the error, or the data flowing out — not just a dot */}
       {d.invalid && d.invalidMsg ? (
@@ -653,7 +675,7 @@ export function WorkflowEditor({
                   </button>
                 ))}
                 {/* secrets — only insertable in deterministic-arg nodes (never agent prompts) */}
-                {['tool', 'shell', 'http', 'channel'].includes(selected.type) &&
+                {['tool', 'shell', 'http', 'channel', 'email'].includes(selected.type) &&
                   secretNames.map((s) => (
                     <button
                       key={'secret-' + s}
@@ -729,7 +751,7 @@ export function WorkflowEditor({
                 </div>
               )
             })}
-            {['agent', 'tool', 'shell', 'http', 'subworkflow', 'transform', 'loop', 'parallel', 'store', 'code', 'parse', 'channel'].includes(selected.type) && (
+            {['agent', 'tool', 'shell', 'http', 'subworkflow', 'transform', 'loop', 'parallel', 'store', 'code', 'parse', 'channel', 'email'].includes(selected.type) && (
               <div className="wf-adv">
                 <div className="wf-adv-head">Fehlerbehandlung</div>
                 <div className="row">

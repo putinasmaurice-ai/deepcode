@@ -5,7 +5,7 @@ import { sep } from 'path'
 // agent (editor saves, git operations). Deliberately conservative: debounced,
 // ignore-listed, and fully suppressed while the agent itself is working.
 
-const IGNORE = /(^|[\\/])(node_modules|\.git|out|dist|release|\.next|\.cache|\.venv|__pycache__|\.deepcode)([\\/]|$)|CHANGELOG-DEEPCODE\.md$|\.log$|~$/
+export const IGNORE = /(^|[\\/])(node_modules|\.git|out|dist|release|\.next|\.cache|\.venv|__pycache__|\.deepcode)([\\/]|$)|CHANGELOG-DEEPCODE\.md$|\.log$|~$/
 
 let watcher: FSWatcher | null = null
 let watchedCwd: string | null = null
@@ -25,6 +25,13 @@ export function endAgentOp(): void {
 }
 function suppressed(): boolean {
   return agentOps > 0 || Date.now() < cooldownUntil
+}
+
+// Exposed so the workflow file-watch trigger reuses the SAME suppression: while the
+// agent or any (cron/manual/watch) workflow run is in flight, file events are the
+// app's own writes — firing on them would create self-trigger storms/loops.
+export function agentBusy(): boolean {
+  return suppressed()
 }
 
 export function startWatch(cwd: string, onChange: (files: string[]) => void): void {

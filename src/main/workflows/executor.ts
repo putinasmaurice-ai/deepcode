@@ -39,6 +39,18 @@ export interface WorkflowDeps {
   }
   // run a sandboxed JS snippet for the `code` node (injected by ipc)
   runCode?: (code: string, context: { vars: Record<string, string>; last: unknown; input: string }) => string
+  // send an email over SMTP for the `email` node (injected by ipc; absent in tests)
+  sendEmail?: (opts: {
+    host: string
+    port: number
+    secure: boolean
+    user?: string
+    pass?: string
+    from: string
+    to: string
+    subject: string
+    text: string
+  }) => Promise<string>
   runSubworkflow?: (id: string, vars: Record<string, string>, depth: number) => Promise<string>
   // like runSubworkflow but returns the child's FULL vars bag (for loop/parallel collection)
   runSubBag?: (id: string, vars: Record<string, string>, depth: number) => Promise<Record<string, string>>
@@ -213,7 +225,14 @@ export function resolve(s: unknown, ctx: ResolveCtx): string {
         // ALLOWLIST: secrets expand ONLY in deterministic-arg nodes. Anywhere else
         // (transform/condition/switch/output/notify/agent) they resolve to '' — this is the
         // load-bearing guard against laundering a secret into a var and then a prompt.
-        if (ctx.nodeType !== 'tool' && ctx.nodeType !== 'shell' && ctx.nodeType !== 'http' && ctx.nodeType !== 'channel') return ''
+        if (
+          ctx.nodeType !== 'tool' &&
+          ctx.nodeType !== 'shell' &&
+          ctx.nodeType !== 'http' &&
+          ctx.nodeType !== 'channel' &&
+          ctx.nodeType !== 'email'
+        )
+          return ''
         return ctx.resolveSecret?.(key.slice(7)) ?? ''
       }
       // EXACT flat-var match first → preserves {{last}}, {{name}}, and any legacy {{x.a.b}}
@@ -465,6 +484,24 @@ async function runNode(
       setVar(r.content)
       if (!r.ok) throw new Error(r.content.slice(0, 400))
       return { output: r.content }
+    }
+    case 'email': {
+      if (!deps.sendEmail) throw new Error('email: SMTP-Versand nicht verfügbar')
+      // password comes from an encrypted secret; default {{secret.SMTP_PASS}} so the
+      // user only has to store the token once (never inline in the node config/run record).
+      const out = await deps.sendEmail({
+        host: resolve(cfg.host ?? '', rctx).trim(),
+        port: Number(resolve(cfg.port ?? '', rctx)) || 0,
+        secure: cfg.secure === true || String(cfg.secure) === 'true',
+        user: resolve(cfg.user ?? '', rctx).trim() || undefined,
+        pass: resolve(cfg.pass ?? '{{secret.SMTP_PASS}}', rctx) || undefined,
+        from: resolve(cfg.from ?? '', rctx).trim(),
+        to: resolve(cfg.to ?? '', rctx).trim(),
+        subject: resolve(cfg.subject ?? '', rctx),
+        text: resolve(cfg.body ?? '{{last}}', rctx)
+      })
+      setVar(out)
+      return { output: out }
     }
     case 'condition': {
       const ok = evalCondition(String(cfg.expression || ''), rctx)

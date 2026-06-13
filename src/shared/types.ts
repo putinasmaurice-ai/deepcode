@@ -457,6 +457,7 @@ export type WorkflowNodeType =
   | 'code' // run a small sandboxed JS snippet over the vars (no require/network)
   | 'parse' // parse {{last}} as JSON / CSV / HTML → extract fields
   | 'channel' // send to a channel (telegram/slack/discord/webhook) — sugar over web_request
+  | 'email' // send an email over SMTP (host/port/auth via secret)
   | 'output' // emit a result (notify / return to chat)
 
 export interface WorkflowNode {

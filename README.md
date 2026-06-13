@@ -62,12 +62,17 @@ automation and run it: **Agent** (a full DeepSeek tool-loop turn), **Tool** (any
 **Shell**, **HTTP** (GET/POST/headers/body), **Condition** (true/false), **Switch** (multi-way
 branch), **Transform** (template/regex/set), **Code** (sandboxed JS over the vars), **Parse**
 (JSON-path / CSV / HTML→text), **Store** (persistent key/value state across runs — counters, dedup),
-**Channel** (Telegram / Slack / Discord / webhook), **Loop / forEach** (run a body workflow per list
+**Channel** (Telegram / Slack / Discord / webhook), **Email** (send over SMTP — password from an
+encrypted secret), **Loop / forEach** (run a body workflow per list
 item, sequential or bounded-parallel), **Parallel** (run N branch workflows at once) + **Merge**,
 **Delay** (wait), **Notify** (desktop notification), **Sub-workflow**, **Output**.
 Connections are visible and animated; each node shows live ⏳/✅/❌ status **and the data/error it
 produced** while the run streams; results flow between nodes via `{{variables}}` (click a variable chip to insert one).
 - **Cron triggers** — set a trigger node to a schedule and the workflow runs unattended (`0 9 * * *`).
+- **File-watch triggers** — set the trigger to `filewatch` with a path/glob (e.g. `src` + `*.ts`) and
+  the workflow fires whenever a matching file under the project changes (debounced, throttled, and
+  suppressed while the agent itself is writing — no self-trigger loops). Event-driven automation, not
+  just scheduled.
 - **Pre-run validation** — disconnected nodes, missing config and dangling edges are caught and
   highlighted *before* a run, with a plain-language issue list (click an issue to jump to the node).
 - **Run history** — inspect every past run: per-node input/output, errors, duration, final result.
@@ -93,7 +98,8 @@ produced** while the run streams; results flow between nodes via `{{variables}}`
   GET — so a workflow can hit a **Telegram bot, a webhook, Slack/Discord, or an email API**. Bot
   tokens live in encrypted `{{secret.NAME}}`; same SSRF guard (private/loopback blocked) as web_fetch.
   Starter templates included: **Telegram-Nachricht**, **Webhook senden**, **Täglicher Reminder**,
-  **Wöchentliche Zusammenfassung** (cron timers).
+  **Wöchentliche Zusammenfassung** (cron timers), **Bei Datei-Änderung → E-Mail** (file-watch +
+  SMTP) and **Projekt-Report per E-Mail**.
 - **Import / Export** — share or back up a workflow as a single `.json` file.
 - **Safe unattended** — every unattended entry point (workflow agent node, tool node, cron
   trigger, **and delegated sub-agents**) shares ONE screen: no dangerous shell (`rm -rf`,

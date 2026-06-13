@@ -50,6 +50,8 @@ import {
 import { runWorkflow, WorkflowDeps, RunContext, RUN_MAX_MS } from './workflows/executor'
 import { kvStore } from './workflows/kv-store'
 import { runUserCode } from './workflows/code-node'
+import { sendEmail } from './workflows/email'
+import { WorkflowWatchManager } from './workflows/watch-trigger'
 import { WorkflowScheduler } from './workflows/scheduler'
 import { KNOWN_NODE_TYPES } from '@shared/workflows'
 import { listSecretNames, setSecret, deleteSecret, loadSecretsResolved, buildMaskList, maskWith } from './workflows/secrets'
@@ -715,6 +717,7 @@ export function registerIpc(win: BrowserWindow): void {
     },
     kv: kvStore, // persistent key/value state for the `store` node
     runCode: runUserCode, // sandboxed JS for the `code` node
+    sendEmail, // SMTP send for the `email` node
     runSubworkflow: async (subId, vars, d) => {
       const r = await guardedSub(subId, vars, d)
       return r.vars?.last ?? ''
@@ -923,10 +926,12 @@ export function registerIpc(win: BrowserWindow): void {
   // ---- workflow trigger scheduler (cron) ----
   // fires saved workflows whose trigger node is set to mode='cron'. Runs unattended via
   // the same guarded deps as a manual run (dangerous-command screen, MCP/claude_code gate).
-  const wfScheduler = new WorkflowScheduler((def) => {
+  // shared by the cron scheduler AND the file-watch manager: one guarded, unattended run.
+  // `input` (the changed file list) is injected as {{input}}/{{last}} by the file-watch trigger.
+  const runTriggeredWorkflow = (def: WorkflowDef, input?: string): Promise<void> => {
     // daily spend cap: skip a scheduled (unattended) workflow run once today's budget is used up.
     if (overDailyCap(settings.maxCostPerDay)) {
-      console.info(`[budget] Cron workflow "${def.name}" skipped — daily cap $${settings.maxCostPerDay} reached.`)
+      console.info(`[budget] Triggered workflow "${def.name}" skipped — daily cap $${settings.maxCostPerDay} reached.`)
       return Promise.resolve()
     }
     const runId = randomUUID()
@@ -934,10 +939,11 @@ export function registerIpc(win: BrowserWindow): void {
     wfAborters.set(runId, ac)
     const stopDeadline = armDeadline(ac)
     const cwd = validDir(settings.defaultCwd) || homedir()
+    const vars = input ? { input, last: input } : undefined
     // suppress file-watcher "externally changed" toasts for files this background run touches
     beginAgentOp()
     // return the promise so the scheduler's in-flight guard knows when this run finishes
-    return runWorkflow(def, makeWfDeps(cwd, ac.signal, 0, undefined, new Set([def.id])), { runId })
+    return runWorkflow(def, makeWfDeps(cwd, ac.signal, 0, undefined, new Set([def.id])), { runId, vars })
       .catch((e: unknown) =>
         emit({ type: 'workflow_run', runId, workflowId: def.id, status: 'error', message: (e as Error)?.message ?? String(e) })
       )
@@ -947,8 +953,16 @@ export function registerIpc(win: BrowserWindow): void {
         wfAborters.delete(runId)
       })
       .then(() => undefined)
-  })
+  }
+  const wfScheduler = new WorkflowScheduler(runTriggeredWorkflow)
   wfScheduler.start()
+
+  // ---- workflow file-watch trigger ----
+  // fires saved workflows whose trigger node is set to mode='filewatch' when a matching file
+  // under the project changes. Shares the guarded runner + the agent-busy suppression so a
+  // run's own writes never re-trigger it.
+  const wfWatch = new WorkflowWatchManager(runTriggeredWorkflow, () => validDir(settings.defaultCwd) || homedir())
+  wfWatch.start()
 }
 
 async function runAutomationNow(a: AutomationDef, emit: (e: AgentEvent) => void): Promise<void> {

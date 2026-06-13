@@ -435,6 +435,39 @@ describe('workflow executor', () => {
     expect(JSON.parse(csvRun.vars!.last)).toEqual([{ a: '1', b: '2' }, { a: '3', b: '4' }])
   })
 
+  it('email node: sends via injected sendEmail and expands {{secret.SMTP_PASS}} (in the allowlist)', async () => {
+    let captured: Record<string, unknown> | null = null
+    const def: WorkflowDef = {
+      id: 'em', name: 'em', createdAt: 0, updatedAt: 0,
+      nodes: [
+        { id: 'trig', type: 'trigger', config: {} },
+        { id: 'set', type: 'transform', config: { mode: 'set', value: 'Build ist grün' } },
+        {
+          id: 'mail', type: 'email',
+          config: { host: 'smtp.example.com', port: '465', secure: 'true', user: 'me@example.com', from: 'me@example.com', to: 'you@example.com', subject: 'Status' }
+        },
+        { id: 'o', type: 'output', config: { template: '{{last}}' } }
+      ],
+      edges: [
+        { id: 'e1', source: 'trig', target: 'set' },
+        { id: 'e2', source: 'set', target: 'mail' },
+        { id: 'e3', source: 'mail', target: 'o' }
+      ]
+    }
+    const deps = mockDeps([])
+    deps.resolveSecret = (n) => (n === 'SMTP_PASS' ? 's3cr3t' : undefined)
+    deps.sendEmail = async (o) => {
+      captured = o
+      return 'gesendet an you@example.com'
+    }
+    const run = await runWorkflow(def, deps)
+    expect(run.status).toBe('done')
+    expect(captured).toMatchObject({ host: 'smtp.example.com', port: 465, secure: true, to: 'you@example.com', subject: 'Status' })
+    expect(captured!.pass).toBe('s3cr3t') // secret expanded → email node IS in the allowlist
+    expect(captured!.text).toBe('Build ist grün') // body defaults to {{last}}
+    expect(run.vars?.last).toContain('gesendet an')
+  })
+
   it('marks the run failed when a node throws', async () => {
     const def = makeDef()
     def.nodes = [

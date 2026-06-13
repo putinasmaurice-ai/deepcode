@@ -258,6 +258,67 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
       },
       { id: 'out', type: 'output', label: 'Ergebnis', config: { template: '{{last}}' } }
     ]
+  ),
+  tpl(
+    'datei-aenderung-email',
+    'Bei Datei-Änderung → E-Mail',
+    'Überwacht src/ auf Änderungen und schickt dir bei jeder Änderung eine E-Mail mit der Dateiliste. SMTP-Daten im E-Mail-Knoten setzen, Passwort als Secret SMTP_PASS.',
+    'Trigger',
+    [
+      { id: 'trigger', type: 'trigger', label: 'Datei-Watch (src)', config: { mode: 'filewatch', path: 'src', glob: '' } },
+      {
+        id: 'mail',
+        type: 'email',
+        label: 'E-Mail senden',
+        config: {
+          host: 'smtp.gmail.com',
+          port: '465',
+          secure: 'true',
+          user: 'dein.name@gmail.com',
+          pass: '{{secret.SMTP_PASS}}',
+          from: 'dein.name@gmail.com',
+          to: 'dein.name@gmail.com',
+          subject: 'DeepCode: Dateien geändert',
+          body: 'Geänderte Dateien:\n{{input}}'
+        }
+      }
+    ]
+  ),
+  tpl(
+    'projekt-report-email',
+    'Projekt-Report per E-Mail',
+    'Ein Agent fasst den aktuellen Projektstand zusammen und schickt ihn dir per E-Mail. Manuell oder als Cron. SMTP-Daten im E-Mail-Knoten setzen (Passwort als Secret SMTP_PASS).',
+    'E-Mail',
+    [
+      { id: 'trigger', type: 'trigger', label: 'Start', config: { mode: 'manual' } },
+      {
+        id: 'report',
+        type: 'agent',
+        label: 'Report erstellen',
+        config: {
+          prompt:
+            'Fasse den aktuellen Stand dieses Projekts in 5–8 Stichpunkten zusammen: Was wurde zuletzt gemacht, was steht offen, ein konkreter nächster Schritt. Knapp und klar.',
+          outputVar: 'report'
+        }
+      },
+      {
+        id: 'mail',
+        type: 'email',
+        label: 'E-Mail senden',
+        config: {
+          host: 'smtp.gmail.com',
+          port: '465',
+          secure: 'true',
+          user: 'dein.name@gmail.com',
+          pass: '{{secret.SMTP_PASS}}',
+          from: 'dein.name@gmail.com',
+          to: 'dein.name@gmail.com',
+          subject: 'DeepCode: Projekt-Report',
+          body: '{{report}}'
+        }
+      },
+      { id: 'out', type: 'output', label: 'Ergebnis', config: { template: '{{last}}' } }
+    ]
   )
 ]
 
