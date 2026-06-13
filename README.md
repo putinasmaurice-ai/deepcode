@@ -94,7 +94,8 @@ It's your KI-coding app and a `/goal` automation tool in one — like n8n, only 
 **👁 Live preview pane** — a side panel next to the chat that renders the project you're building
 (static `index.html` or a dev-server URL, auto-detected) in an isolated webview, like Claude Code's preview.
 
-More: Projects (instructions + goal + trust level), cost dashboard (per chat/project/total),
+More: Projects (instructions + goal + trust level), cost dashboard (per chat/project/total —
+accurate to the DeepSeek **off-peak discount** and a **per-vendor price card** for DeepInfra/Google),
 @-file mentions, drag&drop attachments, edit-and-resend, regenerate, GitHub-flavored
 markdown rendering with syntax highlighting, session export, desktop notifications.
 Per-command **approval allowlist** ("Immer erlauben" — exact command, scoped to its project dir; managed in Settings).

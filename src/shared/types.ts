@@ -173,6 +173,13 @@ export interface ProviderSettings {
   deepinfraBaseUrl: string
   // extra model ids offered in the model picker (already prefixed, e.g. "deepinfra:owner/Model")
   extraModels: string[]
+  // ---- per-vendor pricing (USD per 1M tokens) for NON-DeepSeek routes ----
+  // costOf must not bill google:/deepinfra: models with DeepSeek's price card. Flat (no
+  // reasoner/cache split, no off-peak). Optional → costOf falls back to a built-in default.
+  deepinfraPricePerMillionInput?: number
+  deepinfraPricePerMillionOutput?: number
+  googlePricePerMillionInput?: number
+  googlePricePerMillionOutput?: number
 }
 
 export interface AppSettings {
@@ -248,7 +255,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
       'deepinfra:deepseek-ai/DeepSeek-V4-Flash', // cheaper DeepSeek via DeepInfra
       'deepinfra:openai/gpt-oss-120b',
       'deepinfra:Qwen/Qwen3-VL-235B-A22B-Instruct' // vision-language
-    ]
+    ],
+    // rough per-vendor defaults (editable) — better than billing them with DeepSeek's card
+    deepinfraPricePerMillionInput: 0.3,
+    deepinfraPricePerMillionOutput: 0.5,
+    googlePricePerMillionInput: 0.1, // ~Gemini Flash-Lite
+    googlePricePerMillionOutput: 0.4
   },
   autoApprove: {
     read: true,

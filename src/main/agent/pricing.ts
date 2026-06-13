@@ -1,9 +1,23 @@
 import { ProviderSettings, Session, TokenUsage } from '@shared/types'
 import { RawUsage } from './deepseek'
+import { offPeakStatus } from '@shared/offpeak'
 
-// Cost attribution for a completed API round. Local models are free.
-export function costOf(provider: ProviderSettings, usage: RawUsage, model?: string): TokenUsage {
+// Cost attribution for a completed API round. `at` = round time (defaults to now) for the
+// DeepSeek off-peak discount. Models are priced by their vendor PREFIX — google:/deepinfra:
+// must NOT use DeepSeek's price card; local: is free.
+export function costOf(provider: ProviderSettings, usage: RawUsage, model?: string, at: number = Date.now()): TokenUsage {
   if (model?.startsWith('local:')) return { ...usage, cost: 0 }
+
+  // ---- non-DeepSeek vendors: flat per-vendor pricing (no reasoner/cache split, no off-peak) ----
+  if (model?.startsWith('deepinfra:') || model?.startsWith('google:')) {
+    const isGoogle = model.startsWith('google:')
+    const vIn = (isGoogle ? provider.googlePricePerMillionInput : provider.deepinfraPricePerMillionInput) ?? 0
+    const vOut = (isGoogle ? provider.googlePricePerMillionOutput : provider.deepinfraPricePerMillionOutput) ?? 0
+    const cost = (usage.promptTokens / 1_000_000) * vIn + (usage.completionTokens / 1_000_000) * vOut
+    return { ...usage, cost }
+  }
+
+  // ---- DeepSeek: reasoner/chat card + prompt-cache split + off-peak discount ----
   // the reasoner has its own price card (falls back to chat prices if unset)
   const isReasoner = !!model && model === provider.reasonerModel
   const inPrice = isReasoner
@@ -22,10 +36,14 @@ export function costOf(provider: ProviderSettings, usage: RawUsage, model?: stri
   )
   const cached = Math.min(usage.cachedPromptTokens ?? 0, usage.promptTokens)
   const fresh = usage.promptTokens - cached
-  const cost =
+  let cost =
     (fresh / 1_000_000) * inPrice +
     (cached / 1_000_000) * cachedPrice +
     (usage.completionTokens / 1_000_000) * outPrice
+  // DeepSeek discounts the off-peak window (chat ~-50%, reasoner ~-75%). The UI already advertises
+  // it; apply it to the RECORDED cost too, else the ledger/budget overstate spend 2-4x.
+  const off = offPeakStatus(new Date(at))
+  if (off.active) cost *= 1 - (isReasoner ? off.reasonerDiscount : off.chatDiscount)
   return { ...usage, cost }
 }
 

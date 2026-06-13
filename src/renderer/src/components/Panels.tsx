@@ -405,6 +405,29 @@ export function SettingsPanel({
             placeholder={'deepinfra:deepseek-ai/DeepSeek-V4-Flash\ndeepinfra:openai/gpt-oss-120b'}
           />
         </div>
+        <div className="row">
+          <div className="field">
+            <label>DeepInfra Preis Input ($/1M Tokens)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={p.deepinfraPricePerMillionInput ?? 0.3}
+              onChange={(e) => updateProvider({ deepinfraPricePerMillionInput: Number(e.target.value) })}
+            />
+          </div>
+          <div className="field">
+            <label>DeepInfra Preis Output ($/1M Tokens)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={p.deepinfraPricePerMillionOutput ?? 0.5}
+              onChange={(e) => updateProvider({ deepinfraPricePerMillionOutput: Number(e.target.value) })}
+            />
+          </div>
+        </div>
+        <p className="sub" style={{ marginTop: 4 }}>
+          Pauschalpreis pro Vendor (kein Reasoner/Cache-Split). DeepSeek-Preise gelten NICHT für <code>deepinfra:</code>-Modelle.
+        </p>
       </div>
 
       <SecretsCard />

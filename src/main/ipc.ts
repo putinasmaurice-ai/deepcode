@@ -36,7 +36,7 @@ import { buildAttachmentContext, listProjectFiles } from './attachments'
 import { listApprovedCommands, removeApprovedCommand } from './approvals'
 import { detectPreview } from './preview'
 import { forecastTurn } from './samples'
-import { estimateTokens } from './agent/pricing'
+import { estimateTokens, costOf } from './agent/pricing'
 import { buildTools } from './agent/toolset'
 import { ToolContext } from './agent/tools/types'
 import {
@@ -486,17 +486,19 @@ export function registerIpc(win: BrowserWindow): void {
     const s = getSession(sessionId)
     const model = s?.model || settings.provider.model
     const isLocal = model.startsWith('local:')
-    const p = settings.provider
-    const inPrice = isLocal
-      ? 0
-      : model === p.reasonerModel
-        ? p.reasonerPricePerMillionInput || p.pricePerMillionInput || 0
-        : p.pricePerMillionInput || 0
     const contextTokens = s ? estimateTokens(s) : 0
+    // reuse costOf so the pre-send estimate matches the RECORDED cost — same per-vendor card
+    // (deepinfra/google) and off-peak discount — instead of re-deriving the price (which billed
+    // non-DeepSeek models with DeepSeek's card and ignored the off-peak window).
+    const estInputCost = costOf(
+      settings.provider,
+      { promptTokens: contextTokens, completionTokens: 0, totalTokens: contextTokens },
+      model
+    ).cost
     const f = forecastTurn(model)
     return {
       contextTokens,
-      estInputCost: (contextTokens / 1_000_000) * inPrice,
+      estInputCost,
       isLocal,
       avgCost: f.avgCost,
       avgTokens: f.avgTokens,
