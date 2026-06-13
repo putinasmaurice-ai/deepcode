@@ -36,6 +36,10 @@ export function loadSettings(): AppSettings {
           /* leave whatever plaintext key may exist */
         }
       }
+      // Dev/test hook only: lets automated launches (Playwright/CI) supply a key when
+      // safeStorage can't decrypt outside the interactive user session. Never set in
+      // normal use.
+      if (process.env.DEEPCODE_DEV_API_KEY) merged.provider.apiKey = process.env.DEEPCODE_DEV_API_KEY
       return merged
     }
   } catch (err) {
