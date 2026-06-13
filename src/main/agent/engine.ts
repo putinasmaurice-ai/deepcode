@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { appendFileSync } from 'fs'
 import { join, relative } from 'path'
-import { AgentEvent, AppSettings, ChatMessage, Session, ToolResult } from '@shared/types'
+import { AgentEvent, AppSettings, ChatMessage, Session, ToolResult, WorkflowDef } from '@shared/types'
 import { DeepSeekClient, ApiMessage } from './deepseek'
 import { Tool, toApiTools } from './tools'
 import { ToolContext } from './tools/types'
@@ -17,6 +17,7 @@ import { EngineDeps, Emit } from './deps'
 import { runSecondOpinion, runArena } from './variants'
 import { compactSession } from './compact'
 import { distillSkill, distillMemories } from './distill'
+import { generateWorkflow } from '../workflows/generate'
 import { runSubagent } from './subagent'
 import { loadHooks, runHooks } from '../systems/hooks'
 import { pluginHooks } from '../systems/plugins'
@@ -214,6 +215,10 @@ export class AgentEngine {
 
   extractMemories(session: Session): Promise<string[]> {
     return distillMemories(this.deps(), session, session.projectId)
+  }
+
+  generateWorkflow(description: string, id: string, now: number): Promise<WorkflowDef> {
+    return generateWorkflow(this.deps(), description, id, now)
   }
 
   // --- approval ----------------------------------------------------------

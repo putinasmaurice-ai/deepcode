@@ -80,6 +80,7 @@ export const IPC = {
   listWorkflows: 'workflows:list',
   getWorkflow: 'workflows:get',
   saveWorkflow: 'workflows:save',
+  generateWorkflow: 'workflows:generate',
   deleteWorkflow: 'workflows:delete',
   runWorkflow: 'workflows:run',
   cancelWorkflow: 'workflows:cancel',

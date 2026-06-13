@@ -78,6 +78,9 @@ produced** while the run streams; results flow between nodes via `{{variables}}`
   (Code-Review, run-tests-and-summarize, URL→summary, git→changelog, project overview, a daily
   cron dependency check). Each is self-contained, so you can run it from chat immediately, then
   tweak it on the canvas.
+- **Generate from a description** — "✨ Aus Beschreibung": describe what you want in a sentence and
+  DeepSeek builds the graph for you. The result is validated (and auto-repaired once) before it's
+  saved, then opened on the canvas to review and tweak. You describe the automation; you don't draw it.
 - **Import / Export** — share or back up a workflow as a single `.json` file.
 - **Safe unattended** — every unattended entry point (workflow agent node, tool node, cron
   trigger, **and delegated sub-agents**) shares ONE screen: no dangerous shell (`rm -rf`,

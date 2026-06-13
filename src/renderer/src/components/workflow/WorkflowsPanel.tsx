@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { WorkflowDef } from '../../../../shared/types'
 import { WORKFLOW_TEMPLATES, instantiateTemplate } from '../../../../shared/workflow-templates'
 import { WorkflowEditor } from './WorkflowEditor'
@@ -12,6 +12,15 @@ function uid(): string {
 export function WorkflowsPanel(): JSX.Element {
   const [list, setList] = useState<WorkflowDef[]>([])
   const [editing, setEditing] = useState<WorkflowDef | null>(null)
+  const [genOpen, setGenOpen] = useState(false)
+  const [genText, setGenText] = useState('')
+  const [genBusy, setGenBusy] = useState(false)
+  const [genError, setGenError] = useState('')
+
+  // generation is a multi-second (possibly two-call) LLM round-trip; the panel can unmount
+  // (App-level view switch) before it settles — guard the post-await setState against that.
+  const mounted = useRef(true)
+  useEffect(() => () => { mounted.current = false }, [])
 
   function refresh(): void {
     api.listWorkflows().then(setList)
@@ -43,6 +52,25 @@ export function WorkflowsPanel(): JSX.Element {
     await api.saveWorkflow(def)
     refresh()
     setEditing(def) // open it so the user can tweak before running
+  }
+
+  async function generate(): Promise<void> {
+    const text = genText.trim()
+    if (!text || genBusy) return
+    setGenBusy(true)
+    setGenError('')
+    try {
+      const def = await api.generateWorkflow(text)
+      if (!mounted.current) return // panel was closed/switched away during the call
+      setGenOpen(false)
+      setGenText('')
+      refresh()
+      if (def) setEditing(def) // open the generated workflow so the user can review/tweak
+    } catch (e) {
+      if (mounted.current) setGenError(String((e as Error)?.message ?? e))
+    } finally {
+      if (mounted.current) setGenBusy(false)
+    }
   }
 
   async function remove(id: string, name: string): Promise<void> {
@@ -115,8 +143,37 @@ export function WorkflowsPanel(): JSX.Element {
               </option>
             ))}
           </select>
+          <button className="btn" onClick={() => { setGenOpen((v) => !v); setGenError('') }}>✨ Aus Beschreibung</button>
           <button className="btn ghost" onClick={doImport}>⬆ Importieren</button>
         </div>
+        {genOpen && (
+          <div className="card" style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <strong>✨ Workflow aus Beschreibung erzeugen</strong>
+            <p style={{ fontSize: 12, color: 'var(--text-faint)', margin: 0 }}>
+              Beschreibe in einem Satz, was der Workflow tun soll — DeepSeek baut ihn, prüft ihn und öffnet ihn zum Anpassen.
+            </p>
+            <textarea
+              value={genText}
+              onChange={(e) => setGenText(e.target.value)}
+              placeholder="z. B. „Hole eine URL, fasse den Inhalt zusammen und schicke mir eine Benachrichtigung."
+              rows={3}
+              disabled={genBusy}
+              autoFocus
+              style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) generate()
+              }}
+            />
+            {genError && <div role="alert" style={{ color: 'var(--danger, #e5484d)', fontSize: 12 }}>{genError}</div>}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn" onClick={generate} disabled={genBusy || !genText.trim()}>
+                {genBusy ? 'Erzeuge…' : 'Erzeugen'}
+              </button>
+              <button className="btn ghost" onClick={() => setGenOpen(false)} disabled={genBusy}>Abbrechen</button>
+              <span style={{ fontSize: 11, color: 'var(--text-faint)', alignSelf: 'center' }}>Strg/⌘+Enter</span>
+            </div>
+          </div>
+        )}
         {list.length === 0 ? (
           <p style={{ color: 'var(--text-faint)' }}>Noch keine Workflows — lege den ersten an.</p>
         ) : (

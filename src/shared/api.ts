@@ -153,6 +153,7 @@ export interface DeepCodeApi {
   listWorkflows(): Promise<WorkflowDef[]>
   getWorkflow(id: string): Promise<WorkflowDef | null>
   saveWorkflow(def: WorkflowDef): Promise<WorkflowDef>
+  generateWorkflow(description: string): Promise<WorkflowDef>
   deleteWorkflow(id: string): Promise<boolean>
   runWorkflow(id: string, runId: string, vars?: Record<string, string>, fromNodeId?: string): Promise<string>
   cancelWorkflow(runId: string): Promise<boolean>

@@ -708,6 +708,12 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.listWorkflows, () => listWorkflows())
   ipcMain.handle(IPC.getWorkflow, (_e, id: string) => getWorkflow(id))
   ipcMain.handle(IPC.saveWorkflow, (_e, def: WorkflowDef) => saveWorkflow(def))
+  // generate a workflow from a natural-language description (DeepSeek → validated → repaired once),
+  // then persist it. Throws a clear message (surfaced in the panel) if no valid workflow results.
+  ipcMain.handle(IPC.generateWorkflow, async (_e, description: string) => {
+    const def = await engine.generateWorkflow(String(description ?? ''), `wf_${randomUUID()}`, Date.now())
+    return saveWorkflow(def)
+  })
   ipcMain.handle(IPC.deleteWorkflow, (_e, id: string) => deleteWorkflow(id))
   ipcMain.handle(IPC.listWorkflowRuns, (_e, workflowId?: string) => listWorkflowRuns(workflowId))
   ipcMain.handle(IPC.getWorkflowRun, (_e, runId: string) => getWorkflowRun(runId))
