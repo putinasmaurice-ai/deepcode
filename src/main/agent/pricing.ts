@@ -9,11 +9,18 @@ export function costOf(provider: ProviderSettings, usage: RawUsage, model?: stri
   if (model?.startsWith('local:')) return { ...usage, cost: 0 }
 
   // ---- non-DeepSeek vendors: flat per-vendor pricing (no reasoner/cache split, no off-peak) ----
-  if (model?.startsWith('deepinfra:') || model?.startsWith('google:')) {
-    const isGoogle = model.startsWith('google:')
-    const vIn = (isGoogle ? provider.googlePricePerMillionInput : provider.deepinfraPricePerMillionInput) ?? 0
-    const vOut = (isGoogle ? provider.googlePricePerMillionOutput : provider.deepinfraPricePerMillionOutput) ?? 0
-    const cost = (usage.promptTokens / 1_000_000) * vIn + (usage.completionTokens / 1_000_000) * vOut
+  if (model?.startsWith('deepinfra:') || model?.startsWith('google:') || model?.startsWith('openai:')) {
+    const vIn = model.startsWith('google:')
+      ? provider.googlePricePerMillionInput
+      : model.startsWith('openai:')
+        ? provider.openaiPricePerMillionInput
+        : provider.deepinfraPricePerMillionInput
+    const vOut = model.startsWith('google:')
+      ? provider.googlePricePerMillionOutput
+      : model.startsWith('openai:')
+        ? provider.openaiPricePerMillionOutput
+        : provider.deepinfraPricePerMillionOutput
+    const cost = (usage.promptTokens / 1_000_000) * (vIn ?? 0) + (usage.completionTokens / 1_000_000) * (vOut ?? 0)
     return { ...usage, cost }
   }
 

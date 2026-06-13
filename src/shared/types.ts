@@ -173,13 +173,18 @@ export interface ProviderSettings {
   deepinfraBaseUrl: string
   // extra model ids offered in the model picker (already prefixed, e.g. "deepinfra:owner/Model")
   extraModels: string[]
+  // ---- OpenAI (OpenAI-compatible) — models prefixed "openai:" route here ----
+  openaiApiKey: string
+  openaiBaseUrl: string
   // ---- per-vendor pricing (USD per 1M tokens) for NON-DeepSeek routes ----
-  // costOf must not bill google:/deepinfra: models with DeepSeek's price card. Flat (no
+  // costOf must not bill google:/deepinfra:/openai: models with DeepSeek's price card. Flat (no
   // reasoner/cache split, no off-peak). Optional → costOf falls back to a built-in default.
   deepinfraPricePerMillionInput?: number
   deepinfraPricePerMillionOutput?: number
   googlePricePerMillionInput?: number
   googlePricePerMillionOutput?: number
+  openaiPricePerMillionInput?: number
+  openaiPricePerMillionOutput?: number
 }
 
 export interface AppSettings {
@@ -256,11 +261,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
       'deepinfra:openai/gpt-oss-120b',
       'deepinfra:Qwen/Qwen3-VL-235B-A22B-Instruct' // vision-language
     ],
+    openaiApiKey: '',
+    openaiBaseUrl: 'https://api.openai.com/v1',
     // rough per-vendor defaults (editable) — better than billing them with DeepSeek's card
     deepinfraPricePerMillionInput: 0.3,
     deepinfraPricePerMillionOutput: 0.5,
     googlePricePerMillionInput: 0.1, // ~Gemini Flash-Lite
-    googlePricePerMillionOutput: 0.4
+    googlePricePerMillionOutput: 0.4,
+    openaiPricePerMillionInput: 0.5, // editable; varies widely by OpenAI model
+    openaiPricePerMillionOutput: 1.5
   },
   autoApprove: {
     read: true,

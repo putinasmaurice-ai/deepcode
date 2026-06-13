@@ -235,6 +235,29 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
       },
       { id: 'notify', type: 'notify', label: 'Benachrichtigen', config: { title: 'Wochen-Report', message: '{{last}}' } }
     ]
+  ),
+  tpl(
+    'multi-modell-vergleich',
+    'Multi-Modell-Vergleich',
+    'Stellt {{input}} an zwei Anbieter (Standard + OpenAI) und lässt ein drittes Modell vergleichen. Modelle/Keys pro Agent-Step anpassbar (Settings → OpenAI).',
+    'KI',
+    [
+      { id: 'trigger', type: 'trigger', label: 'Start', config: { mode: 'manual' } },
+      // model leer = Standard/Session-Modell (DeepSeek)
+      { id: 'a', type: 'agent', label: 'Antwort A (Standard)', config: { prompt: '{{input}}', model: '', outputVar: 'antwortA' } },
+      // per-node model override (Settings → OpenAI-Key setzen, oder Modell hier ändern)
+      { id: 'b', type: 'agent', label: 'Antwort B (OpenAI)', config: { prompt: '{{input}}', model: 'openai:gpt-4o-mini', outputVar: 'antwortB' } },
+      {
+        id: 'judge',
+        type: 'agent',
+        label: 'Vergleich',
+        config: {
+          prompt:
+            'Hier sind zwei KI-Antworten auf dieselbe Frage. Vergleiche sie kurz und sag, welche besser ist und warum:\n\n[A]\n{{antwortA}}\n\n[B]\n{{antwortB}}'
+        }
+      },
+      { id: 'out', type: 'output', label: 'Ergebnis', config: { template: '{{last}}' } }
+    ]
   )
 ]
 

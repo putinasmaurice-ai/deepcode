@@ -101,21 +101,25 @@ export class DeepSeekClient {
     const isLocal = rawModel.startsWith('local:')
     const isGoogle = rawModel.startsWith('google:')
     const isDeepinfra = rawModel.startsWith('deepinfra:')
-    const model = isLocal
-      ? rawModel.slice('local:'.length)
-      : isGoogle
-        ? rawModel.slice('google:'.length)
-        : isDeepinfra
-          ? rawModel.slice('deepinfra:'.length)
-          : rawModel
+    const isOpenai = rawModel.startsWith('openai:') // OpenAI-compatible (api.openai.com)
+    const prefix = isLocal ? 'local:' : isGoogle ? 'google:' : isDeepinfra ? 'deepinfra:' : isOpenai ? 'openai:' : ''
+    const model = prefix ? rawModel.slice(prefix.length) : rawModel
     const base = isLocal
       ? this.settings.localBaseUrl || 'http://localhost:11434/v1'
       : isGoogle
         ? this.settings.googleBaseUrl || 'https://generativelanguage.googleapis.com/v1beta/openai'
         : isDeepinfra
           ? this.settings.deepinfraBaseUrl || 'https://api.deepinfra.com/v1/openai'
-          : this.settings.baseUrl
-    const apiKey = isGoogle ? this.settings.googleApiKey : isDeepinfra ? this.settings.deepinfraApiKey : this.settings.apiKey
+          : isOpenai
+            ? this.settings.openaiBaseUrl || 'https://api.openai.com/v1'
+            : this.settings.baseUrl
+    const apiKey = isGoogle
+      ? this.settings.googleApiKey
+      : isDeepinfra
+        ? this.settings.deepinfraApiKey
+        : isOpenai
+          ? this.settings.openaiApiKey
+          : this.settings.apiKey
 
     if (isGoogle && (!this.settings.googleApiKey || !this.settings.googleApiKey.trim())) {
       throw new Error('Kein Google-AI-Studio-Key konfiguriert. Trage ihn in den Settings ein (für Bild-Analyse online).')
@@ -123,7 +127,10 @@ export class DeepSeekClient {
     if (isDeepinfra && (!this.settings.deepinfraApiKey || !this.settings.deepinfraApiKey.trim())) {
       throw new Error('Kein DeepInfra-API-Key konfiguriert. Trage ihn in den Settings ein.')
     }
-    if (!isLocal && !isGoogle && !isDeepinfra && (!this.settings.apiKey || !this.settings.apiKey.trim())) {
+    if (isOpenai && (!this.settings.openaiApiKey || !this.settings.openaiApiKey.trim())) {
+      throw new Error('Kein OpenAI-API-Key konfiguriert. Trage ihn in den Settings ein.')
+    }
+    if (!isLocal && !isGoogle && !isDeepinfra && !isOpenai && (!this.settings.apiKey || !this.settings.apiKey.trim())) {
       throw new Error('DeepSeek API key is not configured. Add it in Settings.')
     }
 

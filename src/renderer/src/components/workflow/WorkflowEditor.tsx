@@ -47,6 +47,7 @@ const NODE_DEFS: Record<WorkflowNodeType, NodeDef> = {
     label: 'Agent-Step',
     fields: [
       { key: 'prompt', label: 'Prompt (nutzt {{var}})', kind: 'textarea' },
+      { key: 'model', label: 'Modell (leer = Standard; z.B. openai:gpt-4o, google:gemini-2.5-pro, deepinfra:…)', kind: 'text' },
       { key: 'outputVar', label: 'Ergebnis-Variable', kind: 'text' }
     ]
   },

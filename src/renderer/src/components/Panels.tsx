@@ -430,6 +430,51 @@ export function SettingsPanel({
         </p>
       </div>
 
+      <div className="card">
+        <h3>🤖 OpenAI (zusätzliche Modelle)</h3>
+        <p>
+          OpenAI-kompatibel. Modelle mit Präfix <code>openai:</code> (z.B. <code>openai:gpt-4o</code>) werden hierhin geroutet.
+          Füge sie oben bei „Modelle im Auswahlmenü" hinzu — auch pro Workflow-Agent-Step via Modell-Feld nutzbar.
+        </p>
+        <div className="field" style={{ marginTop: 12 }}>
+          <label>OpenAI-API-Key — verschlüsselt gespeichert</label>
+          <input
+            type="password"
+            value={p.openaiApiKey ?? ''}
+            placeholder="sk-…"
+            onChange={(e) => updateProvider({ openaiApiKey: e.target.value })}
+          />
+        </div>
+        <div className="field">
+          <label>OpenAI Base URL (OpenAI-kompatibel)</label>
+          <input
+            value={p.openaiBaseUrl ?? 'https://api.openai.com/v1'}
+            onChange={(e) => updateProvider({ openaiBaseUrl: e.target.value })}
+            placeholder="https://api.openai.com/v1"
+          />
+        </div>
+        <div className="row">
+          <div className="field">
+            <label>OpenAI Preis Input ($/1M Tokens)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={p.openaiPricePerMillionInput ?? 0.5}
+              onChange={(e) => updateProvider({ openaiPricePerMillionInput: Number(e.target.value) })}
+            />
+          </div>
+          <div className="field">
+            <label>OpenAI Preis Output ($/1M Tokens)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={p.openaiPricePerMillionOutput ?? 1.5}
+              onChange={(e) => updateProvider({ openaiPricePerMillionOutput: Number(e.target.value) })}
+            />
+          </div>
+        </div>
+      </div>
+
       <SecretsCard />
 
       <div className="card">

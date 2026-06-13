@@ -27,7 +27,7 @@ export interface WorkflowDeps {
   cwd: string
   signal: AbortSignal
   emit: (e: AgentEvent) => void
-  runAgent: (prompt: string, cwd: string) => Promise<string>
+  runAgent: (prompt: string, cwd: string, model?: string) => Promise<string>
   runTool: (name: string, args: Record<string, unknown>, cwd: string) => Promise<{ ok: boolean; content: string }>
   runSubworkflow?: (id: string, vars: Record<string, string>, depth: number) => Promise<string>
   // like runSubworkflow but returns the child's FULL vars bag (for loop/parallel collection)
@@ -257,7 +257,10 @@ async function runNode(
       // prior tool/shell node echoed into a var ({{last}}) would otherwise reach the LLM AND
       // be persisted in the throwaway session in plaintext. Mask it before runAgent.
       const prompt = resolve(cfg.prompt, rctx)
-      const out = await deps.runAgent(deps.mask ? deps.mask(prompt) : prompt, deps.cwd)
+      // optional per-node model override (e.g. "openai:gpt-4o", "google:gemini-2.5-pro",
+      // "deepinfra:…") so each step can use a different provider; empty → the session/default model.
+      const model = typeof cfg.model === 'string' && cfg.model.trim() ? cfg.model.trim() : undefined
+      const out = await deps.runAgent(deps.mask ? deps.mask(prompt) : prompt, deps.cwd, model)
       setVar(out)
       return { output: out }
     }

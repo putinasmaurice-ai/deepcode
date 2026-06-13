@@ -643,7 +643,7 @@ export function registerIpc(win: BrowserWindow): void {
     emit: maskedEmit,
     mask,
     resolveSecret: (name: string) => secrets[name],
-    runAgent: async (prompt, c) => {
+    runAgent: async (prompt, c, modelOverride) => {
       // workflow already cancelled before this node started → don't even create a
       // throwaway session or burn a turn (engine.cancel here would be a no-op anyway,
       // since the turn hasn't registered its aborter yet).
@@ -655,7 +655,9 @@ export function registerIpc(win: BrowserWindow): void {
         createdAt: Date.now(),
         updatedAt: Date.now(),
         messages: [],
-        model: settings.provider.model
+        // per-node model override (agent node config.model) → this step runs on that provider/model;
+        // otherwise the configured default. Prefix routing (openai:/google:/deepinfra:/local:) applies.
+        model: (modelOverride && modelOverride.trim()) || settings.provider.model
       }
       saveSession(session)
       // bridge a workflow cancel to the in-flight engine turn. engine.runTurn owns its own
