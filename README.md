@@ -55,7 +55,9 @@ Built-in slash commands: `/help /init /goal /cost /model /compact /rewind /jobs`
 **🕸️ Visual workflow builder** — a graphical canvas (React Flow) where you wire nodes into an
 automation and run it: **Agent** (a full DeepSeek tool-loop turn), **Tool** (any built-in tool),
 **Shell**, **HTTP**, **Condition** (true/false), **Switch** (multi-way branch), **Transform**
-(template/regex/set), **Delay** (wait), **Notify** (desktop notification), **Sub-workflow**, **Output**.
+(template/regex/set), **Loop / forEach** (run a body workflow per list item, sequential or
+bounded-parallel), **Parallel** (run N branch workflows at once) + **Merge**, **Delay** (wait),
+**Notify** (desktop notification), **Sub-workflow**, **Output**.
 Connections are visible and animated; each node shows live ⏳/✅/❌ status **and the data/error it
 produced** while the run streams; results flow between nodes via `{{variables}}` (click a variable chip to insert one).
 - **Cron triggers** — set a trigger node to a schedule and the workflow runs unattended (`0 9 * * *`).

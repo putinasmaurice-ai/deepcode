@@ -18,13 +18,14 @@ const REQUIRED_FIELD: Partial<Record<WorkflowNode['type'], { key: string; label:
   http: { key: 'url', label: 'URL' },
   condition: { key: 'expression', label: 'Ausdruck' },
   switch: { key: 'cases', label: 'Fälle (kommagetrennt)' },
-  subworkflow: { key: 'workflowId', label: 'Workflow-ID' }
+  subworkflow: { key: 'workflowId', label: 'Workflow-ID' },
+  loop: { key: 'bodyWorkflowId', label: 'Body-Workflow' }
 }
 
 // single source of truth for node types — imported by the importWorkflow IPC guard too,
 // so the renderer, validator and importer can't drift apart.
 export const KNOWN_NODE_TYPES = new Set<string>([
-  'trigger', 'agent', 'tool', 'shell', 'http', 'condition', 'switch', 'transform', 'subworkflow', 'delay', 'notify', 'output'
+  'trigger', 'agent', 'tool', 'shell', 'http', 'condition', 'switch', 'transform', 'subworkflow', 'loop', 'parallel', 'merge', 'delay', 'notify', 'output'
 ])
 
 function nonEmpty(v: unknown): boolean {
@@ -125,6 +126,31 @@ export function validateWorkflow(def: WorkflowDef): WorkflowIssue[] {
         }
         if (!out.some((e) => e.sourceHandle === 'default')) issues.push({ nodeId: n.id, severity: 'warn', message: 'Switch: kein default-Zweig — endet hier, wenn kein Fall passt.' })
       }
+    }
+    if (n.type === 'loop') {
+      // compare EFFECTIVE (defaulted) names so item=''(→item) + index='item' is also caught
+      const iv = (String(cfg.itemVar ?? '').trim() || 'item')
+      const ix = (String(cfg.indexVar ?? '').trim() || 'index')
+      if (iv === ix) {
+        issues.push({ nodeId: n.id, severity: sev, message: 'Schleife: Item- und Index-Variable müssen unterschiedlich sein.' })
+      }
+      if (cfg.bodyWorkflowId && cfg.bodyWorkflowId === def.id) {
+        issues.push({ nodeId: n.id, severity: 'warn', message: 'Schleife: Body-Workflow ist dieser Workflow selbst (Zyklusgefahr).' })
+      }
+    }
+    if (n.type === 'parallel') {
+      const brs = Array.isArray(cfg.branches) ? (cfg.branches as Array<Record<string, unknown>>) : null
+      if (!brs || !brs.some((b) => b && nonEmpty(b.workflowId))) {
+        issues.push({ nodeId: n.id, severity: sev, message: 'Parallel: keine gültigen Branches (Array mit workflowId).' })
+      } else {
+        const rvs = brs.map((b) => String(b?.resultVar ?? '')).filter(Boolean)
+        if (new Set(rvs).size !== rvs.length) {
+          issues.push({ nodeId: n.id, severity: sev, message: 'Parallel: doppelte resultVar — Ergebnisse würden sich überschreiben.' })
+        }
+      }
+    }
+    if (n.type === 'merge' && !nonEmpty(cfg.inputs)) {
+      issues.push({ nodeId: n.id, severity: 'warn', message: 'Zusammenführen: keine Eingabe-Variablen angegeben.' })
     }
     // condition must wire BOTH branches, else a taken branch dead-ends the run silently (warn)
     if (n.type === 'condition') {

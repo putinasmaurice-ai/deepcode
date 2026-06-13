@@ -47,12 +47,12 @@ import {
   listRuns as listWorkflowRuns,
   getRun as getWorkflowRun
 } from './workflows/store'
-import { runWorkflow, WorkflowDeps } from './workflows/executor'
+import { runWorkflow, WorkflowDeps, RunContext, RUN_MAX_MS } from './workflows/executor'
 import { WorkflowScheduler } from './workflows/scheduler'
 import { KNOWN_NODE_TYPES } from '@shared/workflows'
 import { listSecretNames, setSecret, deleteSecret, loadSecretsResolved, buildMaskList, maskWith } from './workflows/secrets'
 import { isDangerousCommand } from './agent/policy'
-import { WorkflowDef } from '@shared/types'
+import { WorkflowDef, WorkflowRun } from '@shared/types'
 import { runBuiltin } from './builtins'
 import { execFile } from 'child_process'
 import type { ApprovalPolicy } from './agent/engine'
@@ -534,11 +534,23 @@ export function registerIpc(win: BrowserWindow): void {
   const wfAborters = new Map<string, AbortController>()
   // Build the executor deps: reuse the real agent loop (agent nodes), the built-in tools
   // (tool/shell/http nodes), and recursion (sub-workflow nodes). `depth` guards recursion.
-  const makeWfDeps = (cwd: string, signal: AbortSignal, depth: number): WorkflowDeps => {
-    // per-level secret snapshot + masking. Each recursion level wraps its OWN emit, so child
-    // events are masked too (M2 will thread one snapshot via runCtx to avoid re-decrypt).
-    const secrets = loadSecretsResolved()
-    const maskList = buildMaskList(secrets)
+  // `ancestors` = the workflow ids on the path from the top run down to THIS level (copy-on-
+  // descend, NOT shared). Cycle detection keys on this path so concurrent sibling fan-out to
+  // the same id (parallel loops / parallel branches) is fine; only a true re-entry trips.
+  const makeWfDeps = (cwd: string, signal: AbortSignal, depth: number, runCtx?: RunContext, ancestors: ReadonlySet<string> = new Set()): WorkflowDeps => {
+    // The TOP-LEVEL call (no runCtx) creates the tree-wide context ONCE: secrets decrypted a
+    // single time, an absolute deadline, and the fan-out cap. Sub-runs inherit the SAME object
+    // (passed by makeWfDeps in runSub*), so the count/deadline are enforced across the tree.
+    const ctx: RunContext =
+      runCtx ?? {
+        deadline: Date.now() + RUN_MAX_MS,
+        childRuns: { n: 0 },
+        maxChildRuns: 500,
+        secrets: loadSecretsResolved()
+      }
+    if (!ctx.maskList) ctx.maskList = buildMaskList(ctx.secrets ?? {})
+    const secrets = ctx.secrets ?? {}
+    const maskList = ctx.maskList
     const mask = (s: string): string => maskWith(maskList, s)
     // wrap emit ONCE: deep-mask EVERY string field of the event (not just top-level
     // message/output/error) — the agent stream carries text in delta / message.content /
@@ -555,6 +567,7 @@ export function registerIpc(win: BrowserWindow): void {
     cwd,
     signal,
     depth,
+    runCtx: ctx,
     emit: maskedEmit,
     mask,
     resolveSecret: (name: string) => secrets[name],
@@ -635,15 +648,30 @@ export function registerIpc(win: BrowserWindow): void {
       }
     },
     runSubworkflow: async (subId, vars, d) => {
+      const r = await guardedSub(subId, vars, d)
+      return r.vars?.last ?? ''
+    },
+    // like runSubworkflow but returns the child's FULL vars bag (loop/parallel collection)
+    runSubBag: async (subId, vars, d) => {
+      const r = await guardedSub(subId, vars, d)
+      return r.vars ?? {}
+    }
+    }
+
+    // Shared sub-run with the tree-wide guards: depth, cycle (subId already on THIS descent
+    // path), and the fan-out cap. Throws (so the parent node fails) on a non-'done' child.
+    async function guardedSub(subId: string, vars: Record<string, string>, d: number): Promise<WorkflowRun> {
       if (d > 5) throw new Error('sub-workflow depth limit (5) reached')
+      if (ancestors.has(subId)) throw new Error(`Zyklus erkannt: Workflow „${subId}" ruft sich (indirekt) selbst auf.`)
+      if (ctx.childRuns.n >= ctx.maxChildRuns) throw new Error(`Limit erreicht: max. ${ctx.maxChildRuns} Sub-Läufe pro Workflow.`)
       const child = getWorkflow(subId)
       if (!child) throw new Error(`sub-workflow not found: ${subId}`)
-      const r = await runWorkflow(child, makeWfDeps(cwd, signal, d), { vars, runId: randomUUID() })
-      // a sub-workflow that failed/was-cancelled/hit a limit must not look like success to
-      // the parent node — propagate it as an error instead of returning a partial result.
+      ctx.childRuns.n++
+      // child carries its OWN extended path copy — siblings don't see each other
+      const childAncestors = new Set(ancestors).add(subId)
+      const r = await runWorkflow(child, makeWfDeps(cwd, signal, d, ctx, childAncestors), { vars, runId: randomUUID() })
       if (r.status !== 'done') throw new Error(`Sub-Workflow „${child.name}" endete mit Status ${r.status}${r.error ? ': ' + r.error : ''}`)
-      return r.vars?.last ?? ''
-    }
+      return r
     }
   }
 
@@ -735,7 +763,7 @@ export function registerIpc(win: BrowserWindow): void {
     wfAborters.set(runId, ac)
     const cwd = validDir(settings.defaultCwd) || homedir()
     // fire-and-forget: progress streams via workflow_* events; the renderer polls getRun
-    runWorkflow(def, makeWfDeps(cwd, ac.signal, 0), { vars, fromNodeId, runId })
+    runWorkflow(def, makeWfDeps(cwd, ac.signal, 0, undefined, new Set([def.id])), { vars, fromNodeId, runId })
       .catch((e: unknown) => {
         // executor already persists/streams failures per node, but guard the rare case
         // where the whole call rejects before any node ran (e.g. malformed def).
@@ -823,7 +851,7 @@ export function registerIpc(win: BrowserWindow): void {
     wfAborters.set(runId, ac)
     const cwd = validDir(settings.defaultCwd) || homedir()
     // return the promise so the scheduler's in-flight guard knows when this run finishes
-    return runWorkflow(def, makeWfDeps(cwd, ac.signal, 0), { runId })
+    return runWorkflow(def, makeWfDeps(cwd, ac.signal, 0, undefined, new Set([def.id])), { runId })
       .catch((e: unknown) =>
         emit({ type: 'workflow_run', runId, workflowId: def.id, status: 'error', message: (e as Error)?.message ?? String(e) })
       )

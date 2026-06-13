@@ -3,12 +3,25 @@ import { AgentEvent, WorkflowDef, WorkflowNode, WorkflowRun } from '@shared/type
 import { saveRun } from './store'
 import { validateWorkflow, hasBlockingErrors } from '@shared/workflows'
 
-const RUN_MAX_MS = 2 * 60 * 60 * 1000 // hard per-run wall-clock ceiling (delay loops etc.)
+export const RUN_MAX_MS = 2 * 60 * 60 * 1000 // hard per-run wall-clock ceiling (delay loops etc.)
 
 // Runs a workflow node-by-node. The executor is decoupled from the engine: the caller
 // (ipc) supplies runAgent/runTool/runSubworkflow so we reuse the real agent loop, the
 // built-in tools, and recursion without importing them here. Per-node status is streamed
 // as AgentEvents so the editor can trace the run live.
+
+// Tree-wide run context, created ONCE at the top-level run and passed by-reference into
+// every sub-run (loop bodies, parallel branches, sub-workflows). Enforces aggregate caps
+// that a per-level closure could not (each makeWfDeps level re-creates its closure).
+export interface RunContext {
+  deadline: number // absolute wall-clock ceiling (top run start + RUN_MAX_MS), inherited
+  childRuns: { n: number } // total sub-runs spawned across the whole tree
+  maxChildRuns: number // cap on childRuns.n (fan-out bomb guard)
+  secrets?: Record<string, string> // decrypted ONCE at the top run, shared by all sub-runs
+  maskList?: string[] // built once from secrets; shared
+  // NOTE: cycle detection is a per-branch ancestor path threaded in makeWfDeps, NOT here —
+  // a shared set would false-trip on concurrent fan-out to the same sub-workflow id.
+}
 
 export interface WorkflowDeps {
   cwd: string
@@ -17,10 +30,33 @@ export interface WorkflowDeps {
   runAgent: (prompt: string, cwd: string) => Promise<string>
   runTool: (name: string, args: Record<string, unknown>, cwd: string) => Promise<{ ok: boolean; content: string }>
   runSubworkflow?: (id: string, vars: Record<string, string>, depth: number) => Promise<string>
+  // like runSubworkflow but returns the child's FULL vars bag (for loop/parallel collection)
+  runSubBag?: (id: string, vars: Record<string, string>, depth: number) => Promise<Record<string, string>>
   notify?: (title: string, body: string) => void
   resolveSecret?: (name: string) => string | undefined // {{secret.NAME}} (tool/shell/http only)
   mask?: (s: string) => string // mask secret values out of the PERSISTED run (not the live vars)
+  runCtx?: RunContext
   depth?: number
+}
+
+// Bounded-concurrency worker pool: runs tasks with at most `concurrency` in flight, aborting
+// on signal or when the absolute deadline passes. A task that throws rejects the whole pool
+// (callers wrap tasks to implement continue-on-error); AbortError always propagates.
+async function runPool<T>(tasks: Array<() => Promise<T>>, concurrency: number, signal: AbortSignal, deadline?: number): Promise<T[]> {
+  const results = new Array<T>(tasks.length)
+  let cursor = 0
+  const n = Math.max(1, Math.min(concurrency, 8, tasks.length || 1))
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+      if (deadline && Date.now() > deadline) throw new Error('Zeitbudget des Workflows überschritten — gestoppt.')
+      const i = cursor++
+      if (i >= tasks.length) return
+      results[i] = await tasks[i]!()
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(n, tasks.length) }, worker))
+  return results
 }
 
 // Mask a COPY of the run for persistence — never the live run.vars (downstream nodes still
@@ -164,12 +200,34 @@ function evalCondition(expr: string, ctx: ResolveCtx): boolean {
 
 const MAX_NODES = 200 // total-step runaway guard
 const MAX_VISITS = 25 // max re-entries of a single node (bounded loops)
+const MAX_LOOP_ITEMS = 100 // forEach iteration cap
+const MAX_PARALLEL_BRANCHES = 8 // parallel branch cap
+
+// Parse a loop list source into items. 'json' parses an array (an object → [object]);
+// 'lines' splits on newlines/commas; 'auto' tries JSON first, else lines.
+function parseList(raw: string, format: string): unknown[] {
+  const s = (raw ?? '').trim()
+  if (!s) return []
+  const asLines = (): unknown[] => s.split(/[\n,]/).map((x) => x.trim()).filter(Boolean)
+  if (format === 'lines') return asLines()
+  if (format === 'json' || format === 'auto') {
+    try {
+      const j = JSON.parse(s)
+      if (Array.isArray(j)) return j
+      if (format === 'json') return j === null || j === undefined ? [] : [j]
+    } catch {
+      if (format === 'json') return []
+    }
+  }
+  return asLines()
+}
 
 async function runNode(
   node: WorkflowNode,
   vars: Record<string, string>,
   deps: WorkflowDeps,
-  nodeOutputs?: Map<string, string>
+  nodeOutputs?: Map<string, string>,
+  onProgress?: (output: string) => void
 ): Promise<{ output?: string; branch?: string }> {
   const cfg = node.config || {}
   // resolution context: enables {{node.<id>}} / JSON-path / {{secret.NAME}} in this node's
@@ -261,6 +319,124 @@ async function runNode(
       setVar(out)
       return { output: out }
     }
+    case 'loop': {
+      if (!deps.runSubBag) throw new Error('loop: sub-runs unavailable')
+      const bodyId = String(cfg.bodyWorkflowId || '')
+      if (!bodyId) throw new Error('loop: kein Body-Workflow gesetzt')
+      const items = parseList(resolve(cfg.listExpr ?? '{{last}}', rctx), String(cfg.listFormat || 'auto')).slice(
+        0,
+        Math.max(0, Math.min(Number(cfg.maxItems) || MAX_LOOP_ITEMS, MAX_LOOP_ITEMS))
+      )
+      const itemVar = String(cfg.itemVar || 'item')
+      const indexVar = String(cfg.indexVar || 'index')
+      const continueItemOnError = cfg.continueItemOnError === true
+      const childVars = (it: unknown, i: number): Record<string, string> => {
+        const iv = typeof it === 'object' && it !== null ? JSON.stringify(it) : String(it)
+        return { ...vars, [itemVar]: iv, [indexVar]: String(i), last: iv }
+      }
+      const total = items.length
+      let done = 0
+      const tick = (): void => onProgress?.(`${++done}/${total} fertig…`)
+      const runItem = (it: unknown, i: number): Promise<string> =>
+        deps
+          .runSubBag!(bodyId, childVars(it, i), (deps.depth ?? 0) + 1)
+          .then((bag) => {
+            tick()
+            return bag.last ?? ''
+          })
+          .catch((e: Error) => {
+            // never swallow a cancel; otherwise honour continue-item-on-error
+            if (deps.signal.aborted || e.name === 'AbortError') throw e
+            if (continueItemOnError) {
+              tick()
+              return `__ERR__:${e.message}`
+            }
+            throw e
+          })
+      let results: string[]
+      if (String(cfg.mode || 'sequential') === 'parallel') {
+        results = await runPool(
+          items.map((it, i) => () => runItem(it, i)),
+          Math.max(1, Math.min(Number(cfg.concurrency) || 4, 8)),
+          deps.signal,
+          deps.runCtx?.deadline
+        )
+      } else {
+        results = []
+        for (let i = 0; i < items.length; i++) {
+          if (deps.signal.aborted) throw new DOMException('Aborted', 'AbortError')
+          // honour the absolute deadline here too (thrown OUTSIDE runItem's catch, so
+          // continueItemOnError can't mask it into an __ERR__ sentinel and keep going)
+          if (deps.runCtx?.deadline && Date.now() > deps.runCtx.deadline) throw new Error('Zeitbudget des Workflows überschritten — gestoppt.')
+          results.push(await runItem(items[i], i))
+        }
+      }
+      const collectAs = String(cfg.collectAs || 'json')
+      const out =
+        collectAs === 'join'
+          ? results.join(String(cfg.joinSep ?? '\n'))
+          : collectAs === 'last'
+            ? (results.at(-1) ?? '')
+            : JSON.stringify(results)
+      setVar(out.slice(0, 20_000))
+      return { output: out.slice(0, 20_000) }
+    }
+    case 'parallel': {
+      if (!deps.runSubBag) throw new Error('parallel: sub-runs unavailable')
+      const raw = Array.isArray(cfg.branches) ? (cfg.branches as Array<Record<string, unknown>>) : []
+      const branches = raw
+        .map((b) => ({ workflowId: String(b?.workflowId || ''), resultVar: String(b?.resultVar || ''), label: b?.label ? String(b.label) : undefined }))
+        .filter((b) => b.workflowId)
+        .slice(0, MAX_PARALLEL_BRANCHES)
+      if (!branches.length) throw new Error('parallel: keine Branches konfiguriert')
+      const continueOnBranchError = cfg.errorMode !== 'failFast'
+      const total = branches.length
+      let done = 0
+      const tasks = branches.map((b) => () =>
+        deps
+          .runSubBag!(b.workflowId, { ...vars }, (deps.depth ?? 0) + 1)
+          .then((bag) => {
+            onProgress?.(`${++done}/${total} fertig…`)
+            return bag.last ?? ''
+          })
+          .catch((e: Error) => {
+            if (deps.signal.aborted || e.name === 'AbortError') throw e
+            if (continueOnBranchError) {
+              onProgress?.(`${++done}/${total} fertig…`)
+              return `__ERR__:${e.message}`
+            }
+            throw e
+          })
+      )
+      const vals = await runPool(tasks, Math.max(1, Math.min(Number(cfg.concurrency) || branches.length, 8)), deps.signal, deps.runCtx?.deadline)
+      // write each branch result to its named var so a downstream merge/expression can read it
+      branches.forEach((b, i) => {
+        if (b.resultVar) vars[b.resultVar] = vals[i] ?? ''
+      })
+      const mergeMode = String(cfg.mergeMode || 'array')
+      let out: string
+      if (mergeMode === 'object') out = JSON.stringify(Object.fromEntries(branches.map((b, i) => [b.label || b.resultVar || `branch${i}`, vals[i] ?? ''])))
+      else if (mergeMode === 'join') out = vals.join(String(cfg.joinSep ?? '\n'))
+      else out = JSON.stringify(vals)
+      setVar(out.slice(0, 20_000))
+      return { output: out.slice(0, 20_000) }
+    }
+    case 'merge': {
+      // pure transform: combine already-computed vars (no sub-runs)
+      const inputs = String(cfg.inputs || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+      const vals = inputs.map((name) => vars[name] ?? '')
+      const mode = String(cfg.mode || 'array')
+      let out: string
+      if (mode === 'concat') out = vals.join(String(cfg.separator ?? '\n'))
+      else if (mode === 'object') out = JSON.stringify(Object.fromEntries(inputs.map((n, i) => [n, vals[i]])))
+      else if (mode === 'pick') out = vals.find((v) => v && v.trim()) ?? '' // first non-empty
+      else out = JSON.stringify(vals)
+      setVar(out.slice(0, 20_000))
+      return { output: out.slice(0, 20_000) }
+    }
     case 'delay': {
       const secs = Math.max(0, Math.min(Number(cfg.seconds) || 0, 3600)) // cap at 1h
       await sleep(secs * 1000, deps.signal)
@@ -347,9 +523,10 @@ export async function runWorkflow(
         run.status = 'cancelled'
         break
       }
-      // per-run wall-clock ceiling — a delay node on a loop-back could otherwise pin a
-      // run for ~25h (MAX_VISITS × 1h); this bounds the whole run, not just one step.
-      if (Date.now() - run.startedAt > RUN_MAX_MS) {
+      // wall-clock ceiling. Children inherit the TOP run's ABSOLUTE deadline via runCtx, so
+      // nested loops/parallel can't extend the budget; falls back to a per-run cap if no ctx.
+      const deadline = deps.runCtx?.deadline ?? run.startedAt + RUN_MAX_MS
+      if (Date.now() > deadline) {
         run.status = 'failed'
         run.error = 'Zeitbudget des Workflows überschritten — gestoppt.'
         deps.emit({ type: 'workflow_node', runId: run.id, nodeId: current.id, status: 'failed', error: run.error })
@@ -387,9 +564,19 @@ export async function runWorkflow(
       let cancelled = false
       let nodeFailed = false
       let hardStop = false // budget exceeded → stop even if continueOnError is set
+      // throttled progress heartbeat for long fan-out nodes (loop/parallel) — the editor
+      // already renders a node's 'running' output, so a slow loop shows N/total live.
+      let lastBeat = 0
+      const nid = current.id
+      const onProgress = (out: string): void => {
+        const now = Date.now()
+        if (now - lastBeat < 250) return
+        lastBeat = now
+        deps.emit({ type: 'workflow_node', runId: run.id, nodeId: nid, status: 'running', output: out })
+      }
       for (;;) {
         try {
-          const res = await runNode(current, run.vars!, deps, nodeOutputs)
+          const res = await runNode(current, run.vars!, deps, nodeOutputs, onProgress)
           branch = res.branch
           rn.output = res.output?.slice(0, 20_000)
           nodeOutputs.set(current.id, (res.output ?? '').slice(0, 100_000)) // for {{node.<id>}}
@@ -417,7 +604,7 @@ export async function runWorkflow(
               }
             }
             // the retry backoff must still respect the per-run wall-clock ceiling
-            if (Date.now() - run.startedAt > RUN_MAX_MS) {
+            if (Date.now() > (deps.runCtx?.deadline ?? run.startedAt + RUN_MAX_MS)) {
               rn.status = 'failed'
               rn.error = 'Zeitbudget des Workflows überschritten — gestoppt.'
               rn.endedAt = Date.now()

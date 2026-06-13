@@ -23,7 +23,8 @@ const api = window.deepcode
 interface FieldDef {
   key: string
   label: string
-  kind: 'text' | 'textarea' | 'json'
+  kind: 'text' | 'textarea' | 'json' | 'workflowRef'
+  emptyDefault?: string // shown in a json field when unset (e.g. '[]' for array fields)
 }
 interface NodeDef {
   icon: string
@@ -100,7 +101,42 @@ const NODE_DEFS: Record<WorkflowNodeType, NodeDef> = {
   subworkflow: {
     icon: '🧩',
     label: 'Sub-Workflow',
-    fields: [{ key: 'workflowId', label: 'Workflow-ID', kind: 'text' }]
+    fields: [{ key: 'workflowId', label: 'Workflow', kind: 'workflowRef' }]
+  },
+  loop: {
+    icon: '🔁',
+    label: 'Schleife (forEach)',
+    fields: [
+      { key: 'listExpr', label: 'Liste (JSON-Array oder Zeilen, nutzt {{var}})', kind: 'textarea' },
+      { key: 'listFormat', label: 'Format: auto | json | lines', kind: 'text' },
+      { key: 'itemVar', label: 'Item-Variable (Default item)', kind: 'text' },
+      { key: 'indexVar', label: 'Index-Variable (Default index)', kind: 'text' },
+      { key: 'bodyWorkflowId', label: 'Body-Workflow (pro Item ausgeführt)', kind: 'workflowRef' },
+      { key: 'mode', label: 'Modus: sequential | parallel', kind: 'text' },
+      { key: 'concurrency', label: 'Parallelität (1–8, nur parallel)', kind: 'text' },
+      { key: 'collectAs', label: 'Sammeln als: json | join | last', kind: 'text' },
+      { key: 'outputVar', label: 'Ergebnis-Variable', kind: 'text' }
+    ]
+  },
+  parallel: {
+    icon: '🍴',
+    label: 'Parallel',
+    fields: [
+      { key: 'branches', label: 'Branches (JSON: [{"workflowId":"…","resultVar":"a"}])', kind: 'json', emptyDefault: '[]' },
+      { key: 'concurrency', label: 'Parallelität (1–8)', kind: 'text' },
+      { key: 'mergeMode', label: 'Zusammenführen: array | object | join', kind: 'text' },
+      { key: 'outputVar', label: 'Ergebnis-Variable', kind: 'text' }
+    ]
+  },
+  merge: {
+    icon: '🪢',
+    label: 'Zusammenführen',
+    fields: [
+      { key: 'inputs', label: 'Variablen (kommagetrennt)', kind: 'text' },
+      { key: 'mode', label: 'Modus: array | concat | object | pick', kind: 'text' },
+      { key: 'separator', label: 'Trenner (mode=concat)', kind: 'text' },
+      { key: 'outputVar', label: 'Ergebnis-Variable', kind: 'text' }
+    ]
   },
   delay: {
     icon: '⏱️',
@@ -121,7 +157,7 @@ const NODE_DEFS: Record<WorkflowNodeType, NodeDef> = {
     fields: [{ key: 'template', label: 'Ausgabe-Template (Default {{last}})', kind: 'textarea' }]
   }
 }
-const PALETTE: WorkflowNodeType[] = ['agent', 'tool', 'shell', 'http', 'condition', 'switch', 'transform', 'delay', 'notify', 'subworkflow', 'output']
+const PALETTE: WorkflowNodeType[] = ['agent', 'tool', 'shell', 'http', 'condition', 'switch', 'transform', 'loop', 'parallel', 'merge', 'delay', 'notify', 'subworkflow', 'output']
 
 interface WfData extends Record<string, unknown> {
   node: WorkflowNode
@@ -238,6 +274,7 @@ export function WorkflowEditor({
   const [issues, setIssues] = useState<WorkflowIssue[]>([])
   const [showRuns, setShowRuns] = useState(false)
   const [secretNames, setSecretNames] = useState<string[]>([])
+  const [wfList, setWfList] = useState<{ id: string; name: string }[]>([])
   const [colorMode, setColorMode] = useState<'light' | 'dark'>(() =>
     typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'
   )
@@ -257,6 +294,11 @@ export function WorkflowEditor({
   // secret NAMES (never values) for the picker — only insertable in tool/shell/http args
   useEffect(() => {
     api.secretsList().then(setSecretNames).catch(() => setSecretNames([]))
+    // workflows list for the workflowRef <select> (loop body / sub-workflow / parallel)
+    api
+      .listWorkflows()
+      .then((ws) => setWfList(ws.map((w) => ({ id: w.id, name: w.name }))))
+      .catch(() => setWfList([]))
   }, [])
 
   // live per-node status + output/error from the executor's workflow_* events (subscribe once)
@@ -584,6 +626,21 @@ export function WorkflowEditor({
             )}
             {selDef.fields.map((f) => {
               const cfg = selected.config || {}
+              if (f.kind === 'workflowRef') {
+                return (
+                  <div className="field" key={f.key}>
+                    <label>{f.label}</label>
+                    <select value={String(cfg[f.key] ?? '')} onChange={(e) => updateConfig(f.key, e.target.value)}>
+                      <option value="">— Workflow wählen —</option>
+                      {wfList
+                        .filter((w) => w.id !== workflow.id) /* exclude self → no direct self-ref */
+                        .map((w) => (
+                          <option key={w.id} value={w.id}>{w.name}</option>
+                        ))}
+                    </select>
+                  </div>
+                )
+              }
               if (f.kind === 'json') {
                 const errKey = `${selId}:${f.key}`
                 const err = jsonErr[errKey]
@@ -592,11 +649,11 @@ export function WorkflowEditor({
                     <label>{f.label}</label>
                     <textarea
                       className={err ? 'invalid' : ''}
-                      value={typeof cfg[f.key] === 'object' ? JSON.stringify(cfg[f.key], null, 2) : String(cfg[f.key] ?? '{}')}
+                      value={typeof cfg[f.key] === 'object' ? JSON.stringify(cfg[f.key], null, 2) : String(cfg[f.key] ?? (f.emptyDefault ?? '{}'))}
                       onChange={(e) => {
                         const txt = e.target.value
                         try {
-                          updateConfig(f.key, JSON.parse(txt || '{}'))
+                          updateConfig(f.key, JSON.parse(txt || (f.emptyDefault ?? '{}')))
                           setJsonErr((m) => (m[errKey] ? { ...m, [errKey]: '' } : m))
                         } catch (ex) {
                           // keep raw text so the user can keep typing; flag it so a save/run
@@ -629,7 +686,7 @@ export function WorkflowEditor({
                 </div>
               )
             })}
-            {['agent', 'tool', 'shell', 'http', 'subworkflow', 'transform'].includes(selected.type) && (
+            {['agent', 'tool', 'shell', 'http', 'subworkflow', 'transform', 'loop', 'parallel'].includes(selected.type) && (
               <div className="wf-adv">
                 <div className="wf-adv-head">Fehlerbehandlung</div>
                 <div className="row">

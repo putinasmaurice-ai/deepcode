@@ -406,6 +406,7 @@ export interface MemoryEntry {
 
 // ---- Visual workflow builder (n8n-style, simpler) ----
 
+// (shared) node-type union — see KNOWN_NODE_TYPES in shared/workflows.ts for the runtime set
 export type WorkflowNodeType =
   | 'trigger' // entry point (manual / cron / on-chat)
   | 'agent' // run a prompt through the full agent loop
@@ -416,6 +417,9 @@ export type WorkflowNodeType =
   | 'switch' // multi-way branch: route by matching a value against named cases (+ default)
   | 'transform' // template / regex-extract / set a variable
   | 'subworkflow' // run another workflow
+  | 'loop' // forEach over a list: run a body workflow per item, collect results
+  | 'parallel' // run N branch workflows concurrently, merge results
+  | 'merge' // combine several variables into one (array/concat/object)
   | 'delay' // wait N seconds (rate-limiting / polling pauses)
   | 'notify' // send a desktop notification
   | 'output' // emit a result (notify / return to chat)

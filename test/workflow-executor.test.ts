@@ -33,7 +33,10 @@ function mockDeps(events: AgentEvent[]): WorkflowDeps {
     signal: new AbortController().signal,
     emit: (e) => events.push(e),
     runAgent: async () => 'agent-out',
-    runTool: async () => ({ ok: true, content: 'tool-out' })
+    runTool: async () => ({ ok: true, content: 'tool-out' }),
+    // loop/parallel sub-runs: echo the item var so collection is observable
+    runSubBag: async (_id, vars) => ({ ...vars, last: vars.item ?? vars.last ?? 'sub' }),
+    runCtx: { deadline: Date.now() + 3_600_000, childRuns: { n: 0 }, maxChildRuns: 500 }
   }
 }
 
@@ -246,6 +249,65 @@ describe('workflow executor', () => {
     expect(run.vars?.last).toBe('ERR')
     expect(run.nodes.find((n) => n.nodeId === 'errO')?.status).toBe('done')
     expect(run.nodes.find((n) => n.nodeId === 'okO')?.status).toBe('pending')
+  })
+
+  it('loop (forEach) runs the body per item and collects results as JSON', async () => {
+    const def: WorkflowDef = {
+      id: 'lp', name: 'lp', createdAt: 0, updatedAt: 0,
+      nodes: [
+        { id: 'trig', type: 'trigger', config: {} },
+        { id: 'loop', type: 'loop', config: { listExpr: '["a","b","c"]', bodyWorkflowId: 'body', itemVar: 'item', collectAs: 'json' } }
+      ],
+      edges: [{ id: 'e', source: 'trig', target: 'loop' }]
+    }
+    const calls: string[] = []
+    const deps = mockDeps([])
+    deps.runSubBag = async (_id, vars) => {
+      calls.push(vars.item!)
+      return { last: vars.item!.toUpperCase() }
+    }
+    const run = await runWorkflow(def, deps)
+    expect(run.status).toBe('done')
+    expect(calls).toEqual(['a', 'b', 'c'])
+    expect(run.vars?.last).toBe('["A","B","C"]')
+  })
+
+  it('loop in parallel mode runs every item (bounded)', async () => {
+    const def: WorkflowDef = {
+      id: 'lpp', name: 'lpp', createdAt: 0, updatedAt: 0,
+      nodes: [
+        { id: 'trig', type: 'trigger', config: {} },
+        { id: 'loop', type: 'loop', config: { listExpr: '["1","2","3","4","5"]', bodyWorkflowId: 'b', mode: 'parallel', concurrency: 2, collectAs: 'join', joinSep: ',' } }
+      ],
+      edges: [{ id: 'e', source: 'trig', target: 'loop' }]
+    }
+    const deps = mockDeps([])
+    deps.runSubBag = async (_id, vars) => ({ last: 'x' + vars.item })
+    const run = await runWorkflow(def, deps)
+    expect(run.status).toBe('done')
+    expect(run.vars?.last).toBe('x1,x2,x3,x4,x5')
+  })
+
+  it('parallel node runs branches and merges (array), then merge node combines vars', async () => {
+    const def: WorkflowDef = {
+      id: 'par', name: 'par', createdAt: 0, updatedAt: 0,
+      nodes: [
+        { id: 'trig', type: 'trigger', config: {} },
+        { id: 'p', type: 'parallel', config: { branches: [{ workflowId: 'wa', resultVar: 'a' }, { workflowId: 'wb', resultVar: 'b' }], mergeMode: 'array' } },
+        { id: 'm', type: 'merge', config: { inputs: 'a,b', mode: 'concat', separator: '+' } }
+      ],
+      edges: [
+        { id: 'e1', source: 'trig', target: 'p' },
+        { id: 'e2', source: 'p', target: 'm' }
+      ]
+    }
+    const deps = mockDeps([])
+    deps.runSubBag = async (id) => ({ last: id === 'wa' ? 'AA' : 'BB' })
+    const run = await runWorkflow(def, deps)
+    expect(run.status).toBe('done')
+    expect(run.vars?.a).toBe('AA')
+    expect(run.vars?.b).toBe('BB')
+    expect(run.vars?.last).toBe('AA+BB') // merge concat of the two branch result vars
   })
 
   it('marks the run failed when a node throws', async () => {
