@@ -19,13 +19,16 @@ const REQUIRED_FIELD: Partial<Record<WorkflowNode['type'], { key: string; label:
   condition: { key: 'expression', label: 'Ausdruck' },
   switch: { key: 'cases', label: 'Fälle (kommagetrennt)' },
   subworkflow: { key: 'workflowId', label: 'Workflow-ID' },
-  loop: { key: 'bodyWorkflowId', label: 'Body-Workflow' }
+  loop: { key: 'bodyWorkflowId', label: 'Body-Workflow' },
+  store: { key: 'storeKey', label: 'Schlüssel' },
+  code: { key: 'code', label: 'JS-Code' },
+  channel: { key: 'channel', label: 'Kanal (telegram/slack/discord/webhook)' }
 }
 
 // single source of truth for node types — imported by the importWorkflow IPC guard too,
 // so the renderer, validator and importer can't drift apart.
 export const KNOWN_NODE_TYPES = new Set<string>([
-  'trigger', 'agent', 'tool', 'shell', 'http', 'condition', 'switch', 'transform', 'subworkflow', 'loop', 'parallel', 'merge', 'delay', 'notify', 'output'
+  'trigger', 'agent', 'tool', 'shell', 'http', 'condition', 'switch', 'transform', 'subworkflow', 'loop', 'parallel', 'merge', 'delay', 'notify', 'store', 'code', 'parse', 'channel', 'output'
 ])
 
 function nonEmpty(v: unknown): boolean {

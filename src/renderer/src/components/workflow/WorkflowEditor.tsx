@@ -156,13 +156,51 @@ const NODE_DEFS: Record<WorkflowNodeType, NodeDef> = {
       { key: 'message', label: 'Nachricht (nutzt {{var}})', kind: 'textarea' }
     ]
   },
+  store: {
+    icon: '🗄️',
+    label: 'KV-Speicher',
+    fields: [
+      { key: 'op', label: 'Operation: get / set / incr / has / delete', kind: 'text' },
+      { key: 'storeKey', label: 'Schlüssel (nutzt {{var}})', kind: 'text' },
+      { key: 'value', label: 'Wert (für set/incr; nutzt {{var}})', kind: 'text' },
+      { key: 'outputVar', label: 'Ergebnis-Variable', kind: 'text' }
+    ]
+  },
+  code: {
+    icon: '🧩',
+    label: 'Code (JS)',
+    fields: [
+      { key: 'code', label: 'JS — verfügbar: vars, last (geparst), input, JSON, Math, Date; mit return <Wert>', kind: 'textarea' },
+      { key: 'outputVar', label: 'Ergebnis-Variable', kind: 'text' }
+    ]
+  },
+  parse: {
+    icon: '🔎',
+    label: 'Parsen',
+    fields: [
+      { key: 'mode', label: 'Modus: json / csv / html', kind: 'text' },
+      { key: 'input', label: 'Eingabe (Default {{last}})', kind: 'text' },
+      { key: 'path', label: 'JSON-Pfad (nur json, z.B. data.items[0].name)', kind: 'text' },
+      { key: 'outputVar', label: 'Ergebnis-Variable', kind: 'text' }
+    ]
+  },
+  channel: {
+    icon: '📣',
+    label: 'Kanal',
+    fields: [
+      { key: 'channel', label: 'Kanal: telegram / slack / discord / webhook', kind: 'text' },
+      { key: 'url', label: 'Webhook-URL (slack/discord/webhook)', kind: 'text' },
+      { key: 'chatId', label: 'Telegram chat_id (leer = {{secret.TELEGRAM_CHAT_ID}})', kind: 'text' },
+      { key: 'message', label: 'Nachricht (nutzt {{var}})', kind: 'textarea' }
+    ]
+  },
   output: {
     icon: '📤',
     label: 'Output',
     fields: [{ key: 'template', label: 'Ausgabe-Template (Default {{last}})', kind: 'textarea' }]
   }
 }
-const PALETTE: WorkflowNodeType[] = ['agent', 'tool', 'shell', 'http', 'condition', 'switch', 'transform', 'loop', 'parallel', 'merge', 'delay', 'notify', 'subworkflow', 'output']
+const PALETTE: WorkflowNodeType[] = ['agent', 'tool', 'shell', 'http', 'condition', 'switch', 'transform', 'code', 'parse', 'store', 'channel', 'loop', 'parallel', 'merge', 'delay', 'notify', 'subworkflow', 'output']
 
 interface WfData extends Record<string, unknown> {
   node: WorkflowNode
@@ -615,7 +653,7 @@ export function WorkflowEditor({
                   </button>
                 ))}
                 {/* secrets — only insertable in deterministic-arg nodes (never agent prompts) */}
-                {['tool', 'shell', 'http'].includes(selected.type) &&
+                {['tool', 'shell', 'http', 'channel'].includes(selected.type) &&
                   secretNames.map((s) => (
                     <button
                       key={'secret-' + s}
@@ -691,7 +729,7 @@ export function WorkflowEditor({
                 </div>
               )
             })}
-            {['agent', 'tool', 'shell', 'http', 'subworkflow', 'transform', 'loop', 'parallel'].includes(selected.type) && (
+            {['agent', 'tool', 'shell', 'http', 'subworkflow', 'transform', 'loop', 'parallel', 'store', 'code', 'parse', 'channel'].includes(selected.type) && (
               <div className="wf-adv">
                 <div className="wf-adv-head">Fehlerbehandlung</div>
                 <div className="row">

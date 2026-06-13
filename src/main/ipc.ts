@@ -48,6 +48,8 @@ import {
   getRun as getWorkflowRun
 } from './workflows/store'
 import { runWorkflow, WorkflowDeps, RunContext, RUN_MAX_MS } from './workflows/executor'
+import { kvStore } from './workflows/kv-store'
+import { runUserCode } from './workflows/code-node'
 import { WorkflowScheduler } from './workflows/scheduler'
 import { KNOWN_NODE_TYPES } from '@shared/workflows'
 import { listSecretNames, setSecret, deleteSecret, loadSecretsResolved, buildMaskList, maskWith } from './workflows/secrets'
@@ -711,6 +713,8 @@ export function registerIpc(win: BrowserWindow): void {
         /* ignore — notifications are best-effort */
       }
     },
+    kv: kvStore, // persistent key/value state for the `store` node
+    runCode: runUserCode, // sandboxed JS for the `code` node
     runSubworkflow: async (subId, vars, d) => {
       const r = await guardedSub(subId, vars, d)
       return r.vars?.last ?? ''

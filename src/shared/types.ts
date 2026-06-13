@@ -453,6 +453,10 @@ export type WorkflowNodeType =
   | 'merge' // combine several variables into one (array/concat/object)
   | 'delay' // wait N seconds (rate-limiting / polling pauses)
   | 'notify' // send a desktop notification
+  | 'store' // persistent key/value state across runs (get/set/incr/has/delete)
+  | 'code' // run a small sandboxed JS snippet over the vars (no require/network)
+  | 'parse' // parse {{last}} as JSON / CSV / HTML → extract fields
+  | 'channel' // send to a channel (telegram/slack/discord/webhook) — sugar over web_request
   | 'output' // emit a result (notify / return to chat)
 
 export interface WorkflowNode {

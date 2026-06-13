@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { runWorkflow, WorkflowDeps } from '../src/main/workflows/executor'
+import { runUserCode } from '../src/main/workflows/code-node'
 import type { AgentEvent, WorkflowDef } from '../src/shared/types'
 
 // Verifies the executor's orchestration: linear walk, variable passing, condition
@@ -332,6 +333,106 @@ describe('workflow executor', () => {
     expect(run.vars?.a).toBe('AA')
     expect(run.vars?.b).toBe('BB')
     expect(run.vars?.last).toBe('AA+BB') // merge concat of the two branch result vars
+  })
+
+  it('store node: set then get via the injected kv', async () => {
+    const mem = new Map<string, string>()
+    const kv = {
+      get: (k: string) => mem.get(k) ?? '',
+      has: (k: string) => mem.has(k),
+      set: (k: string, v: string) => (mem.set(k, v), v),
+      del: (k: string) => void mem.delete(k),
+      incr: (k: string, by = 1) => {
+        const n = (Number(mem.get(k)) || 0) + by
+        mem.set(k, String(n))
+        return n
+      }
+    }
+    const def: WorkflowDef = {
+      id: 's', name: 's', createdAt: 0, updatedAt: 0,
+      nodes: [
+        { id: 'trig', type: 'trigger', config: {} },
+        { id: 'set', type: 'store', config: { op: 'set', storeKey: 'seen', value: 'yes' } },
+        { id: 'get', type: 'store', config: { op: 'get', storeKey: 'seen' } },
+        { id: 'o', type: 'output', config: { template: 'val={{last}}' } }
+      ],
+      edges: [
+        { id: 'e1', source: 'trig', target: 'set' },
+        { id: 'e2', source: 'set', target: 'get' },
+        { id: 'e3', source: 'get', target: 'o' }
+      ]
+    }
+    const deps = mockDeps([])
+    deps.kv = kv
+    const run = await runWorkflow(def, deps)
+    expect(run.status).toBe('done')
+    expect(mem.get('seen')).toBe('yes')
+    expect(run.vars?.last).toBe('val=yes')
+  })
+
+  it('code node: runs a JS snippet over {{last}} (parsed) via the real sandbox', async () => {
+    const def: WorkflowDef = {
+      id: 'c', name: 'c', createdAt: 0, updatedAt: 0,
+      nodes: [
+        { id: 'trig', type: 'trigger', config: {} },
+        { id: 'set', type: 'transform', config: { mode: 'set', value: '[1,2,3,4]' } },
+        { id: 'code', type: 'code', config: { code: 'return last.reduce((a,b)=>a+b,0)' } },
+        { id: 'o', type: 'output', config: { template: 'sum={{last}}' } }
+      ],
+      edges: [
+        { id: 'e1', source: 'trig', target: 'set' },
+        { id: 'e2', source: 'set', target: 'code' },
+        { id: 'e3', source: 'code', target: 'o' }
+      ]
+    }
+    const deps = mockDeps([])
+    deps.runCode = runUserCode // real vm sandbox
+    const run = await runWorkflow(def, deps)
+    expect(run.status).toBe('done')
+    expect(run.vars?.last).toBe('sum=10')
+  })
+
+  it('code node sandbox rejects async/Promise/timers (no un-catchable crash) + has no host escape', () => {
+    expect(() => runUserCode('return Promise.resolve(1)', { vars: {}, last: '', input: '' })).toThrow(/async|Promise/i)
+    expect(() => runUserCode('await 1', { vars: {}, last: '', input: '' })).toThrow()
+    // no host globals in the sandbox (using probes that aren't themselves banned words)
+    expect(runUserCode('return typeof process', { vars: {}, last: '', input: '' })).toBe('undefined')
+    expect(runUserCode('return typeof fetch', { vars: {}, last: '', input: '' })).toBe('undefined')
+    // a synchronous infinite loop is bounded by the 1s timeout (throws, not a hang)
+    expect(() => runUserCode('while(true){}', { vars: {}, last: '', input: '' })).toThrow()
+  })
+
+  it('parse node: extracts a JSON path; and parses CSV to rows', async () => {
+    const jsonDef: WorkflowDef = {
+      id: 'pj', name: 'pj', createdAt: 0, updatedAt: 0,
+      nodes: [
+        { id: 'trig', type: 'trigger', config: {} },
+        { id: 'set', type: 'transform', config: { mode: 'set', value: '{"user":{"name":"Ada"}}' } },
+        { id: 'parse', type: 'parse', config: { mode: 'json', path: 'user.name' } },
+        { id: 'o', type: 'output', config: { template: '{{last}}' } }
+      ],
+      edges: [
+        { id: 'e1', source: 'trig', target: 'set' },
+        { id: 'e2', source: 'set', target: 'parse' },
+        { id: 'e3', source: 'parse', target: 'o' }
+      ]
+    }
+    expect((await runWorkflow(jsonDef, mockDeps([]))).vars?.last).toBe('Ada')
+
+    const csvDef: WorkflowDef = {
+      id: 'pc', name: 'pc', createdAt: 0, updatedAt: 0,
+      nodes: [
+        { id: 'trig', type: 'trigger', config: {} },
+        { id: 'set', type: 'transform', config: { mode: 'set', value: 'a,b\n1,2\n3,4' } },
+        { id: 'parse', type: 'parse', config: { mode: 'csv' } }
+      ],
+      edges: [
+        { id: 'e1', source: 'trig', target: 'set' },
+        { id: 'e2', source: 'set', target: 'parse' }
+      ]
+    }
+    const csvRun = await runWorkflow(csvDef, mockDeps([]))
+    expect(JSON.parse(csvRun.vars!.last)).toEqual([{ a: '1', b: '2' }, { a: '3', b: '4' }])
   })
 
   it('marks the run failed when a node throws', async () => {

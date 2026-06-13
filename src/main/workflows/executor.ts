@@ -29,6 +29,16 @@ export interface WorkflowDeps {
   emit: (e: AgentEvent) => void
   runAgent: (prompt: string, cwd: string, model?: string) => Promise<string>
   runTool: (name: string, args: Record<string, unknown>, cwd: string) => Promise<{ ok: boolean; content: string }>
+  // persistent key/value state for the `store` node (injected by ipc; absent in tests)
+  kv?: {
+    get: (key: string) => string
+    has: (key: string) => boolean
+    set: (key: string, value: string) => string
+    del: (key: string) => void
+    incr: (key: string, by?: number) => number
+  }
+  // run a sandboxed JS snippet for the `code` node (injected by ipc)
+  runCode?: (code: string, context: { vars: Record<string, string>; last: unknown; input: string }) => string
   runSubworkflow?: (id: string, vars: Record<string, string>, depth: number) => Promise<string>
   // like runSubworkflow but returns the child's FULL vars bag (for loop/parallel collection)
   runSubBag?: (id: string, vars: Record<string, string>, depth: number) => Promise<Record<string, string>>
@@ -143,6 +153,57 @@ function getPath(base: unknown, segs: string[]): string {
   return stringifyLeaf(cur)
 }
 
+// Strip HTML to readable text for the `parse` (html) node — dependency-free.
+function htmlToText(html: string): string {
+  // cap input first: `<[^>]+>` is O(n²) on a long run of '<' with no '>', and a synchronous
+  // multi-second stall would freeze the UI on attacker-controlled page text.
+  return String(html)
+    .slice(0, 200_000)
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<\/(p|div|h[1-6]|li|tr|br)>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+// Minimal CSV → array of row objects (first line = headers). Handles quoted fields with commas
+// and "" escapes. Dependency-free; for the `parse` (csv) node.
+function parseCsv(text: string): Record<string, string>[] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let field = ''
+  let inQ = false
+  const s = String(text).replace(/\r\n?/g, '\n')
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]
+    if (inQ) {
+      if (c === '"') {
+        if (s[i + 1] === '"') { field += '"'; i++ } else inQ = false
+      } else field += c
+    } else if (c === '"') inQ = true
+    else if (c === ',') { row.push(field); field = '' }
+    else if (c === '\n') { row.push(field); rows.push(row); row = []; field = '' }
+    else field += c
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row) }
+  const nonEmpty = rows.filter((r) => r.length > 1 || (r[0] ?? '').trim() !== '')
+  if (!nonEmpty.length) return []
+  const headers = nonEmpty[0].map((h) => h.trim())
+  return nonEmpty.slice(1).map((r) => {
+    const o: Record<string, string> = {}
+    headers.forEach((h, i) => (o[h] = r[i] ?? ''))
+    return o
+  })
+}
+
 // {{...}} resolution. Order: secret. → exact flat var (back-compat) → node-output → var,
 // then JSON-path the remaining segments. NEVER throws (a typo must not fail a node).
 export function resolve(s: unknown, ctx: ResolveCtx): string {
@@ -152,7 +213,7 @@ export function resolve(s: unknown, ctx: ResolveCtx): string {
         // ALLOWLIST: secrets expand ONLY in deterministic-arg nodes. Anywhere else
         // (transform/condition/switch/output/notify/agent) they resolve to '' — this is the
         // load-bearing guard against laundering a secret into a var and then a prompt.
-        if (ctx.nodeType !== 'tool' && ctx.nodeType !== 'shell' && ctx.nodeType !== 'http') return ''
+        if (ctx.nodeType !== 'tool' && ctx.nodeType !== 'shell' && ctx.nodeType !== 'http' && ctx.nodeType !== 'channel') return ''
         return ctx.resolveSecret?.(key.slice(7)) ?? ''
       }
       // EXACT flat-var match first → preserves {{last}}, {{name}}, and any legacy {{x.a.b}}
@@ -330,6 +391,80 @@ async function runNode(
       }
       setVar(out)
       return { output: out }
+    }
+    case 'store': {
+      if (!deps.kv) throw new Error('store: KV-Speicher nicht verfügbar')
+      const op = String(cfg.op || 'get')
+      const key = resolve(cfg.storeKey ?? '', rctx).trim()
+      if (!key) throw new Error('store: kein Schlüssel angegeben')
+      let out = ''
+      if (op === 'set') out = deps.kv.set(key, resolve(cfg.value ?? '{{last}}', rctx))
+      else if (op === 'incr') out = String(deps.kv.incr(key, Number(resolve(cfg.value ?? '1', rctx)) || 1))
+      else if (op === 'delete') deps.kv.del(key)
+      else if (op === 'has') out = String(deps.kv.has(key))
+      else out = deps.kv.get(key) // get
+      setVar(out)
+      return { output: out }
+    }
+    case 'code': {
+      if (!deps.runCode) throw new Error('code: Ausführung nicht verfügbar')
+      // expose vars + the parsed-or-raw {{last}} + {{input}} to the snippet
+      const lastRaw = vars.last ?? ''
+      let last: unknown = lastRaw
+      try {
+        last = JSON.parse(lastRaw)
+      } catch {
+        /* keep the raw string */
+      }
+      const out = deps.runCode(String(cfg.code ?? ''), { vars: { ...vars }, last, input: vars.input ?? '' })
+      setVar(out)
+      return { output: out }
+    }
+    case 'parse': {
+      const mode = String(cfg.mode || 'json')
+      const input = resolve(cfg.input ?? '{{last}}', rctx)
+      let out = ''
+      if (mode === 'csv') {
+        out = JSON.stringify(parseCsv(input))
+      } else if (mode === 'html') {
+        out = htmlToText(input)
+      } else {
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(input)
+        } catch {
+          throw new Error('parse: Eingabe ist kein gültiges JSON')
+        }
+        const path = String(cfg.path ?? '').trim()
+        out = path ? getPath(parsed, path.match(/[^.[\]"]+/g) ?? []) : stringifyLeaf(parsed)
+      }
+      setVar(out)
+      return { output: out }
+    }
+    case 'channel': {
+      const channel = String(cfg.channel || 'webhook')
+      const message = resolve(cfg.message ?? '{{last}}', rctx)
+      const headers = { 'Content-Type': 'application/json' }
+      let url = ''
+      let body = ''
+      if (channel === 'telegram') {
+        const token = resolve('{{secret.TELEGRAM_BOT_TOKEN}}', rctx).trim()
+        if (!token) throw new Error('channel(telegram): TELEGRAM_BOT_TOKEN-Secret fehlt')
+        const chatId = resolve(String(cfg.chatId || '').trim() || '{{secret.TELEGRAM_CHAT_ID}}', rctx)
+        url = `https://api.telegram.org/bot${token}/sendMessage`
+        body = JSON.stringify({ chat_id: chatId, text: message })
+      } else if (channel === 'slack' || channel === 'discord' || channel === 'webhook') {
+        url = resolve(cfg.url ?? '', rctx)
+        // slack/webhook expect {text}; discord expects {content}
+        body = JSON.stringify(channel === 'discord' ? { content: message } : { text: message })
+      } else {
+        throw new Error(`channel: unbekannter Kanal „${channel}"`)
+      }
+      if (!url) throw new Error('channel: keine Ziel-URL/kein Token')
+      const r = await deps.runTool('web_request', { url, method: 'POST', headers, body }, deps.cwd)
+      setVar(r.content)
+      if (!r.ok) throw new Error(r.content.slice(0, 400))
+      return { output: r.content }
     }
     case 'condition': {
       const ok = evalCondition(String(cfg.expression || ''), rctx)
