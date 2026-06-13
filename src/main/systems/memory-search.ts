@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import { PATHS } from '../paths'
 import { loadMemory } from './memory'
@@ -101,10 +101,18 @@ export async function buildMemoryContext(query: string, projectId: string | unde
     // entries (and drops any poisoned holes), keyed by the current model.
     const next: Record<string, CacheEntry> = {}
     for (const e of candidates) if (cache[e.name]?.vec?.length) next[e.name] = cache[e.name]!
+    // atomic write (pid-suffixed tmp + rename): a plain writeFileSync of this shared global file
+    // can be torn by a second window/session writing concurrently, corrupting the cache.
+    const tmp = `${CACHE_FILE}.${process.pid}.tmp`
     try {
-      writeFileSync(CACHE_FILE, JSON.stringify({ model, entries: next } satisfies CacheFile), 'utf8')
+      writeFileSync(tmp, JSON.stringify({ model, entries: next } satisfies CacheFile), 'utf8')
+      renameSync(tmp, CACHE_FILE)
     } catch {
-      /* best-effort cache */
+      try {
+        if (existsSync(tmp)) unlinkSync(tmp)
+      } catch {
+        /* ignore */
+      }
     }
     const ranked = candidates
       .map((e) => ({ e, score: cache[e.name]?.vec?.length ? cosine(qVec, cache[e.name]!.vec) : 0 }))

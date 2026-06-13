@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'fs'
+import { randomUUID } from 'crypto'
 import { PATHS } from '../paths'
 import { AutomationDef } from '@shared/types'
 
@@ -15,7 +16,20 @@ export function loadAutomations(): AutomationDef[] {
 }
 
 export function saveAutomations(list: AutomationDef[]): void {
-  writeFileSync(PATHS.automations, JSON.stringify(list, null, 2), 'utf8')
+  // atomic write: a torn in-place write would leave automations.json corrupt, loadAutomations
+  // would return [] (silently disabling EVERY automation), and the next save would persist that.
+  const tmp = `${PATHS.automations}.${randomUUID()}.tmp`
+  try {
+    writeFileSync(tmp, JSON.stringify(list, null, 2), 'utf8')
+    renameSync(tmp, PATHS.automations)
+  } catch (e) {
+    try {
+      if (existsSync(tmp)) unlinkSync(tmp)
+    } catch {
+      /* ignore cleanup failure */
+    }
+    throw e
+  }
 }
 
 export function upsertAutomation(a: AutomationDef): AutomationDef[] {
@@ -50,15 +64,19 @@ export function recordAutomationRun(id: string, lastRun: number): void {
 function matchField(field: string, value: number, min: number, max: number): boolean {
   if (field === '*') return true
   for (const part of field.split(',')) {
-    let [range, stepStr] = part.split('/')
+    const [range, stepStr] = part.split('/')
     const step = stepStr ? parseInt(stepStr, 10) : 1
+    if (!(step >= 1)) continue // step 0 / NaN would make (value-lo)%step NaN → never fire
     let lo = min
     let hi = max
     if (range !== '*') {
       const bounds = range.split('-')
       lo = parseInt(bounds[0], 10)
-      hi = bounds[1] !== undefined ? parseInt(bounds[1], 10) : lo
+      // a bare value WITH a step means "from value to max, by step" (Vixie cron: 5/15 → 5,20,35,50);
+      // a bare value WITHOUT a step matches only that value.
+      hi = bounds[1] !== undefined ? parseInt(bounds[1], 10) : stepStr ? max : lo
     }
+    if (Number.isNaN(lo) || Number.isNaN(hi)) continue
     if (value < lo || value > hi) continue
     if ((value - lo) % step === 0) return true
   }
@@ -70,7 +88,10 @@ export function cronMatches(expr: string, date: Date): boolean {
   if (fields.length !== 5) return false
   const [min, hour, dom, mon, dow] = fields
   const domMatch = matchField(dom, date.getDate(), 1, 31)
-  const dowMatch = matchField(dow, date.getDay(), 0, 6)
+  // day-of-week: getDay() is 0-6 (Sun=0). Standard cron also accepts 7 for Sunday, so on a
+  // Sunday additionally test the field against 7 (e.g. a `7` or `1-7` expression).
+  const dowMatch =
+    matchField(dow, date.getDay(), 0, 6) || (date.getDay() === 0 && matchField(dow, 7, 0, 7))
   // Standard cron: when BOTH day-of-month and day-of-week are restricted, the job
   // runs if EITHER matches (OR); otherwise the restricted one applies (AND with *).
   const dayMatch = dom !== '*' && dow !== '*' ? domMatch || dowMatch : domMatch && dowMatch
@@ -87,7 +108,9 @@ export type AutomationRunner = (a: AutomationDef) => Promise<void>
 export class AutomationScheduler {
   private timer: NodeJS.Timeout | null = null
   private lastTickMinute = -1
-  private ticking = false
+  // in-flight runs keyed by automation id — overlap is prevented PER automation, not with a
+  // single global flag (which would let one slow run swallow every other due automation's minute).
+  private inFlight = new Set<string>()
   constructor(private runner: AutomationRunner) {}
 
   start(): void {
@@ -100,30 +123,26 @@ export class AutomationScheduler {
     this.timer = null
   }
 
-  private async tick(): Promise<void> {
-    if (this.ticking) return // a previous (long) run is still going — don't overlap
+  private tick(): void {
     const now = new Date()
     const minuteKey = now.getHours() * 60 + now.getMinutes()
-    if (minuteKey === this.lastTickMinute) return // run at most once per minute
+    if (minuteKey === this.lastTickMinute) return // evaluate the schedule at most once per minute
     this.lastTickMinute = minuteKey
 
-    this.ticking = true
-    try {
-      for (const a of loadAutomations()) {
-        if (!a.enabled) continue
-        if (cronMatches(a.schedule, now)) {
-          try {
-            await this.runner(a)
-            // only-update-if-still-present: never resurrect an automation the user
-            // deleted while this (minutes-long) run was in flight.
-            recordAutomationRun(a.id, now.getTime())
-          } catch (e) {
-            console.error(`Automation "${a.name}" failed:`, (e as Error).message)
-          }
-        }
-      }
-    } finally {
-      this.ticking = false
+    for (const a of loadAutomations()) {
+      if (!a.enabled) continue
+      if (this.inFlight.has(a.id)) continue // a previous run of THIS automation is still going
+      if (!cronMatches(a.schedule, now)) continue
+      this.inFlight.add(a.id)
+      const firedAt = now.getTime()
+      // dispatch concurrently (do NOT await) so a slow run can't block sibling automations
+      // that are due in the same minute; track overlap per id.
+      Promise.resolve()
+        .then(() => this.runner(a))
+        // only-update-if-still-present: never resurrect an automation deleted mid-run.
+        .then(() => recordAutomationRun(a.id, firedAt))
+        .catch((e) => console.error(`Automation "${a.name}" failed:`, (e as Error).message))
+        .finally(() => this.inFlight.delete(a.id))
     }
   }
 }

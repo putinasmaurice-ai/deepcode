@@ -6,7 +6,7 @@ import { DeepSeekClient, ApiMessage } from './deepseek'
 import { Tool, toApiTools } from './tools'
 import { ToolContext } from './tools/types'
 import { buildSystemPrompt } from './prompt'
-import { ApprovalPolicy, isDangerousCommand } from './policy'
+import { ApprovalPolicy, isDangerousCommand, screenUnattendedCall } from './policy'
 import { isCommandApproved, approveCommand } from '../approvals'
 import { toApiMessages, toolResultMessage } from './api-messages'
 import { costOf, estimateTokens } from './pricing'
@@ -271,12 +271,10 @@ export class AgentEngine {
     // stops the agent node from being an open door around it (MCP drop-table, claude_code,
     // delegating to a subagent via `task`, git push/PR). Read-only + file/safe-shell stay.
     if (unattended) {
-      if (call.name.startsWith('mcp__') || call.name === 'claude_code' || call.name === 'task') {
-        return `Blocked: „${call.name}" darf in einem unbeaufsichtigten Workflow nicht ohne Freigabe laufen.`
-      }
-      if (call.name === 'git' && /^(push|pr)$/i.test(String(parsedArgs?.action ?? ''))) {
-        return 'Blocked: git push/pr ist in einem unbeaufsichtigten Workflow nicht erlaubt.'
-      }
+      // dangerous shell + MCP/claude_code/task + outward git (structured AND raw run_command)
+      // — one shared screen, so it can't drift from the subagent loop's gate.
+      const blocked = screenUnattendedCall(call.name, parsedArgs)
+      if (blocked) return blocked
     }
     const isCmd = call.name === 'run_command'
     // Screen both foreground and background shell commands for catastrophic patterns.

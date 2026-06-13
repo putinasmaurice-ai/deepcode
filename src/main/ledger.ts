@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, writeFileSync, readdirSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, readdirSync, renameSync, unlinkSync } from 'fs'
+import { randomUUID } from 'crypto'
 import { join } from 'path'
 import { PATHS } from './paths'
 import { Session, TokenUsage } from '@shared/types'
@@ -75,10 +76,19 @@ function load(): Ledger {
 
 function persist(): void {
   if (!cache) return
+  // atomic write: a torn write would corrupt the lifetime ledger; load() then falls back to
+  // backfill() which can only reconstruct totals from STILL-EXISTING sessions — silently
+  // violating the monotonic "totals only grow" guarantee. tmp + rename preserves the last good file.
+  const tmp = `${FILE}.${randomUUID()}.tmp`
   try {
-    writeFileSync(FILE, JSON.stringify(cache, null, 2), 'utf8')
+    writeFileSync(tmp, JSON.stringify(cache, null, 2), 'utf8')
+    renameSync(tmp, FILE)
   } catch {
-    /* best effort */
+    try {
+      if (existsSync(tmp)) unlinkSync(tmp)
+    } catch {
+      /* ignore */
+    }
   }
 }
 

@@ -75,8 +75,11 @@ produced** while the run streams; results flow between nodes via `{{variables}}`
   text becomes `{{input}}`, the run streams, and its result (`output`/`result`/`last`, secret-masked)
   is posted back into the chat. The coding app and the automation tool, fused in one prompt.
 - **Import / Export** — share or back up a workflow as a single `.json` file.
-- **Safe unattended** — runs block dangerous shell commands and gate high-blast-radius tools
-  (MCP / Claude Code / sub-agent / `git push`); loops, step counts and total run time are bounded.
+- **Safe unattended** — every unattended entry point (workflow agent node, tool node, cron
+  trigger, **and delegated sub-agents**) shares ONE screen: no dangerous shell (`rm -rf`,
+  `format`, fork-bombs, `git push -f`), no MCP / Claude Code / sub-agent delegation, no outward
+  `git push` / `gh pr create` — whether issued as a structured call or a raw shell command.
+  Loops, step counts and a hard wall-clock ceiling bound every run.
 
 It's your KI-coding app and a `/goal` automation tool in one — like n8n, only simpler and clearer.
 

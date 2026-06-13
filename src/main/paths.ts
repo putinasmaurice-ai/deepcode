@@ -29,6 +29,17 @@ export function projectConfigDir(cwd: string): string {
   return join(cwd, '.deepcode')
 }
 
+// Guard any renderer-supplied id that becomes part of a filename or directory path
+// (session id, checkpoint dir). randomUUID() always satisfies this; a traversal id like
+// '..\..\settings' or 'a/b' is rejected BEFORE it can reach unlinkSync / recursive rmSync.
+// Mirrors the safeId already used in workflows/store.ts.
+export function safeId(id: unknown): string {
+  if (typeof id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(id)) {
+    throw new Error('invalid id')
+  }
+  return id
+}
+
 export function ensureConfigDirs(): void {
   const dirs = [
     PATHS.root,

@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'fs'
+import { randomUUID } from 'crypto'
 import { safeStorage } from 'electron'
 import { PATHS, ensureConfigDirs } from '../paths'
 
@@ -38,8 +39,27 @@ function load(): SecretsFile {
 
 function save(f: SecretsFile): void {
   ensureConfigDirs()
-  writeFileSync(PATHS.secrets, JSON.stringify(f, null, 2), 'utf8')
+  // atomic write (tmp + rename): a torn in-place write would leave secrets.json truncated,
+  // load() would swallow the parse error and return empty, and the next setSecret would then
+  // overwrite — silently destroying ALL stored secrets.
+  const tmp = `${PATHS.secrets}.${randomUUID()}.tmp`
+  try {
+    writeFileSync(tmp, JSON.stringify(f, null, 2), 'utf8')
+    renameSync(tmp, PATHS.secrets)
+  } catch (e) {
+    try {
+      if (existsSync(tmp)) unlinkSync(tmp)
+    } catch {
+      /* ignore cleanup failure */
+    }
+    throw e
+  }
 }
+
+// Minimum secret length. buildMaskList intentionally skips values shorter than this (masking
+// a 3-char value would corrupt unrelated output), so a shorter secret could never be redacted
+// from logs/events/persisted runs. Refuse to store one rather than silently fail to mask it.
+const MIN_SECRET_LEN = 8
 
 export function isSecretNameValid(name: string): boolean {
   return NAME_RE.test(name)
@@ -51,6 +71,11 @@ export function listSecretNames(): string[] {
 
 export function setSecret(name: string, value: string): void {
   if (!NAME_RE.test(name)) throw new Error('Ungültiger Secret-Name — erlaubt: A–Z, 0–9, _ (max 64).')
+  if (String(value).length < MIN_SECRET_LEN) {
+    // a shorter value cannot be reliably masked out of logs/runs (see MIN_SECRET_LEN) — refuse
+    // it rather than store a secret that would leak in cleartext everywhere it is used.
+    throw new Error(`Secret zu kurz — mindestens ${MIN_SECRET_LEN} Zeichen (kürzere lassen sich nicht zuverlässig maskieren).`)
+  }
   if (!encOk()) throw new Error('Verschlüsselung auf diesem System nicht verfügbar — Secret wird NICHT im Klartext gespeichert.')
   const f = load()
   f.items[name] = { enc: safeStorage.encryptString(String(value)).toString('base64') }

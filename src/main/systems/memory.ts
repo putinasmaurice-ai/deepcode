@@ -70,6 +70,9 @@ ${entry.body.trim()}
 }
 
 export function deleteMemory(name: string): void {
+  // names are slugs (saveMemory: /[^a-z0-9]+/ → '-'); reject anything else so a renderer-
+  // supplied '../sessions/x' can't traverse out of the memory dir into unlinkSync.
+  if (typeof name !== 'string' || !/^[a-z0-9-]+$/.test(name)) return
   const path = join(PATHS.memory, `${name}.md`)
   if (existsSync(path)) unlinkSync(path)
   rebuildIndex()

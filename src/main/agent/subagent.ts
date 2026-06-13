@@ -10,6 +10,7 @@ import { toApiTools } from './tools'
 import { ToolContext } from './tools/types'
 import { getSubagent } from '../systems/subagents'
 import { pluginSubagents } from '../systems/plugins'
+import { screenUnattendedCall } from './policy'
 
 const MAX_STEPS = 60
 
@@ -97,7 +98,14 @@ export async function runSubagent(
       else {
         try {
           const args = call.arguments ? JSON.parse(call.arguments) : {}
-          if (!autoApproved(tool.permission)) {
+          // Subagents run unattended → the SAME hard screen the engine applies to workflow
+          // agent nodes: no dangerous shell / MCP / claude_code / task / outward git, even
+          // when autoApprove.bash is on. This screen takes precedence over the permission
+          // bucket so delegated work can't be an open door around gateToolCall.
+          const blocked = screenUnattendedCall(call.name, args)
+          if (blocked) {
+            res = { ok: false, content: blocked }
+          } else if (!autoApproved(tool.permission)) {
             res = {
               ok: false,
               content:

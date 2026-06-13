@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync, renameSync } from 'fs'
 import { join, dirname } from 'path'
-import { PATHS } from './paths'
+import { PATHS, safeId } from './paths'
 
 // keep at most this many turn-snapshots per session; older ones are pruned so the
 // checkpoints dir can't grow without bound on heavy use.
@@ -17,7 +17,9 @@ interface Snapshot {
 }
 
 function dir(sessionId: string): string {
-  return join(PATHS.root, 'checkpoints', sessionId)
+  // safeId rejects a traversal sessionId before it can reach the recursive force rmSync
+  // in deleteSessionCheckpoints (arbitrary directory-tree deletion otherwise).
+  return join(PATHS.root, 'checkpoints', safeId(sessionId))
 }
 
 function file(sessionId: string, turnTag: string): string {

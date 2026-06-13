@@ -22,10 +22,42 @@ const DANGER_PATTERNS: RegExp[] = [
   /\b(Remove-Item|rmdir)\b.*-Recurse\b/i,
   /:\(\)\s*\{.*\}\s*;/, // fork bomb (no leading \b — ':' is non-word, would never match at line start)
   />\s*\/dev\/sd[a-z]/i,
-  /\bgit\s+push\b.*--force/i
+  // force-push in any flag form: --force, --force-with-lease, and the SHORT flag -f
+  // (incl. bundled forms like -uf / -fv). `\s-[a-z]*f` = a flag group containing 'f'.
+  /\bgit\s+push\b.*(--force|--force-with-lease|\s-[a-z]*f)/i
 ]
 
 export function isDangerousCommand(cmd: unknown): boolean {
   if (typeof cmd !== 'string') return false
   return DANGER_PATTERNS.some((re) => re.test(cmd))
+}
+
+// Outward source-control operations that publish to a remote — never allowed unattended
+// (no user to approve a push/PR). Mirrors the structured `git` tool's push/pr block for the
+// case where the same action is issued through the generic shell (run_command).
+export function isOutwardScmCommand(cmd: unknown): boolean {
+  if (typeof cmd !== 'string') return false
+  return /\bgit\s+push\b/i.test(cmd) || /\bgh\s+pr\s+create\b/i.test(cmd) || /\bhub\s+pull-request\b/i.test(cmd)
+}
+
+// Single screen for work that runs with NO user present (workflow agent nodes, cron
+// automations, delegated subagents). Returns a German block reason, or null to allow.
+// Used by BOTH the engine's gateToolCall and the subagent loop so the invariant — no
+// dangerous shell, no MCP/claude_code/task, no outward git — can't drift between them.
+export function screenUnattendedCall(name: string, parsedArgs: unknown): string | null {
+  const a = (parsedArgs ?? {}) as Record<string, unknown>
+  if (name.startsWith('mcp__') || name === 'claude_code' || name === 'task') {
+    return `Blocked: „${name}" darf unbeaufsichtigt nicht ohne Freigabe laufen.`
+  }
+  if (name === 'git' && /^(push|pr)$/i.test(String(a.action ?? ''))) {
+    return 'Blocked: git push/pr ist unbeaufsichtigt nicht erlaubt.'
+  }
+  const cmd = name === 'run_command' || name === 'run_background_command' ? a.command : undefined
+  if (isDangerousCommand(cmd)) {
+    return `Blocked: „${name}" wurde als gefährlicher Befehl eingestuft und darf unbeaufsichtigt nicht laufen.`
+  }
+  if (isOutwardScmCommand(cmd)) {
+    return 'Blocked: „git push" / „gh pr create" über die Shell ist unbeaufsichtigt nicht erlaubt.'
+  }
+  return null
 }

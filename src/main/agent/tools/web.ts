@@ -11,7 +11,7 @@ import { createGunzip, createInflate, createBrotliDecompress } from 'zlib'
 // SSRF guard: web_fetch is a read tool (auto-approved by default), so the model
 // could otherwise reach loopback/LAN/cloud-metadata endpoints. Block private,
 // loopback and link-local targets — and re-check on every redirect hop.
-function isPrivateIp(ip: string): boolean {
+export function isPrivateIp(ip: string): boolean {
   const v4 = ip.replace(/^::ffff:/i, '')
   if (isIP(v4) === 4) {
     const p = v4.split('.').map(Number)
@@ -31,6 +31,10 @@ function isPrivateIp(ip: string): boolean {
   if (l.startsWith('::ffff:')) return true
   if (/^f[cd]/.test(l)) return true // fc00::/7 unique-local
   if (/^fe[89ab]/.test(l)) return true // fe80::/10 link-local
+  // NAT64 (64:ff9b::/96) and 6to4 (2002::/16) embed an IPv4 address (e.g. 64:ff9b::7f00:1 and
+  // 2002:7f00:1:: both encode 127.0.0.1) — classic SSRF bypasses for loopback/metadata.
+  if (l.startsWith('64:ff9b:')) return true
+  if (l.startsWith('2002:')) return true
   return false
 }
 
@@ -53,6 +57,15 @@ async function resolveAndPin(url: URL): Promise<string> {
     if (isPrivateIp(a.address)) throw new Error(`blocked: ${host} resolves to private address ${a.address}`)
   }
   return addrs[0].address // pin the first vetted address — the connection MUST use this IP
+}
+
+// Rejects when `signal` aborts — used to bound the non-cancellable DNS phase by the same
+// deadline as the HTTP request (the 30s timer aborts ctrl.signal).
+function abortReject(signal: AbortSignal): Promise<never> {
+  return new Promise((_, reject) => {
+    if (signal.aborted) return reject(new Error('aborted before DNS resolution'))
+    signal.addEventListener('abort', () => reject(new Error('timeout during DNS resolution')), { once: true })
+  })
 }
 
 interface PinnedResponse {
@@ -195,7 +208,9 @@ export const webFetchTool: Tool = {
       let res: PinnedResponse
       let hop = 0
       for (;;) {
-        const pinnedIp = await resolveAndPin(current)
+        // DNS resolution isn't cancellable by AbortSignal (libuv getaddrinfo), so race it
+        // against the same 30s deadline — otherwise a hung resolver stalls past the timeout.
+        const pinnedIp = await Promise.race([resolveAndPin(current), abortReject(ctrl.signal)])
         res = await fetchPinned(current, pinnedIp, ctrl.signal, 30_000)
         const loc = res.headers['location']
         if (res.status >= 300 && res.status < 400 && loc) {

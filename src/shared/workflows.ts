@@ -32,6 +32,38 @@ function nonEmpty(v: unknown): boolean {
   return typeof v === 'string' ? v.trim().length > 0 : v != null
 }
 
+// Validate a 5-field cron expression against the matcher's actual domain, so an expression
+// that PASSES validation actually FIRES. Counting fields alone let through out-of-range
+// (minute 99), bad day (32) and step-0 (*/0 → never matches) — "armed but silent". Bounds:
+// minute hour day-of-month month day-of-week (dow allows 7 = Sunday).
+const CRON_BOUNDS: ReadonlyArray<readonly [number, number]> = [
+  [0, 59], [0, 23], [1, 31], [1, 12], [0, 7]
+]
+function isValidCronField(field: string, min: number, max: number): boolean {
+  if (field === '*') return true
+  for (const part of field.split(',')) {
+    if (part === '') return false
+    const [range, stepStr] = part.split('/')
+    if (stepStr !== undefined) {
+      const step = Number(stepStr)
+      if (!Number.isInteger(step) || step < 1) return false
+    }
+    if (range === '*') continue
+    const bounds = range.split('-')
+    if (bounds.length > 2) return false
+    const lo = Number(bounds[0])
+    const hi = bounds[1] !== undefined ? Number(bounds[1]) : lo
+    if (!Number.isInteger(lo) || !Number.isInteger(hi)) return false
+    if (lo < min || hi > max || lo > hi) return false
+  }
+  return true
+}
+export function isValidCron(expr: string): boolean {
+  const fields = String(expr).trim().split(/\s+/)
+  if (fields.length !== 5) return false
+  return fields.every((f, i) => isValidCronField(f, CRON_BOUNDS[i][0], CRON_BOUNDS[i][1]))
+}
+
 export function validateWorkflow(def: WorkflowDef): WorkflowIssue[] {
   const issues: WorkflowIssue[] = []
   const nodes = Array.isArray(def.nodes) ? def.nodes : []
@@ -89,8 +121,8 @@ export function validateWorkflow(def: WorkflowDef): WorkflowIssue[] {
     if (n.type === 'trigger' && cfg.mode === 'cron') {
       const cron = String(cfg.cron ?? '').trim()
       if (!cron) issues.push({ nodeId: n.id, severity: sev, message: 'Cron-Zeitplan fehlt.' })
-      else if (cron.split(/\s+/).length !== 5)
-        issues.push({ nodeId: n.id, severity: sev, message: 'Ungültiger Cron-Ausdruck (5 Felder: Min Std Tag Mon Wochentag).' })
+      else if (!isValidCron(cron))
+        issues.push({ nodeId: n.id, severity: sev, message: 'Ungültiger Cron-Ausdruck — 5 Felder (Min Std Tag Mon Wochentag) mit gültigen Bereichen/Schritten.' })
     }
     // transform: the field the chosen mode actually needs
     if (n.type === 'transform') {

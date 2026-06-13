@@ -17,21 +17,34 @@ function readSafe(path: string): string {
   }
 }
 
-export function previewToolDiff(name: string, argsJson: string, cwd: string): string {
+const DENIED = '(Zugriff verweigert: außerhalb des Projekts)'
+
+// `isAllowed(absPath)` is the SAME confinement the readFileHead IPC uses (project roots only,
+// config dir off-limits). Without it, this preview readFileSync'd ANY path the renderer named
+// (an absolute path bypasses cwd), leaking e.g. settings.json (API keys) as a one-sided diff.
+export function previewToolDiff(
+  name: string,
+  argsJson: string,
+  cwd: string,
+  isAllowed: (absPath: string) => boolean = () => true
+): string {
   let args: any
   try {
     args = JSON.parse(argsJson)
   } catch {
     return ''
   }
+  const readGuarded = (absPath: string): string | null => (isAllowed(absPath) ? readSafe(absPath) : null)
 
   try {
     if (name === 'write_file') {
-      const before = readSafe(abs(cwd, args.path))
+      const before = readGuarded(abs(cwd, args.path))
+      if (before === null) return DENIED
       return lineDiff(before, String(args.content ?? '')).diff
     }
     if (name === 'edit_file') {
-      const before = readSafe(abs(cwd, args.path))
+      const before = readGuarded(abs(cwd, args.path))
+      if (before === null) return DENIED
       if (!before) return ''
       const count = before.split(args.old_string ?? '').length - 1
       if (!args.old_string || count === 0) return '(old_string nicht gefunden — der Aufruf wird fehlschlagen)'
@@ -49,7 +62,11 @@ export function previewToolDiff(name: string, argsJson: string, cwd: string): st
         } else if (op.type === 'create') {
           parts.push(`### ${op.path} (neu)\n${lineDiff('', String(op.content ?? '')).diff}`)
         } else if (op.type === 'edit') {
-          const before = readSafe(p)
+          const before = readGuarded(p)
+          if (before === null) {
+            parts.push(`### ${op.path}\n${DENIED}`)
+            continue
+          }
           const after = op.replace_all
             ? before.split(op.old_string ?? '').join(op.new_string ?? '')
             : before.replace(op.old_string ?? '', op.new_string ?? '')

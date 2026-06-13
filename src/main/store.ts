@@ -1,8 +1,9 @@
 import { existsSync, readFileSync, writeFileSync, readdirSync, unlinkSync, renameSync } from 'fs'
+import { randomUUID } from 'crypto'
 import { join } from 'path'
 import { homedir } from 'os'
 import { safeStorage } from 'electron'
-import { PATHS, ensureConfigDirs } from './paths'
+import { PATHS, ensureConfigDirs, safeId } from './paths'
 import { deleteSessionCheckpoints } from './checkpoints'
 import { AppSettings, DEFAULT_SETTINGS, Session } from '@shared/types'
 
@@ -104,13 +105,27 @@ export function saveSettings(settings: AppSettings): void {
   } else if (dikey) {
     onDisk.provider.deepinfraApiKey = dikey
   }
-  writeFileSync(PATHS.settings, JSON.stringify(onDisk, null, 2), 'utf8')
+  // atomic write (tmp + rename) so a crash/power-loss mid-write can't truncate settings.json
+  // and silently wipe the three encrypted API keys (loadSettings would then overwrite with
+  // defaults). A unique tmp name avoids a torn write if two windows save concurrently.
+  const tmp = `${PATHS.settings}.${randomUUID()}.tmp`
+  try {
+    writeFileSync(tmp, JSON.stringify(onDisk, null, 2), 'utf8')
+    renameSync(tmp, PATHS.settings)
+  } catch (e) {
+    try {
+      if (existsSync(tmp)) unlinkSync(tmp)
+    } catch {
+      /* ignore cleanup failure */
+    }
+    throw e
+  }
 }
 
 // ---- Sessions ----
 
 function sessionPath(id: string): string {
-  return join(PATHS.sessions, `${id}.json`)
+  return join(PATHS.sessions, `${safeId(id)}.json`) // reject traversal ids before any fs op
 }
 
 // In-memory metadata cache: listSessions() is called after every turn; without
@@ -138,7 +153,12 @@ export function listSessions(): Session[] {
 }
 
 export function getSession(id: string): Session | null {
-  const p = sessionPath(id)
+  let p: string
+  try {
+    p = sessionPath(id) // invalid/traversal id → treat as not-found, never throw to the caller
+  } catch {
+    return null
+  }
   if (!existsSync(p)) return null
   try {
     return JSON.parse(readFileSync(p, 'utf8')) as Session
@@ -165,8 +185,13 @@ export function saveSession(session: Session): void {
 }
 
 export function deleteSession(id: string): void {
+  let p: string
+  try {
+    p = sessionPath(id) // validate the id ONCE here before it reaches unlink + recursive rmSync
+  } catch {
+    return // invalid/traversal id — nothing to delete, and must never reach checkpoints rmSync
+  }
   tombstoned.add(id)
-  const p = sessionPath(id)
   if (existsSync(p)) unlinkSync(p)
   sessionCache?.delete(id)
   deleteSessionCheckpoints(id) // don't leave orphaned snapshot dirs behind

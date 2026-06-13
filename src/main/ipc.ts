@@ -51,7 +51,7 @@ import { runWorkflow, WorkflowDeps, RunContext, RUN_MAX_MS } from './workflows/e
 import { WorkflowScheduler } from './workflows/scheduler'
 import { KNOWN_NODE_TYPES } from '@shared/workflows'
 import { listSecretNames, setSecret, deleteSecret, loadSecretsResolved, buildMaskList, maskWith } from './workflows/secrets'
-import { isDangerousCommand } from './agent/policy'
+import { screenUnattendedCall } from './agent/policy'
 import { WorkflowDef, WorkflowRun } from '@shared/types'
 import { runBuiltin } from './builtins'
 import { execFile } from 'child_process'
@@ -251,6 +251,7 @@ export function registerIpc(win: BrowserWindow): void {
           const runId = randomUUID()
           const ac = new AbortController()
           wfAborters.set(runId, ac)
+          const stopDeadline = armDeadline(ac)
           const wfCwd = validDir(session.cwd) || validDir(settings.defaultCwd) || homedir()
           const deps = makeWfDeps(wfCwd, ac.signal, 0, undefined, new Set([def.id]))
           const mask = deps.mask ?? ((s: string) => s)
@@ -266,6 +267,7 @@ export function registerIpc(win: BrowserWindow): void {
               error: run.error ? mask(run.error) : undefined
             }
           } finally {
+            stopDeadline()
             wfAborters.delete(runId)
           }
         }
@@ -398,7 +400,7 @@ export function registerIpc(win: BrowserWindow): void {
     }
   })
   ipcMain.handle(IPC.previewDiff, (_e, name: string, argsJson: string, cwd: string) =>
-    previewToolDiff(name, argsJson, cwd)
+    previewToolDiff(name, argsJson, cwd, (abs) => pathAllowedForRead(abs))
   )
   ipcMain.handle(IPC.getAppInfo, () => ({
     version: app.getVersion(),
@@ -563,6 +565,14 @@ export function registerIpc(win: BrowserWindow): void {
 
   // ---- visual workflows ----
   const wfAborters = new Map<string, AbortController>()
+  // Hard wall-clock ceiling: the executor only checks the deadline BETWEEN nodes, so a single
+  // stuck node could outlive RUN_MAX_MS. Schedule an abort at the deadline (the signal threads
+  // through every node + sub-run), making the documented ceiling real. Returns a clear fn.
+  const armDeadline = (ac: AbortController): (() => void) => {
+    const t = setTimeout(() => ac.abort(), RUN_MAX_MS)
+    t.unref?.()
+    return () => clearTimeout(t)
+  }
   // Build the executor deps: reuse the real agent loop (agent nodes), the built-in tools
   // (tool/shell/http nodes), and recursion (sub-workflow nodes). `depth` guards recursion.
   // `ancestors` = the workflow ids on the path from the top run down to THIS level (copy-on-
@@ -644,23 +654,12 @@ export function registerIpc(win: BrowserWindow): void {
       }
     },
     runTool: async (name, args, c) => {
-      // A workflow tool node runs UNATTENDED with no approval prompt. High-blast-radius
-      // tools (any MCP tool — could drop tables / delete branches; the Claude Code CLI;
-      // delegating to a subagent) must not fire unscreened — block them in a workflow.
-      if (name.startsWith('mcp__') || name === 'claude_code' || name === 'task') {
-        return { ok: false, content: `Blocked: "${name}" darf in einem unbeaufsichtigten Workflow nicht ohne Freigabe laufen. Nutze dafür einen Agent-Step (mit Genehmigung) oder einen sicheren Tool-Step.` }
-      }
-      // irreversible/outward git actions are likewise not allowed unattended
-      if (name === 'git' && /^(push|pr)$/i.test(String((args as { action?: unknown }).action ?? ''))) {
-        return { ok: false, content: 'Blocked: git push/pr ist in einem unbeaufsichtigten Workflow nicht erlaubt.' }
-      }
-      // still screen catastrophic shell commands — no rm -rf / format etc. unattended.
-      if (
-        (name === 'run_command' || name === 'run_background_command') &&
-        isDangerousCommand((args as { command?: unknown }).command)
-      ) {
-        return { ok: false, content: 'Blocked: this command is flagged dangerous and is not allowed in an unattended workflow.' }
-      }
+      // A workflow tool node runs UNATTENDED with no approval prompt. Apply the SAME shared
+      // screen the engine + subagent loop use (MCP/claude_code/task, structured AND raw git
+      // push/pr, dangerous shell) so the "no unattended high-blast-radius work" invariant can't
+      // drift between the three entry points.
+      const blocked = screenUnattendedCall(name, args)
+      if (blocked) return { ok: false, content: blocked }
       const tool = buildTools(settings, c).find((t) => t.name === name)
       if (!tool) return { ok: false, content: `Unknown tool: ${name}` }
       const ctx: ToolContext = { cwd: c, signal, confineToCwd: settings.confineToCwd }
@@ -792,6 +791,7 @@ export function registerIpc(win: BrowserWindow): void {
     const runId = typeof clientRunId === 'string' && /^[A-Za-z0-9_-]+$/.test(clientRunId) ? clientRunId : randomUUID()
     const ac = new AbortController()
     wfAborters.set(runId, ac)
+    const stopDeadline = armDeadline(ac)
     const cwd = validDir(settings.defaultCwd) || homedir()
     // fire-and-forget: progress streams via workflow_* events; the renderer polls getRun
     runWorkflow(def, makeWfDeps(cwd, ac.signal, 0, undefined, new Set([def.id])), { vars, fromNodeId, runId })
@@ -806,7 +806,10 @@ export function registerIpc(win: BrowserWindow): void {
           message: (e as Error)?.message ?? String(e)
         })
       })
-      .finally(() => wfAborters.delete(runId))
+      .finally(() => {
+        stopDeadline()
+        wfAborters.delete(runId)
+      })
     return runId
   })
 
@@ -880,13 +883,17 @@ export function registerIpc(win: BrowserWindow): void {
     const runId = randomUUID()
     const ac = new AbortController()
     wfAborters.set(runId, ac)
+    const stopDeadline = armDeadline(ac)
     const cwd = validDir(settings.defaultCwd) || homedir()
     // return the promise so the scheduler's in-flight guard knows when this run finishes
     return runWorkflow(def, makeWfDeps(cwd, ac.signal, 0, undefined, new Set([def.id])), { runId })
       .catch((e: unknown) =>
         emit({ type: 'workflow_run', runId, workflowId: def.id, status: 'error', message: (e as Error)?.message ?? String(e) })
       )
-      .finally(() => wfAborters.delete(runId))
+      .finally(() => {
+        stopDeadline()
+        wfAborters.delete(runId)
+      })
       .then(() => undefined)
   })
   wfScheduler.start()
