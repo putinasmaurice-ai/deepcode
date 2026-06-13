@@ -35,6 +35,8 @@ import { PATHS } from './paths'
 import { buildAttachmentContext, listProjectFiles } from './attachments'
 import { listApprovedCommands, removeApprovedCommand } from './approvals'
 import { detectPreview } from './preview'
+import { forecastTurn } from './samples'
+import { estimateTokens } from './agent/pricing'
 import { runBuiltin } from './builtins'
 import { execFile } from 'child_process'
 import type { ApprovalPolicy } from './agent/engine'
@@ -395,6 +397,28 @@ export function registerIpc(win: BrowserWindow): void {
     const updated = await engine.compactSession(session, emit)
     emit({ type: 'turn_done', sessionId: session.id })
     return updated
+  })
+  ipcMain.handle(IPC.forecastTurn, (_e, sessionId: string) => {
+    const s = getSession(sessionId)
+    const model = s?.model || settings.provider.model
+    const isLocal = model.startsWith('local:')
+    const p = settings.provider
+    const inPrice = isLocal
+      ? 0
+      : model === p.reasonerModel
+        ? p.reasonerPricePerMillionInput || p.pricePerMillionInput || 0
+        : p.pricePerMillionInput || 0
+    const contextTokens = s ? estimateTokens(s) : 0
+    const f = forecastTurn(model)
+    return {
+      contextTokens,
+      estInputCost: (contextTokens / 1_000_000) * inPrice,
+      isLocal,
+      avgCost: f.avgCost,
+      avgTokens: f.avgTokens,
+      avgDurationMs: f.avgDurationMs,
+      sampleCount: f.count
+    }
   })
   ipcMain.handle(IPC.cancelTurn, (_e, sessionId: string) => {
     engine.cancel(sessionId)

@@ -41,6 +41,7 @@ export const IPC = {
   approveTool: 'agent:approveTool',
   agentEvent: 'agent:event', // main -> renderer push channel
   compactSession: 'agent:compact',
+  forecastTurn: 'agent:forecast',
   resendMessage: 'agent:resend',
   secondOpinion: 'agent:secondOpinion',
   arena: 'agent:arena',

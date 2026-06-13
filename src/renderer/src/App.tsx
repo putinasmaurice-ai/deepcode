@@ -24,6 +24,8 @@ import { Sidebar, NAV } from './components/Sidebar'
 import { CommandPalette, PaletteItem } from './components/CommandPalette'
 import { FindBar } from './components/FindBar'
 import { PreviewPane } from './components/PreviewPane'
+import { CrystalBall } from './components/CrystalBall'
+import { inOffPeak } from '../../shared/offpeak'
 import {
   SettingsPanel,
   SkillsPanel,
@@ -85,6 +87,18 @@ export function App(): JSX.Element {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [findOpen, setFindOpen] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
+  // 🔮 Crystal Ball: defer the next send until the DeepSeek off-peak window opens
+  const [deferOffPeak, setDeferOffPeak] = useState(false)
+  const [deferred, setDeferred] = useState<{
+    text: string
+    attachments?: string[]
+    sessionId: string
+  } | null>(null)
+  // toggling the switch either way cancels any pending wait (predictable "never mind")
+  const toggleDefer = useCallback(() => {
+    setDeferOffPeak((v) => !v)
+    setDeferred(null)
+  }, [])
   const [sessionUsage, setSessionUsage] = useState<{ tokens: number; cost: number }>({
     tokens: 0,
     cost: 0
@@ -517,6 +531,7 @@ export function App(): JSX.Element {
   async function openSession(id: string): Promise<void> {
     const s = (await api.getSession(id)) as Session | null
     if (!s) return
+    setDeferred(null) // a pending off-peak send belongs to the session it was queued in
     setSession(s)
     setMessages(s.messages.filter((m) => m.role !== 'tool'))
     setToolState(deriveToolState(s.messages))
@@ -538,6 +553,7 @@ export function App(): JSX.Element {
     const cwd = pid ? undefined : (s ?? settings)?.defaultCwd
     const created = await api.createSession(cwd || undefined, pid || undefined)
     setSessions((list) => [created, ...list])
+    setDeferred(null) // drop any pending off-peak send from the previous chat
     setSession(created)
     setMessages([])
     setToolState({})
@@ -609,6 +625,12 @@ export function App(): JSX.Element {
       addToast('In Warteschlange — wird nach diesem Turn gesendet.')
       return
     }
+    // 🔮 off-peak defer: hold a fresh send until the discount window opens
+    if (deferOffPeak && !inOffPeak()) {
+      setDeferred({ text, attachments, sessionId: session.id })
+      addToast('⏳ Wird im günstigen Off-Peak-Fenster gesendet.')
+      return
+    }
     setError('')
     // edit-and-resend: drop the edited message and everything after it locally
     // (the main process truncates its copy too)
@@ -663,6 +685,23 @@ export function App(): JSX.Element {
   useEffect(() => {
     sendRef.current = send
   })
+
+  // 🔮 off-peak defer: once a message is held, fire it as soon as the discount
+  // window opens (checked now + every 30s while the app stays open).
+  useEffect(() => {
+    if (!deferred) return
+    const fire = (): void => {
+      // only fire into the session the message was queued in, and only in off-peak
+      if (inOffPeak() && deferred.sessionId === sessionIdRef.current) {
+        const d = deferred
+        setDeferred(null)
+        sendRef.current(d.text, d.attachments)
+      }
+    }
+    fire()
+    const t = setInterval(fire, 30_000)
+    return () => clearInterval(t)
+  }, [deferred])
 
   const startEdit = useCallback((messageId: string, content: string): void => {
     editTargetRef.current = messageId
@@ -1091,6 +1130,23 @@ export function App(): JSX.Element {
               </div>
             )}
             {todos.length > 0 && <TodoStrip todos={todos} onClear={() => setTodos([])} />}
+            {deferred && (
+              <div className="queue-strip">
+                <span className="chip" title={deferred.text}>
+                  ⏳ Wartet auf Off-Peak: {deferred.text.slice(0, 50)}
+                  {deferred.text.length > 50 ? '…' : ''}
+                  <span className="chip-x" onClick={() => setDeferred(null)}>
+                    ✕
+                  </span>
+                </span>
+              </div>
+            )}
+            <CrystalBall
+              sessionId={session?.id ?? null}
+              busy={busy}
+              deferOffPeak={deferOffPeak}
+              onToggleDefer={toggleDefer}
+            />
             <Composer
               busy={busy}
               onSend={send}

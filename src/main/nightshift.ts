@@ -3,6 +3,7 @@ import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { PATHS } from './paths'
 import { AgentEvent, NightShiftState, NightTask, Session } from '@shared/types'
+import { inOffPeak } from '@shared/offpeak'
 import { AgentEngine } from './agent/engine'
 import { saveSession } from './store'
 import { beginAgentOp, endAgentOp } from './watcher'
@@ -52,10 +53,10 @@ export function requestStop(): void {
   stopRequested = true
 }
 
-// DeepSeek off-peak discount window: UTC 16:30–00:30 (chat −50%, reasoner −75%)
+// DeepSeek off-peak discount window: UTC 16:30–00:30 (chat −50%, reasoner −75%).
+// Shared window logic lives in src/shared/offpeak.ts.
 export function inOffPeakWindow(d = new Date()): boolean {
-  const mins = d.getUTCHours() * 60 + d.getUTCMinutes()
-  return mins >= 16 * 60 + 30 || mins < 30
+  return inOffPeak(d)
 }
 
 export async function runNightShift(

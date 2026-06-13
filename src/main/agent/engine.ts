@@ -25,6 +25,7 @@ import { recordSnapshot, getTurnFiles } from '../checkpoints'
 import { getProject } from '../projects'
 import { saveSession } from '../store'
 import { recordUsage } from '../ledger'
+import { recordTurnSample } from '../samples'
 
 export type { ApprovalPolicy } from './policy'
 
@@ -298,7 +299,8 @@ export class AgentEngine {
       // command with auto-fix feedback. Hard-capped at MAX_QUALITY_ROUNDS.
       let reviewDone = false
       let verifyAttempts = 0
-      const budget = { usd: 0 } // accumulates across all quality rounds of this turn
+      const budget = { usd: 0, tokens: 0 } // accumulates across all quality rounds of this turn
+      const turnStart = Date.now()
       const cap = this.settings.maxCostPerTurn
       for (let round = 0; round < MAX_QUALITY_ROUNDS; round++) {
         const roundModel = visionFirstPass && round === 0 ? this.settings.provider.visionModel : session.model
@@ -323,6 +325,16 @@ export class AgentEngine {
         saveSession(session)
       }
 
+      // record this turn's outcome so the Crystal Ball can forecast future turns
+      if (budget.tokens > 0) {
+        recordTurnSample({
+          cost: budget.usd,
+          tokens: budget.tokens,
+          durationMs: Date.now() - turnStart,
+          model: session.model || this.settings.provider.model,
+          at: Date.now()
+        })
+      }
       this.appendChangelog(session, project?.autoChangelog ?? false, turnTag, userText)
       await runHooks('Stop', { cwd: session.cwd }, hooks)
       emit({ type: 'turn_done', sessionId: session.id })
@@ -351,7 +363,7 @@ export class AgentEngine {
     signal: AbortSignal,
     hooks: ReturnType<typeof loadHooks>,
     model?: string,
-    budget?: { usd: number }
+    budget?: { usd: number; tokens: number }
   ): Promise<void> {
     const baseModel = model ?? session.model
     const apiTools = toApiTools(tools)
@@ -390,7 +402,10 @@ export class AgentEngine {
       if (result.usage) {
         assistantMsg.usage = costOf(this.settings.provider, result.usage, stepModel)
         recordUsage(assistantMsg.usage)
-        if (budget) budget.usd += assistantMsg.usage.cost
+        if (budget) {
+          budget.usd += assistantMsg.usage.cost
+          budget.tokens += assistantMsg.usage.totalTokens
+        }
         emit({ type: 'usage', messageId: assistantMsg.id, usage: assistantMsg.usage })
       }
       session.messages.push(assistantMsg)

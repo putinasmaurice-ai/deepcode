@@ -49,6 +49,17 @@ export interface ApprovedCommand {
   cwd: string
 }
 
+export interface TurnForecast {
+  contextTokens: number // current context size that will be sent
+  estInputCost: number // estimated input cost of that context (USD; 0 for local)
+  isLocal: boolean
+  // rolling average of the user's own recent turns (0/empty until enough history)
+  avgCost: number
+  avgTokens: number
+  avgDurationMs: number
+  sampleCount: number
+}
+
 export interface PreviewInfo {
   // best-guess URL to load (file:// for static html, http://localhost for dev servers)
   url: string | null
@@ -101,6 +112,7 @@ export interface DeepCodeApi {
   cancelTurn(sessionId: string): Promise<boolean>
   approveTool(callId: string, approved: boolean, remember?: boolean): Promise<boolean>
   compactSession(sessionId: string): Promise<Session>
+  forecastTurn(sessionId: string): Promise<TurnForecast>
   secondOpinion(sessionId: string): Promise<boolean>
   arena(sessionId: string, modelB?: string): Promise<boolean>
   arenaVote(winner: string, loser: string): Promise<boolean>
