@@ -3,6 +3,7 @@ import { join } from 'path'
 import { homedir } from 'os'
 import { safeStorage } from 'electron'
 import { PATHS, ensureConfigDirs } from './paths'
+import { deleteSessionCheckpoints } from './checkpoints'
 import { AppSettings, DEFAULT_SETTINGS, Session } from '@shared/types'
 
 // ---- Settings ----
@@ -105,7 +106,13 @@ export function getSession(id: string): Session | null {
   }
 }
 
+// Tombstones for deleted sessions. A turn still running when the user deletes its
+// chat would otherwise re-create the file/cache via its next saveSession (incl. the
+// unconditional one in runTurn's finally), resurrecting a deleted chat as a zombie.
+const tombstoned = new Set<string>()
+
 export function saveSession(session: Session): void {
+  if (tombstoned.has(session.id)) return // deleted mid-turn — don't resurrect it
   ensureConfigDirs()
   session.updatedAt = Date.now()
   // atomic write: tmp + rename, so a crash mid-write can't corrupt the session
@@ -117,7 +124,9 @@ export function saveSession(session: Session): void {
 }
 
 export function deleteSession(id: string): void {
+  tombstoned.add(id)
   const p = sessionPath(id)
   if (existsSync(p)) unlinkSync(p)
   sessionCache?.delete(id)
+  deleteSessionCheckpoints(id) // don't leave orphaned snapshot dirs behind
 }

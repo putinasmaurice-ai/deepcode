@@ -65,7 +65,13 @@ export function buildAttachmentContext(paths: string[], cwd: string): string {
       parts.push(`# (not found) ${p}`)
       continue
     }
-    const st = statSync(abs)
+    let st: ReturnType<typeof statSync>
+    try {
+      st = statSync(abs)
+    } catch {
+      parts.push(`# (could not stat) ${p}`)
+      continue
+    }
     if (st.isDirectory()) {
       const files: string[] = []
       walk(abs, files)

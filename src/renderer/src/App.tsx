@@ -220,8 +220,11 @@ export function App(): JSX.Element {
         setView('chat')
         setTimeout(() => document.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus(), 50)
       } else if (e.key === 'Escape' && busy && session) {
-        api.cancelTurn(session.id)
+        api.cancelTurn(session.id).catch(() => {})
         setBusy(false)
+        // cancelling means "stop" — don't let the queue-drain effect fire the next
+        // queued steering message as a brand-new turn.
+        setQueue((q) => q.filter((x) => x.sessionId !== session.id))
       } else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
         // y / n / a approve the pending tool call(s) — but only when not typing,
         // so a "y" in a message never silently approves a shell command.
@@ -289,7 +292,7 @@ export function App(): JSX.Element {
     if (!settings) return
     const next = { ...settings, theme: settings.theme === 'light' ? ('dark' as const) : ('light' as const) }
     setSettings(next)
-    await api.saveSettings(next)
+    await api.saveSettings(next).catch((e) => addToast(String(e), 'error'))
   }
 
   async function secondOpinion(): Promise<void> {
@@ -334,9 +337,13 @@ export function App(): JSX.Element {
     }
   }
   async function voteArena(winner: string, loser: string, pairKey: string): Promise<void> {
-    await api.arenaVote(winner, loser)
-    if (session) markArenaVoted(session.id, pairKey)
-    addToast(`Gemerkt: ${winner} bevorzugt. Fließt in die Modell-Präferenzen ein.`)
+    try {
+      await api.arenaVote(winner, loser)
+      if (session) markArenaVoted(session.id, pairKey)
+      addToast(`Gemerkt: ${winner} bevorzugt. Fließt in die Modell-Präferenzen ein.`)
+    } catch (e) {
+      addToast(String(e), 'error')
+    }
   }
 
   // ---- agent event stream ----
@@ -361,16 +368,27 @@ export function App(): JSX.Element {
         setToolState(deriveToolState(e.session.messages))
         break
       case 'user_message': {
-        // reconcile the optimistic 'local-' user id with the persisted server id
+        // Reconcile the renderer's user-message id with the persisted server id.
+        // On a fresh send there's an optimistic 'local-' message; on regenerate the
+        // server re-mints the id with NO local- message, so fall back to the LAST
+        // user message — otherwise a 2nd regenerate would resend a stale id and fail.
         setMessages((m) => {
+          let localIdx = -1
+          let lastUserIdx = -1
           for (let i = m.length - 1; i >= 0; i--) {
-            if (m[i].role === 'user' && m[i].id.startsWith('local-')) {
-              const copy = m.slice()
-              copy[i] = { ...copy[i], id: e.id }
-              return copy
+            if (m[i].role === 'user') {
+              if (lastUserIdx < 0) lastUserIdx = i
+              if (m[i].id.startsWith('local-')) {
+                localIdx = i
+                break
+              }
             }
           }
-          return m
+          const idx = localIdx >= 0 ? localIdx : lastUserIdx
+          if (idx < 0 || m[idx].id === e.id) return m
+          const copy = m.slice()
+          copy[idx] = { ...copy[idx], id: e.id }
+          return copy
         })
         break
       }
@@ -540,9 +558,13 @@ export function App(): JSX.Element {
 
   async function changeModel(model: string): Promise<void> {
     if (!session) return
-    await api.updateSessionModel(session.id, model)
-    setSession({ ...session, model })
-    setSessions((list) => list.map((x) => (x.id === session.id ? { ...x, model } : x)))
+    try {
+      await api.updateSessionModel(session.id, model)
+      setSession({ ...session, model })
+      setSessions((list) => list.map((x) => (x.id === session.id ? { ...x, model } : x)))
+    } catch (e) {
+      addToast(String(e), 'error')
+    }
   }
 
   // 🔓 Uncensored toggle: swap to the configured local unaligned model and back.
@@ -670,9 +692,13 @@ export function App(): JSX.Element {
 
   async function commitRename(): Promise<void> {
     if (renamingId && renameText.trim()) {
-      await api.renameSession(renamingId, renameText.trim())
-      setSessions((list) => list.map((x) => (x.id === renamingId ? { ...x, title: renameText.trim() } : x)))
-      if (session?.id === renamingId) setSession({ ...session, title: renameText.trim() })
+      try {
+        await api.renameSession(renamingId, renameText.trim())
+        setSessions((list) => list.map((x) => (x.id === renamingId ? { ...x, title: renameText.trim() } : x)))
+        if (session?.id === renamingId) setSession({ ...session, title: renameText.trim() })
+      } catch (e) {
+        addToast(String(e), 'error')
+      }
     }
     setRenamingId(null)
   }
@@ -680,7 +706,12 @@ export function App(): JSX.Element {
   async function removeSession(id: string): Promise<void> {
     const s = sessions.find((x) => x.id === id)
     if (!window.confirm(`Chat „${s?.title || 'Untitled'}" wirklich löschen?`)) return
-    await api.deleteSession(id)
+    try {
+      await api.deleteSession(id)
+    } catch (e) {
+      addToast(String(e), 'error')
+      return
+    }
     const list = await api.listSessions()
     setSessions(list)
     if (session?.id === id) {
@@ -690,12 +721,16 @@ export function App(): JSX.Element {
   }
 
   const approve = useCallback((callId: string, approved: boolean, remember?: boolean): void => {
-    api.approveTool(callId, approved, remember)
+    api.approveTool(callId, approved, remember).catch((e) => addToast(String(e), 'error'))
     setToolState((t) => ({ ...t, [callId]: { ...t[callId], pending: false } }))
   }, [])
 
   function stop(): void {
-    if (session) api.cancelTurn(session.id)
+    if (session) {
+      api.cancelTurn(session.id).catch(() => {})
+      // stop means stop — clear queued steering messages so none auto-fires
+      setQueue((q) => q.filter((x) => x.sessionId !== session.id))
+    }
     setBusy(false)
   }
 
@@ -773,8 +808,11 @@ export function App(): JSX.Element {
       }
     }))
     return [...actions, ...views, ...chats]
+    // Must include session/settings/busy: the action closures (export/compact/
+    // uncensored) capture them, and switching chats changes `session` but NOT
+    // `sessions` — without these deps the palette would act on the previous chat.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessions])
+  }, [sessions, session, settings, busy])
 
   if (!settings) return <div className="spinner" />
 

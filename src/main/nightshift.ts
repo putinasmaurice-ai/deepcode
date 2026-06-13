@@ -1,8 +1,8 @@
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, renameSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { PATHS } from './paths'
-import { AgentEvent, NightShiftState, Session } from '@shared/types'
+import { AgentEvent, NightShiftState, NightTask, Session } from '@shared/types'
 import { AgentEngine } from './agent/engine'
 import { saveSession } from './store'
 import { beginAgentOp, endAgentOp } from './watcher'
@@ -29,8 +29,23 @@ export function getNightShift(): NightShiftState {
 }
 
 export function saveNightShift(state: NightShiftState): NightShiftState {
-  writeFileSync(FILE, JSON.stringify({ ...state, running }, null, 2), 'utf8')
+  // atomic write (tmp + rename) so a crash mid-write can't corrupt the queue file
+  const tmp = FILE + '.tmp'
+  writeFileSync(tmp, JSON.stringify({ ...state, running }, null, 2), 'utf8')
+  renameSync(tmp, FILE)
   return getNightShift()
+}
+
+// Merge a status update for ONE task into the persisted queue by id, without
+// rewriting the whole list from a stale in-memory snapshot. This stops a long
+// run from clobbering concurrent user edits (added/removed/reordered tasks), and
+// won't resurrect a task the user deleted mid-run (skipped when not found).
+function updateTask(id: string, patch: Partial<NightTask>): void {
+  const cur = getNightShift()
+  const idx = cur.tasks.findIndex((t) => t.id === id)
+  if (idx < 0) return
+  cur.tasks[idx] = { ...cur.tasks[idx], ...patch }
+  saveNightShift(cur)
 }
 
 export function requestStop(): void {
@@ -57,6 +72,7 @@ export async function runNightShift(
     while (!inOffPeakWindow() && !stopRequested) {
       emit({
         type: 'status',
+        sessionId: 'nightshift', // background id → renderer drops it (no foreground bleed)
         message: '🌙 Nachtschicht wartet auf das DeepSeek-Off-Peak-Fenster (UTC 16:30–00:30, bis −75%)…'
       })
       await new Promise((r) => setTimeout(r, 60_000))
@@ -69,8 +85,8 @@ export async function runNightShift(
       if (stopRequested) break
       if (task.status === 'done') continue
       task.status = 'running'
-      saveNightShift(state)
-      emit({ type: 'status', message: `🌙 Nachtschicht: "${task.prompt.slice(0, 60)}…"` })
+      updateTask(task.id, { status: 'running' })
+      emit({ type: 'status', sessionId: 'nightshift', message: `🌙 Nachtschicht: "${task.prompt.slice(0, 60)}…"` })
 
       const session: Session = {
         id: randomUUID(),
@@ -107,7 +123,13 @@ export async function runNightShift(
         task.status = 'failed'
         task.summary = (e as Error).message
       }
-      saveNightShift(state)
+      // merge this task's result by id (don't clobber concurrent queue edits)
+      updateTask(task.id, {
+        status: task.status,
+        summary: task.summary,
+        tokens: task.tokens,
+        cost: task.cost
+      })
 
       lines.push(`## ${task.status === 'done' ? '✅' : '❌'} ${task.prompt}`)
       lines.push('')
@@ -123,13 +145,15 @@ export async function runNightShift(
     )
     const reportPath = join(PATHS.root, `nightshift-report-${new Date().toISOString().slice(0, 10)}.md`)
     writeFileSync(reportPath, lines.join('\n') + '\n', 'utf8')
-    state.lastReportPath = reportPath
-    state.lastRunAt = Date.now()
-    saveNightShift(state)
-    emit({ type: 'status', message: `🌙 Nachtschicht fertig — Bericht: ${reportPath}` })
+    // re-read so report metadata doesn't overwrite concurrent queue edits
+    const cur = getNightShift()
+    cur.lastReportPath = reportPath
+    cur.lastRunAt = Date.now()
+    saveNightShift(cur)
+    emit({ type: 'status', sessionId: 'nightshift', message: `🌙 Nachtschicht fertig — Bericht: ${reportPath}` })
   } finally {
     running = false
-    saveNightShift(state)
+    saveNightShift(getNightShift()) // flip running off without clobbering the live queue
   }
   return getNightShift()
 }

@@ -26,6 +26,9 @@ export async function maybeRunE2E(): Promise<boolean> {
 
   try {
     const settings = loadSettings()
+    // The stored key is encrypted via safeStorage and may not decrypt in a headless
+    // run; let CI/smoke tests supply a plaintext key via env so a real turn can run.
+    if (process.env.DEEPCODE_E2E_API_KEY) settings.provider.apiKey = process.env.DEEPCODE_E2E_API_KEY
     const engine = new AgentEngine(settings)
     const session: Session = {
       id: randomUUID(),

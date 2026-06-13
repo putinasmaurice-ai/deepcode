@@ -119,7 +119,12 @@ export function killJob(id: string, sync = false): boolean {
       // process); sync only during app shutdown where blocking is required.
       const args = ['/PID', String(j.child.pid), '/T', '/F']
       if (sync) spawnSync('taskkill', args, { windowsHide: true, timeout: 3000 })
-      else spawn('taskkill', args, { windowsHide: true })
+      else {
+        // attach an error listener: a failed async spawn emits 'error' on a later
+        // tick (outside this try) which, unhandled, would throw process-wide.
+        const tk = spawn('taskkill', args, { windowsHide: true })
+        tk.on('error', () => {})
+      }
     } else {
       j.child.kill('SIGKILL')
     }

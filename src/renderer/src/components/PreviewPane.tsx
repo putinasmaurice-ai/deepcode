@@ -14,8 +14,9 @@ export function PreviewPane({ cwd, onClose }: { cwd: string; onClose: () => void
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const viewRef = useRef<any>(null)
 
-  async function detect(load: boolean): Promise<void> {
+  async function detect(load: boolean, alive: () => boolean = () => true): Promise<void> {
     const pi = await api.detectPreview(cwd)
+    if (!alive()) return // a newer cwd (or unmount) superseded this call
     setInfo(pi)
     if (pi.url) {
       setInput(pi.url)
@@ -24,7 +25,12 @@ export function PreviewPane({ cwd, onClose }: { cwd: string; onClose: () => void
   }
 
   useEffect(() => {
-    void detect(true)
+    // ignore a stale/in-flight detect if cwd changes again or the pane unmounts
+    let alive = true
+    void detect(true, () => alive)
+    return () => {
+      alive = false
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cwd])
 

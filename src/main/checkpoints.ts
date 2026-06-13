@@ -1,6 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync, renameSync } from 'fs'
 import { join, dirname } from 'path'
 import { PATHS } from './paths'
+
+// keep at most this many turn-snapshots per session; older ones are pruned so the
+// checkpoints dir can't grow without bound on heavy use.
+const MAX_TURN_TAGS = 100
 
 // File checkpoints: before the agent modifies a file, the prior state is
 // snapshotted under ~/.deepcode/checkpoints/<sessionId>/<turnTag>.json.
@@ -47,9 +51,37 @@ export function recordSnapshot(sessionId: string, turnTag: string, absPath: stri
     }
     snaps.push({ path: absPath, existed, content })
     mkdirSync(dir(sessionId), { recursive: true })
-    writeFileSync(file(sessionId, turnTag), JSON.stringify(snaps), 'utf8')
+    // atomic write (tmp + rename) so a crash mid-write can't corrupt an undo point
+    const target = file(sessionId, turnTag)
+    const tmp = target + '.tmp'
+    writeFileSync(tmp, JSON.stringify(snaps), 'utf8')
+    renameSync(tmp, target)
+    pruneOldTags(sessionId)
   } catch {
     /* checkpointing must never break the agent */
+  }
+}
+
+// Drop the oldest turn snapshots beyond the retention cap.
+function pruneOldTags(sessionId: string): void {
+  const tags = listTurnTags(sessionId)
+  if (tags.length <= MAX_TURN_TAGS) return
+  for (const tag of tags.slice(0, tags.length - MAX_TURN_TAGS)) {
+    try {
+      rmSync(file(sessionId, tag))
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+// Remove all checkpoints for a session (called when the session/project is deleted)
+// so deleted chats don't leave snapshot directories behind forever.
+export function deleteSessionCheckpoints(sessionId: string): void {
+  try {
+    rmSync(dir(sessionId), { recursive: true, force: true })
+  } catch {
+    /* best effort */
   }
 }
 

@@ -42,6 +42,10 @@ export class AgentEngine {
   // persist it scoped to the directory it was approved in
   private pendingCommand = new Map<string, { command: string; cwd: string }>()
   private aborters = new Map<string, AbortController>()
+  // the live session object of each in-flight turn, so mid-turn edits (rename / cwd /
+  // model) mutate the SAME object the turn will save — otherwise the turn's saveSession
+  // overwrites the edit (last-writer-wins).
+  private liveSessions = new Map<string, Session>()
 
   constructor(private settings: AppSettings) {
     this.client = new DeepSeekClient(settings.provider)
@@ -72,6 +76,16 @@ export class AgentEngine {
       release: (id) => this.aborters.delete(id),
       current: (id) => this.aborters.get(id)
     }
+  }
+
+  // Apply a field edit (title/cwd/model) to a turn's live session object if one is
+  // running, so the running turn persists the edit instead of clobbering it. Returns
+  // the live session when a turn is in flight, else null (caller edits the disk copy).
+  applyLiveEdit(id: string, patch: Partial<Session>): Session | null {
+    const s = this.liveSessions.get(id)
+    if (!s) return null
+    Object.assign(s, patch)
+    return s
   }
 
   approve(callId: string, approved: boolean, remember?: boolean): void {
@@ -211,6 +225,7 @@ export class AgentEngine {
   ): Promise<void> {
     const aborter = this.acquireSession(session.id)
     const signal = aborter.signal
+    this.liveSessions.set(session.id, session) // expose for mid-turn edits
     // session-scoped emit: stamps sessionId so background turns don't bleed into
     // the foreground chat (see scoped()).
     const emit = this.scoped(session.id, rawEmit)
@@ -316,6 +331,7 @@ export class AgentEngine {
       emit({ type: 'turn_done', sessionId: session.id })
     } finally {
       this.aborters.delete(session.id)
+      this.liveSessions.delete(session.id)
       saveSession(session)
     }
   }

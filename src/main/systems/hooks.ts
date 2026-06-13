@@ -102,8 +102,16 @@ function runOne(command: string, ctx: HookContext): Promise<string> {
       })
     })
     const timer = setTimeout(() => child.kill('SIGKILL'), 30_000)
-    child.stdout.on('data', (c) => (out += c.toString()))
-    child.stderr.on('data', (c) => (out += c.toString()))
+    // cap the buffer like bash.ts/jobs.ts so a chatty hook can't balloon memory
+    const append = (c: Buffer): void => {
+      out += c.toString()
+      if (out.length > 200_000) {
+        out = out.slice(0, 200_000) + '\n... (truncated)'
+        child.kill('SIGKILL')
+      }
+    }
+    child.stdout.on('data', append)
+    child.stderr.on('data', append)
     child.on('error', (e) => {
       clearTimeout(timer)
       reject(e)

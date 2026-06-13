@@ -27,6 +27,7 @@ export function runVerify(
     child.stderr?.on('data', append)
     child.on('error', (e) => {
       clearTimeout(timer)
+      signal.removeEventListener('abort', onAbort)
       resolve({ ok: false, output: `Verify konnte nicht starten: ${e.message}` })
     })
     child.on('close', (code) => {

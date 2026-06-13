@@ -21,6 +21,11 @@ function isPrivateIp(ip: string): boolean {
   }
   const l = ip.toLowerCase()
   if (l === '::1' || l === '::') return true
+  // IPv4-mapped IPv6 (::ffff:127.0.0.1 → ':ffff:7f00:1' in hex-compressed form):
+  // WHATWG URL normalizes the embedded v4 to hex, so the dotted-quad strip above
+  // misses it. Block the whole mapped range — it should never appear in a normal
+  // public fetch, and it's the classic loopback/metadata SSRF bypass.
+  if (l.startsWith('::ffff:')) return true
   if (/^f[cd]/.test(l)) return true // fc00::/7 unique-local
   if (/^fe[89ab]/.test(l)) return true // fe80::/10 link-local
   return false

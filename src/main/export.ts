@@ -1,4 +1,4 @@
-import { writeFileSync } from 'fs'
+import { writeFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { Session } from '@shared/types'
 
@@ -58,7 +58,11 @@ export function exportSessionMarkdown(session: Session): string {
 
   const stamp = new Date(session.updatedAt).toISOString().slice(0, 10)
   const safeTitle = (session.title || 'session').replace(/[^a-zA-Z0-9äöüÄÖÜß _-]/g, '').slice(0, 40).trim() || 'session'
-  const path = join(session.cwd, `deepcode-${safeTitle}-${stamp}.md`)
+  // don't silently overwrite a prior export of the same title+day (or a same-named
+  // other session): add a numeric suffix when the target already exists.
+  const base = `deepcode-${safeTitle}-${stamp}`
+  let path = join(session.cwd, `${base}.md`)
+  for (let n = 2; existsSync(path) && n < 1000; n++) path = join(session.cwd, `${base}-${n}.md`)
   writeFileSync(path, lines.join('\n'), 'utf8')
   return path
 }

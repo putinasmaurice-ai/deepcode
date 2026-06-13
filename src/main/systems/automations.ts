@@ -33,6 +33,17 @@ export function deleteAutomation(id: string): AutomationDef[] {
   return list
 }
 
+// Update an EXISTING automation's lastRun in place. Crucially does NOT create the
+// entry if it was deleted while a (possibly minutes-long) run was in flight —
+// otherwise the post-run write would resurrect a just-deleted automation.
+export function recordAutomationRun(id: string, lastRun: number): void {
+  const list = loadAutomations()
+  const idx = list.findIndex((x) => x.id === id)
+  if (idx < 0) return // deleted mid-run — do not resurrect
+  list[idx] = { ...list[idx], lastRun }
+  saveAutomations(list)
+}
+
 // ---- Minimal 5-field cron matcher: minute hour day month weekday ----
 // Supports *, lists (1,2), ranges (1-5), steps (*/5, 1-30/2).
 
@@ -76,6 +87,7 @@ export type AutomationRunner = (a: AutomationDef) => Promise<void>
 export class AutomationScheduler {
   private timer: NodeJS.Timeout | null = null
   private lastTickMinute = -1
+  private ticking = false
   constructor(private runner: AutomationRunner) {}
 
   start(): void {
@@ -89,22 +101,29 @@ export class AutomationScheduler {
   }
 
   private async tick(): Promise<void> {
+    if (this.ticking) return // a previous (long) run is still going — don't overlap
     const now = new Date()
     const minuteKey = now.getHours() * 60 + now.getMinutes()
     if (minuteKey === this.lastTickMinute) return // run at most once per minute
     this.lastTickMinute = minuteKey
 
-    for (const a of loadAutomations()) {
-      if (!a.enabled) continue
-      if (cronMatches(a.schedule, now)) {
-        try {
-          await this.runner(a)
-          a.lastRun = now.getTime()
-          upsertAutomation(a)
-        } catch (e) {
-          console.error(`Automation "${a.name}" failed:`, (e as Error).message)
+    this.ticking = true
+    try {
+      for (const a of loadAutomations()) {
+        if (!a.enabled) continue
+        if (cronMatches(a.schedule, now)) {
+          try {
+            await this.runner(a)
+            // only-update-if-still-present: never resurrect an automation the user
+            // deleted while this (minutes-long) run was in flight.
+            recordAutomationRun(a.id, now.getTime())
+          } catch (e) {
+            console.error(`Automation "${a.name}" failed:`, (e as Error).message)
+          }
         }
       }
+    } finally {
+      this.ticking = false
     }
   }
 }

@@ -57,21 +57,25 @@ import {
 // Initialized in registerIpc() (after app 'ready', so safeStorage is available).
 let settings: AppSettings
 let engine: AgentEngine
+let registered = false // registerIpc must wire handlers + scheduler only once
+let currentWin: BrowserWindow | null = null // latest window; emitter targets this
 
 export function getEngine(): AgentEngine {
   return engine
 }
 
-function emitter(win: BrowserWindow): (e: AgentEvent) => void {
-  return (e) => {
-    if (!win.isDestroyed()) win.webContents.send(IPC.agentEvent, e)
-  }
+function emit(e: AgentEvent): void {
+  if (currentWin && !currentWin.isDestroyed()) currentWin.webContents.send(IPC.agentEvent, e)
 }
 
 export function registerIpc(win: BrowserWindow): void {
+  // On window re-creation (e.g. macOS activate) only re-point the emitter — never
+  // re-register ipcMain.handle (throws "second handler") or start a 2nd scheduler.
+  currentWin = win
+  if (registered) return
+  registered = true
   settings = loadSettings()
   engine = new AgentEngine(settings)
-  const emit = emitter(win)
 
   // ---- settings ----
   ipcMain.handle(IPC.getSettings, () => settings)
@@ -140,16 +144,18 @@ export function registerIpc(win: BrowserWindow): void {
     return exportSessionMarkdown(s)
   })
   ipcMain.handle(IPC.changeCwd, (_e, id: string, cwd: string) => {
-    const s = getSession(id)
-    if (!s) throw new Error('Session not found')
     const dir = validDir(cwd)
     if (!dir) throw new Error('Not a valid directory: ' + cwd)
+    // route through the engine's live session if a turn is running, so the running
+    // turn's saveSession doesn't clobber the edit (last-writer-wins).
+    const s = engine.applyLiveEdit(id, { cwd: dir }) ?? getSession(id)
+    if (!s) throw new Error('Session not found')
     s.cwd = dir
     saveSession(s)
     return s
   })
   ipcMain.handle(IPC.updateSessionModel, (_e, id: string, model: string) => {
-    const s = getSession(id)
+    const s = engine.applyLiveEdit(id, { model }) ?? getSession(id)
     if (s) {
       s.model = model
       saveSession(s)
@@ -157,11 +163,12 @@ export function registerIpc(win: BrowserWindow): void {
     return true
   })
   ipcMain.handle(IPC.deleteSession, (_e, id: string) => {
+    engine.cancel(id) // stop any in-flight turn so it can't resurrect the file
     deleteSession(id)
     return true
   })
   ipcMain.handle(IPC.renameSession, (_e, id: string, title: string) => {
-    const s = getSession(id)
+    const s = engine.applyLiveEdit(id, { title }) ?? getSession(id)
     if (s) {
       s.title = title
       saveSession(s)
@@ -463,7 +470,9 @@ export function registerIpc(win: BrowserWindow): void {
     return true
   })
   ipcMain.handle(IPC.getCwdInfo, async (_e, cwd: string) => {
-    const exists = existsSync(cwd) && statSync(cwd).isDirectory()
+    // validDir wraps existsSync+statSync in try/catch (statSync can throw even when
+    // existsSync passed: TOCTOU, EACCES, broken reparse point on Windows).
+    const exists = !!validDir(cwd)
     let gitBranch: string | null = null
     let gitDirty = 0
     try {
@@ -507,7 +516,9 @@ async function runAutomationNow(a: AutomationDef, emit: (e: AgentEvent) => void)
     model: settings.provider.model
   }
   saveSession(session)
-  emit({ type: 'status', message: `Automation "${a.name}" running...` })
+  // stamp the session id so the renderer's cross-session guard drops this status
+  // (and the turn's own events) instead of flashing them in the foreground chat.
+  emit({ type: 'status', sessionId: session.id, message: `Automation "${a.name}" running...` })
   // 'safe' = only auto-approved reads run unattended; 'full' = writes + shell too.
   const policy = a.autonomy === 'full' ? 'full' : 'safe'
   await engine.runTurn(session, a.prompt, emit, policy)
