@@ -5,7 +5,8 @@ import { PATHS } from './paths'
 import { AgentEvent, NightShiftState, NightTask, Session } from '@shared/types'
 import { inOffPeak } from '@shared/offpeak'
 import { AgentEngine } from './agent/engine'
-import { saveSession } from './store'
+import { saveSession, loadSettings } from './store'
+import { overDailyCap } from './ledger'
 import { beginAgentOp, endAgentOp } from './watcher'
 
 // Night shift: a queue of tasks the agent works through autonomously
@@ -82,8 +83,15 @@ export async function runNightShift(
   const lines: string[] = [`# 🌙 Nachtschicht-Bericht — ${new Date().toLocaleString()}`, '']
 
   try {
+    const dailyCap = loadSettings().maxCostPerDay
     for (const task of state.tasks) {
       if (stopRequested) break
+      // daily spend cap: stop the (unattended, overnight) run once today's budget is used up.
+      if (overDailyCap(dailyCap)) {
+        emit({ type: 'status', sessionId: 'nightshift', message: `🌙 Nachtschicht gestoppt — Tagesbudget ($${dailyCap}) erreicht.` })
+        lines.push(`\n_⚠ Abgebrochen: Tagesbudget ($${dailyCap}) erreicht — restliche Aufgaben nicht ausgeführt._`)
+        break
+      }
       if (task.status === 'done') continue
       task.status = 'running'
       updateTask(task.id, { status: 'running' })

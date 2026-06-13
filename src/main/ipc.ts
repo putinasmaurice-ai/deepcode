@@ -60,6 +60,7 @@ import { loadProjects, getProject, upsertProject, deleteProject as removeProject
 import { computeUsageSummary } from './usage'
 import { listAudit, searchSessions } from './history'
 import { getNightShift, saveNightShift, runNightShift, requestStop } from './nightshift'
+import { overDailyCap } from './ledger'
 import { startWatch, stopWatch, beginAgentOp, endAgentOp } from './watcher'
 import { computeProjectHealth } from './health'
 import { NightShiftState } from '@shared/types'
@@ -919,6 +920,11 @@ export function registerIpc(win: BrowserWindow): void {
   // fires saved workflows whose trigger node is set to mode='cron'. Runs unattended via
   // the same guarded deps as a manual run (dangerous-command screen, MCP/claude_code gate).
   const wfScheduler = new WorkflowScheduler((def) => {
+    // daily spend cap: skip a scheduled (unattended) workflow run once today's budget is used up.
+    if (overDailyCap(settings.maxCostPerDay)) {
+      console.info(`[budget] Cron workflow "${def.name}" skipped — daily cap $${settings.maxCostPerDay} reached.`)
+      return Promise.resolve()
+    }
     const runId = randomUUID()
     const ac = new AbortController()
     wfAborters.set(runId, ac)
@@ -942,6 +948,11 @@ export function registerIpc(win: BrowserWindow): void {
 }
 
 async function runAutomationNow(a: AutomationDef, emit: (e: AgentEvent) => void): Promise<void> {
+  // daily spend cap: an unattended automation must not run once today's budget is used up.
+  if (overDailyCap(settings.maxCostPerDay)) {
+    console.info(`[budget] Automation "${a.name}" skipped — daily cap $${settings.maxCostPerDay} reached.`)
+    return
+  }
   const session: Session = {
     id: randomUUID(),
     title: `[auto] ${a.name}`,

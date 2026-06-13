@@ -222,6 +222,9 @@ export interface AppSettings {
   autoRouteModels: boolean
   // hard cost ceiling per turn in USD (0 = off); the loop pauses when exceeded.
   maxCostPerTurn: number
+  // daily spend ceiling in USD (0 = off). When today's recorded spend reaches it, UNATTENDED runs
+  // (cron workflows, automations, night shift) are skipped so a runaway loop can't burn money.
+  maxCostPerDay: number
   // optional: let the agent call the Claude Code CLI as a helper tool. DeepSeek
   // stays the orchestrator; Claude costs are billed to the user's Anthropic account.
   claudeCode: {
@@ -288,6 +291,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoMemory: false,
   autoRouteModels: true,
   maxCostPerTurn: 0,
+  maxCostPerDay: 0,
   claudeCode: {
     enabled: false,
     path: 'claude',

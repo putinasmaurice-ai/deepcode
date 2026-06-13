@@ -531,6 +531,16 @@ export function SettingsPanel({
           />
         </div>
         <div className="field" style={{ marginTop: 14 }}>
+          <label>Tages-Budget in $ (0 = aus) — unbeaufsichtigte Läufe (Cron-Workflows, Automations, Nachtschicht) werden übersprungen, sobald heute so viel ausgegeben wurde</label>
+          <input
+            type="number"
+            step="0.50"
+            value={s.maxCostPerDay ?? 0}
+            onChange={(e) => update({ maxCostPerDay: Number(e.target.value) })}
+            placeholder="z.B. 5.00"
+          />
+        </div>
+        <div className="field" style={{ marginTop: 14 }}>
           <label>Auto-compact threshold (tokens, 0 = off)</label>
           <input
             type="number"

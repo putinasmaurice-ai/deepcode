@@ -13,15 +13,21 @@ interface Ledger {
   tokens: number
   cost: number
   months: Record<string, { tokens: number; cost: number }> // 'YYYY-MM'
+  days?: Record<string, { tokens: number; cost: number }> // 'YYYY-MM-DD' (for the daily spend cap)
   since: number
 }
 
 const FILE = join(PATHS.root, 'usage-ledger.json')
+const KEEP_DAYS = 70
 let cache: Ledger | null = null
 
 function monthKey(ts: number): string {
   const d = new Date(ts)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+function dayKey(ts: number): string {
+  const d = new Date(ts)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 // One-time migration: seed the ledger from whatever usage already sits in the
@@ -97,11 +103,30 @@ export function recordUsage(usage: TokenUsage): void {
   const led = load()
   led.tokens += usage.totalTokens
   led.cost += usage.cost
-  const k = monthKey(Date.now())
-  const b = (led.months[k] ??= { tokens: 0, cost: 0 })
-  b.tokens += usage.totalTokens
-  b.cost += usage.cost
+  const now = Date.now()
+  const m = (led.months[monthKey(now)] ??= { tokens: 0, cost: 0 })
+  m.tokens += usage.totalTokens
+  m.cost += usage.cost
+  led.days ??= {}
+  const dk = dayKey(now)
+  const d = (led.days[dk] ??= { tokens: 0, cost: 0 })
+  d.tokens += usage.totalTokens
+  d.cost += usage.cost
+  // keep the daily map bounded (it's only for the rolling cap, not lifetime totals)
+  const keys = Object.keys(led.days)
+  if (keys.length > KEEP_DAYS) for (const old of keys.sort().slice(0, keys.length - KEEP_DAYS)) delete led.days[old]
   persist()
+}
+
+export function todayTotals(): { tokens: number; cost: number } {
+  const led = load()
+  return led.days?.[dayKey(Date.now())] ?? { tokens: 0, cost: 0 }
+}
+
+// True when a positive daily cap (USD) is set and today's recorded spend has reached it. Used to
+// halt UNATTENDED runs (cron/automations/night-shift) so a runaway loop can't burn money overnight.
+export function overDailyCap(cap: number): boolean {
+  return cap > 0 && todayTotals().cost >= cap
 }
 
 export function lifetimeTotals(): { tokens: number; cost: number } {
