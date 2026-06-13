@@ -64,6 +64,11 @@ produced** while the run streams; results flow between nodes via `{{variables}}`
 - **Run history** — inspect every past run: per-node input/output, errors, duration, final result.
 - **Per-node error handling** — retries (with delay) and *continue-on-error* so one flaky step
   doesn't kill the whole run.
+- **Rich expressions** — beyond `{{var}}`: read another node's output and JSON-path into it
+  (`{{node.fetch.user.name}}`, `{{item[0]}}`) — pure, safe, no `eval`.
+- **Encrypted secrets** — store API tokens once (OS-encrypted) and use `{{secret.NAME}}` in
+  tool/shell/http args; values are masked out of every run record, event and log, and barred
+  from agent prompts.
 - **Import / Export** — share or back up a workflow as a single `.json` file.
 - **Safe unattended** — runs block dangerous shell commands and gate high-blast-radius tools
   (MCP / Claude Code / sub-agent / `git push`); loops, step counts and total run time are bounded.
@@ -83,7 +88,9 @@ Per-command **approval allowlist** ("Immer erlauben" — exact command, scoped t
 `Y`/`N`/`A` approve / deny / approve-all the pending tool call. The context pill is
 model-aware (knows each model's real context window).
 
-Local models: pick any Ollama/LM Studio model with the `local:` prefix (free, offline).
+Models: the configured DeepSeek model, any Ollama/LM Studio model via the `local:` prefix
+(free, offline), and any **DeepInfra** model via the `deepinfra:` prefix (OpenAI-compatible —
+e.g. `deepinfra:deepseek-ai/DeepSeek-V4-Flash`, configured under Settings → ☁️ DeepInfra).
 🔓 Uncensored toggle (local unaligned model).
 
 **👁 Bild-Analyse — ONLINE/LOKAL:** DeepSeek can't see images, so when you attach one a

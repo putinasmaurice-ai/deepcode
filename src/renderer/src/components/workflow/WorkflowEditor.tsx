@@ -237,6 +237,7 @@ export function WorkflowEditor({
   const [runBanner, setRunBanner] = useState<{ kind: 'done' | 'error' | 'cancelled'; text?: string } | null>(null)
   const [issues, setIssues] = useState<WorkflowIssue[]>([])
   const [showRuns, setShowRuns] = useState(false)
+  const [secretNames, setSecretNames] = useState<string[]>([])
   const [colorMode, setColorMode] = useState<'light' | 'dark'>(() =>
     typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'
   )
@@ -252,6 +253,11 @@ export function WorkflowEditor({
     setEdges((eds) => addEdge({ ...c, animated: true }, eds))
     setSaved(false)
   }, [setEdges])
+
+  // secret NAMES (never values) for the picker — only insertable in tool/shell/http args
+  useEffect(() => {
+    api.secretsList().then(setSecretNames).catch(() => setSecretNames([]))
+  }, [])
 
   // live per-node status + output/error from the executor's workflow_* events (subscribe once)
   useEffect(() => {
@@ -561,6 +567,19 @@ export function WorkflowEditor({
                     {`{{${v}}}`}
                   </button>
                 ))}
+                {/* secrets — only insertable in deterministic-arg nodes (never agent prompts) */}
+                {['tool', 'shell', 'http'].includes(selected.type) &&
+                  secretNames.map((s) => (
+                    <button
+                      key={'secret-' + s}
+                      className="wf-varchip secret"
+                      title="Verschlüsseltes Secret"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => insertVar('secret.' + s)}
+                    >
+                      🔑 {s}
+                    </button>
+                  ))}
               </div>
             )}
             {selDef.fields.map((f) => {

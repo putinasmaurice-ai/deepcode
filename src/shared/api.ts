@@ -160,6 +160,9 @@ export interface DeepCodeApi {
   getWorkflowRun(runId: string): Promise<WorkflowRun | null>
   exportWorkflow(id: string): Promise<boolean>
   importWorkflow(): Promise<WorkflowDef | null>
+  secretsList(): Promise<string[]>
+  secretSet(name: string, value: string): Promise<boolean>
+  secretDelete(name: string): Promise<boolean>
 
   // automations
   listAutomations(): Promise<AutomationDef[]>

@@ -94,23 +94,36 @@ export class DeepSeekClient {
   ): Promise<StreamResult> {
     const rawModel = modelOverride || this.settings.model
     // Routing by model-id prefix:
-    //  "local:<name>"  → local OpenAI-compatible endpoint (Ollama/LM Studio): keyless, free.
-    //  "google:<name>" → Google AI Studio (Gemini), OpenAI-compatible: needs googleApiKey.
-    //  otherwise       → the configured DeepSeek endpoint.
+    //  "local:<name>"     → local OpenAI-compatible endpoint (Ollama/LM Studio): keyless, free.
+    //  "google:<name>"    → Google AI Studio (Gemini), OpenAI-compatible: needs googleApiKey.
+    //  "deepinfra:<name>" → DeepInfra (OpenAI-compatible): needs deepinfraApiKey.
+    //  otherwise          → the configured DeepSeek endpoint.
     const isLocal = rawModel.startsWith('local:')
     const isGoogle = rawModel.startsWith('google:')
-    const model = isLocal ? rawModel.slice('local:'.length) : isGoogle ? rawModel.slice('google:'.length) : rawModel
+    const isDeepinfra = rawModel.startsWith('deepinfra:')
+    const model = isLocal
+      ? rawModel.slice('local:'.length)
+      : isGoogle
+        ? rawModel.slice('google:'.length)
+        : isDeepinfra
+          ? rawModel.slice('deepinfra:'.length)
+          : rawModel
     const base = isLocal
       ? this.settings.localBaseUrl || 'http://localhost:11434/v1'
       : isGoogle
         ? this.settings.googleBaseUrl || 'https://generativelanguage.googleapis.com/v1beta/openai'
-        : this.settings.baseUrl
-    const apiKey = isGoogle ? this.settings.googleApiKey : this.settings.apiKey
+        : isDeepinfra
+          ? this.settings.deepinfraBaseUrl || 'https://api.deepinfra.com/v1/openai'
+          : this.settings.baseUrl
+    const apiKey = isGoogle ? this.settings.googleApiKey : isDeepinfra ? this.settings.deepinfraApiKey : this.settings.apiKey
 
     if (isGoogle && (!this.settings.googleApiKey || !this.settings.googleApiKey.trim())) {
       throw new Error('Kein Google-AI-Studio-Key konfiguriert. Trage ihn in den Settings ein (für Bild-Analyse online).')
     }
-    if (!isLocal && !isGoogle && (!this.settings.apiKey || !this.settings.apiKey.trim())) {
+    if (isDeepinfra && (!this.settings.deepinfraApiKey || !this.settings.deepinfraApiKey.trim())) {
+      throw new Error('Kein DeepInfra-API-Key konfiguriert. Trage ihn in den Settings ein.')
+    }
+    if (!isLocal && !isGoogle && !isDeepinfra && (!this.settings.apiKey || !this.settings.apiKey.trim())) {
       throw new Error('DeepSeek API key is not configured. Add it in Settings.')
     }
 

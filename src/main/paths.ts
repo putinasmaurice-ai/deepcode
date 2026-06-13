@@ -20,7 +20,8 @@ export const PATHS = {
   memoryIndex: join(CONFIG_DIR, 'memory', 'MEMORY.md'),
   automations: join(CONFIG_DIR, 'automations.json'),
   workflows: join(CONFIG_DIR, 'workflows'),
-  workflowRuns: join(CONFIG_DIR, 'workflows', 'runs')
+  workflowRuns: join(CONFIG_DIR, 'workflows', 'runs'),
+  secrets: join(CONFIG_DIR, 'workflows', 'secrets.json')
 }
 
 // Per-project config dir (.deepcode inside the opened workspace)

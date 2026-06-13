@@ -21,7 +21,9 @@ const REQUIRED_FIELD: Partial<Record<WorkflowNode['type'], { key: string; label:
   subworkflow: { key: 'workflowId', label: 'Workflow-ID' }
 }
 
-const KNOWN_NODE_TYPES = new Set<string>([
+// single source of truth for node types — imported by the importWorkflow IPC guard too,
+// so the renderer, validator and importer can't drift apart.
+export const KNOWN_NODE_TYPES = new Set<string>([
   'trigger', 'agent', 'tool', 'shell', 'http', 'condition', 'switch', 'transform', 'subworkflow', 'delay', 'notify', 'output'
 ])
 
@@ -76,6 +78,11 @@ export function validateWorkflow(def: WorkflowDef): WorkflowIssue[] {
     const req = REQUIRED_FIELD[n.type]
     if (req && !nonEmpty(cfg[req.key])) {
       issues.push({ nodeId: n.id, severity: sev, message: `${req.label} fehlt.` })
+    }
+    // secrets are deterministic-arg only (tool/shell/http) — a {{secret.*}} in an agent
+    // prompt would be sent to the model + streamed/persisted in plaintext. Block it.
+    if (n.type === 'agent' && /\{\{\s*secret\./.test(String(cfg.prompt ?? ''))) {
+      issues.push({ nodeId: n.id, severity: 'error', message: '{{secret.*}} ist im Agent-Prompt nicht erlaubt — nutze es nur in Tool/Shell/HTTP-Argumenten.' })
     }
     // a cron trigger that never fires looks "armed" but silently does nothing — block it
     if (n.type === 'trigger' && cfg.mode === 'cron') {

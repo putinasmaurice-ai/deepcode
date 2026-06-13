@@ -13,6 +13,62 @@ import type {
 
 const api = window.deepcode
 
+// Encrypted secrets for workflows. Values are write-only — they never come back from main;
+// existing names show a placeholder. Use {{secret.NAME}} in tool/shell/http node args.
+function SecretsCard(): JSX.Element {
+  const [names, setNames] = useState<string[]>([])
+  const [name, setName] = useState('')
+  const [value, setValue] = useState('')
+  const [err, setErr] = useState('')
+  const refresh = (): void => {
+    api.secretsList().then(setNames).catch(() => setNames([]))
+  }
+  useEffect(refresh, [])
+  async function add(): Promise<void> {
+    setErr('')
+    try {
+      await api.secretSet(name.trim(), value)
+      setName('')
+      setValue('')
+      refresh()
+    } catch (e) {
+      setErr(String((e as Error).message ?? e))
+    }
+  }
+  return (
+    <div className="card">
+      <h3>🔑 Workflow-Secrets</h3>
+      <p>
+        Verschlüsselt gespeichert (OS-Schlüsselbund). In Workflow-<b>Tool/Shell/HTTP</b>-Argumenten als{' '}
+        <code>{'{{secret.NAME}}'}</code> nutzen. Werte verlassen den Hauptprozess nie und werden aus Ausgaben/Events maskiert.
+      </p>
+      <div className="row" style={{ marginTop: 12 }}>
+        <div className="field">
+          <label>Name (A–Z, 0–9, _)</label>
+          <input value={name} placeholder="API_TOKEN" onChange={(e) => setName(e.target.value.toUpperCase())} />
+        </div>
+        <div className="field">
+          <label>Wert (wird verschlüsselt)</label>
+          <input type="password" value={value} placeholder="•••" onChange={(e) => setValue(e.target.value)} />
+        </div>
+      </div>
+      <button className="btn ghost sm" disabled={!name.trim() || !value} onClick={add}>+ Secret speichern</button>
+      {err && <span className="wf-field-err" style={{ display: 'block', marginTop: 6 }}>⚠ {err}</span>}
+      {names.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
+          {names.map((n) => (
+            <div key={n} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <code style={{ flex: 1 }}>{n}</code>
+              <span style={{ color: 'var(--text-faint)', fontSize: 12 }}>••• gespeichert</span>
+              <button className="btn ghost sm" onClick={() => api.secretDelete(n).then(refresh)}>Löschen</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Switch({ on, onClick }: { on: boolean; onClick: () => void }): JSX.Element {
   return <span className={'switch' + (on ? ' on' : '')} onClick={onClick} />
 }
@@ -293,6 +349,44 @@ export function SettingsPanel({
           />
         </div>
       </div>
+
+      <div className="card">
+        <h3>☁️ DeepInfra (zusätzliche Modelle)</h3>
+        <p>
+          OpenAI-kompatibler Anbieter. Modelle mit Präfix <code>deepinfra:</code> werden hierhin geroutet und erscheinen
+          im Modell-Auswahlmenü (oben rechts im Chat).
+        </p>
+        <div className="field" style={{ marginTop: 12 }}>
+          <label>DeepInfra-API-Key — verschlüsselt gespeichert</label>
+          <input
+            type="password"
+            value={p.deepinfraApiKey ?? ''}
+            placeholder="…"
+            onChange={(e) => updateProvider({ deepinfraApiKey: e.target.value })}
+          />
+        </div>
+        <div className="field">
+          <label>DeepInfra Base URL (OpenAI-kompatibel)</label>
+          <input
+            value={p.deepinfraBaseUrl ?? 'https://api.deepinfra.com/v1/openai'}
+            onChange={(e) => updateProvider({ deepinfraBaseUrl: e.target.value })}
+            placeholder="https://api.deepinfra.com/v1/openai"
+          />
+        </div>
+        <div className="field">
+          <label>Modelle im Auswahlmenü (eine ID pro Zeile, Präfix <code>deepinfra:</code>)</label>
+          <textarea
+            style={{ minHeight: 84, fontFamily: 'var(--mono)', fontSize: 12 }}
+            value={(p.extraModels ?? []).join('\n')}
+            onChange={(e) =>
+              updateProvider({ extraModels: e.target.value.split('\n').map((l) => l.trim()).filter(Boolean) })
+            }
+            placeholder={'deepinfra:deepseek-ai/DeepSeek-V4-Flash\ndeepinfra:openai/gpt-oss-120b'}
+          />
+        </div>
+      </div>
+
+      <SecretsCard />
 
       <div className="card">
         <h3>Permissions (auto-approve)</h3>

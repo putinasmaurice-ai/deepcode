@@ -49,6 +49,8 @@ import {
 } from './workflows/store'
 import { runWorkflow, WorkflowDeps } from './workflows/executor'
 import { WorkflowScheduler } from './workflows/scheduler'
+import { KNOWN_NODE_TYPES } from '@shared/workflows'
+import { listSecretNames, setSecret, deleteSecret, loadSecretsResolved, buildMaskList, maskWith } from './workflows/secrets'
 import { isDangerousCommand } from './agent/policy'
 import { WorkflowDef } from '@shared/types'
 import { runBuiltin } from './builtins'
@@ -532,11 +534,30 @@ export function registerIpc(win: BrowserWindow): void {
   const wfAborters = new Map<string, AbortController>()
   // Build the executor deps: reuse the real agent loop (agent nodes), the built-in tools
   // (tool/shell/http nodes), and recursion (sub-workflow nodes). `depth` guards recursion.
-  const makeWfDeps = (cwd: string, signal: AbortSignal, depth: number): WorkflowDeps => ({
+  const makeWfDeps = (cwd: string, signal: AbortSignal, depth: number): WorkflowDeps => {
+    // per-level secret snapshot + masking. Each recursion level wraps its OWN emit, so child
+    // events are masked too (M2 will thread one snapshot via runCtx to avoid re-decrypt).
+    const secrets = loadSecretsResolved()
+    const maskList = buildMaskList(secrets)
+    const mask = (s: string): string => maskWith(maskList, s)
+    // wrap emit ONCE: deep-mask EVERY string field of the event (not just top-level
+    // message/output/error) — the agent stream carries text in delta / message.content /
+    // toolCall.arguments / args / result.content. Serialize→mask→parse redacts them all.
+    const maskedEmit = (e: AgentEvent): void => {
+      if (!maskList.length) return emit(e)
+      try {
+        emit(JSON.parse(mask(JSON.stringify(e))) as AgentEvent)
+      } catch {
+        emit(e) // non-serializable event → emit as-is rather than dropping it
+      }
+    }
+    return {
     cwd,
     signal,
     depth,
-    emit,
+    emit: maskedEmit,
+    mask,
+    resolveSecret: (name: string) => secrets[name],
     runAgent: async (prompt, c) => {
       // workflow already cancelled before this node started → don't even create a
       // throwaway session or burn a turn (engine.cancel here would be a no-op anyway,
@@ -563,7 +584,7 @@ export function registerIpc(win: BrowserWindow): void {
         // unattended=true → the engine's approval gate blocks MCP / claude_code / task /
         // git push|pr for this agent node (no user to approve), closing the hole where the
         // agent node would otherwise bypass the tool-node gate under policy 'full'.
-        await engine.runTurn(session, prompt, emit, 'full', undefined, true)
+        await engine.runTurn(session, prompt, maskedEmit, 'full', undefined, true)
         const last = [...session.messages].reverse().find((m) => m.role === 'assistant')
         return last?.content ?? ''
       } finally {
@@ -623,7 +644,8 @@ export function registerIpc(win: BrowserWindow): void {
       if (r.status !== 'done') throw new Error(`Sub-Workflow „${child.name}" endete mit Status ${r.status}${r.error ? ': ' + r.error : ''}`)
       return r.vars?.last ?? ''
     }
-  })
+    }
+  }
 
   ipcMain.handle(IPC.listWorkflows, () => listWorkflows())
   ipcMain.handle(IPC.getWorkflow, (_e, id: string) => getWorkflow(id))
@@ -664,12 +686,9 @@ export function registerIpc(win: BrowserWindow): void {
       throw new Error('Keine gültige Workflow-Datei (nodes/edges fehlen).')
     }
     // validate element SHAPE too — a null/typeless node or duplicate id would otherwise be
-    // persisted and crash the editor on open / mis-route at run time.
-    const KNOWN_TYPES = new Set([
-      'trigger', 'agent', 'tool', 'shell', 'http', 'condition', 'switch', 'transform', 'subworkflow', 'delay', 'notify', 'output'
-    ])
+    // persisted and crash the editor on open / mis-route at run time. (shared type set)
     const okNode = (n: unknown): boolean =>
-      !!n && typeof n === 'object' && typeof (n as { id?: unknown }).id === 'string' && !!(n as { id: string }).id && KNOWN_TYPES.has(String((n as { type?: unknown }).type))
+      !!n && typeof n === 'object' && typeof (n as { id?: unknown }).id === 'string' && !!(n as { id: string }).id && KNOWN_NODE_TYPES.has(String((n as { type?: unknown }).type))
     const okEdge = (e: unknown): boolean =>
       !!e && typeof e === 'object' && typeof (e as { id?: unknown }).id === 'string' && typeof (e as { source?: unknown }).source === 'string' && typeof (e as { target?: unknown }).target === 'string'
     if (!p.nodes.every(okNode) || !p.edges.every(okEdge)) {
@@ -690,6 +709,16 @@ export function registerIpc(win: BrowserWindow): void {
       updatedAt: now
     }
     return saveWorkflow(def)
+  })
+  // ---- workflow secrets (encrypted; values never leave main, only names are listed) ----
+  ipcMain.handle(IPC.secretsList, () => listSecretNames())
+  ipcMain.handle(IPC.secretSet, (_e, name: string, value: string) => {
+    setSecret(name, value) // throws (clear message) on invalid name / no-encryption
+    return true
+  })
+  ipcMain.handle(IPC.secretDelete, (_e, name: string) => {
+    deleteSecret(name)
+    return true
   })
   ipcMain.handle(IPC.cancelWorkflow, (_e, runId: string) => {
     wfAborters.get(runId)?.abort()

@@ -987,11 +987,16 @@ export function App(): JSX.Element {
                     settings.provider.model,
                     settings.provider.reasonerModel,
                     session.model || settings.provider.model,
+                    ...(settings.provider.extraModels ?? []),
                     ...localModels.map((m) => 'local:' + m)
                   ])
                 ).map((m) => (
                   <option key={m} value={m}>
-                    {m.startsWith('local:') ? '💻 ' + m : m}
+                    {m.startsWith('local:')
+                      ? '💻 ' + m.slice('local:'.length)
+                      : m.startsWith('deepinfra:')
+                        ? '☁️ ' + m.slice('deepinfra:'.length)
+                        : m}
                   </option>
                 ))}
               </select>

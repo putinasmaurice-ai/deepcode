@@ -168,6 +168,11 @@ export interface ProviderSettings {
   googleBaseUrl: string
   // online vision model used in ONLINE mode (e.g. gemini-2.5-flash-lite)
   onlineVisionModel: string
+  // ---- DeepInfra (OpenAI-compatible) — models prefixed "deepinfra:" route here ----
+  deepinfraApiKey: string
+  deepinfraBaseUrl: string
+  // extra model ids offered in the model picker (already prefixed, e.g. "deepinfra:owner/Model")
+  extraModels: string[]
 }
 
 export interface AppSettings {
@@ -233,7 +238,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
     embeddingModel: 'nomic-embed-text',
     googleApiKey: '',
     googleBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    onlineVisionModel: 'gemini-2.5-flash-lite'
+    onlineVisionModel: 'gemini-2.5-flash-lite',
+    deepinfraApiKey: '',
+    deepinfraBaseUrl: 'https://api.deepinfra.com/v1/openai',
+    extraModels: [
+      'deepinfra:deepseek-ai/DeepSeek-V4-Flash', // cheaper DeepSeek via DeepInfra
+      'deepinfra:openai/gpt-oss-120b',
+      'deepinfra:Qwen/Qwen3-VL-235B-A22B-Instruct' // vision-language
+    ]
   },
   autoApprove: {
     read: true,

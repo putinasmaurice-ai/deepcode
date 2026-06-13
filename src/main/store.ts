@@ -44,6 +44,14 @@ export function loadSettings(): AppSettings {
           /* leave whatever plaintext key may exist */
         }
       }
+      // DeepInfra key — same treatment.
+      if (raw._deepinfraKeyEnc && encryptionOk()) {
+        try {
+          merged.provider.deepinfraApiKey = safeStorage.decryptString(Buffer.from(raw._deepinfraKeyEnc, 'base64'))
+        } catch {
+          /* leave whatever plaintext key may exist */
+        }
+      }
       // Dev/test hook only: lets automated launches (Playwright/CI) supply a key when
       // safeStorage can't decrypt outside the interactive user session. Never set in
       // normal use.
@@ -63,10 +71,11 @@ export function saveSettings(settings: AppSettings): void {
   ensureConfigDirs()
   const key = settings.provider.apiKey ?? ''
   const gkey = settings.provider.googleApiKey ?? ''
+  const dikey = settings.provider.deepinfraApiKey ?? ''
   // Persist keys encrypted; never write them in plaintext when encryption works.
   const onDisk: any = {
     ...settings,
-    provider: { ...settings.provider, apiKey: '', googleApiKey: '' }
+    provider: { ...settings.provider, apiKey: '', googleApiKey: '', deepinfraApiKey: '' }
   }
   if (key && encryptionOk()) {
     try {
@@ -85,6 +94,15 @@ export function saveSettings(settings: AppSettings): void {
     }
   } else if (gkey) {
     onDisk.provider.googleApiKey = gkey
+  }
+  if (dikey && encryptionOk()) {
+    try {
+      onDisk._deepinfraKeyEnc = safeStorage.encryptString(dikey).toString('base64')
+    } catch {
+      onDisk.provider.deepinfraApiKey = dikey
+    }
+  } else if (dikey) {
+    onDisk.provider.deepinfraApiKey = dikey
   }
   writeFileSync(PATHS.settings, JSON.stringify(onDisk, null, 2), 'utf8')
 }

@@ -128,6 +128,19 @@ describe('validateWorkflow', () => {
     expect(hasBlockingErrors(iss)).toBe(false) // missing branch edges are warnings
   })
 
+  it('blocks {{secret.*}} in an agent prompt (plaintext leak risk)', () => {
+    const d = def({
+      nodes: [
+        { id: 't', type: 'trigger', config: {} },
+        { id: 'a', type: 'agent', config: { prompt: 'use {{secret.TOKEN}} please' } }
+      ],
+      edges: [{ id: 'e', source: 't', target: 'a' }]
+    })
+    const iss = validateWorkflow(d)
+    expect(hasBlockingErrors(iss)).toBe(true)
+    expect(iss.some((i) => i.nodeId === 'a' && /secret/.test(i.message))).toBe(true)
+  })
+
   it('passes a well-formed workflow', () => {
     const d = def({
       nodes: [

@@ -2306,6 +2306,10 @@ kbd {
 .wf-varchip:hover {
   border-color: var(--accent);
 }
+.wf-varchip.secret {
+  color: var(--yellow);
+  border-color: color-mix(in srgb, var(--yellow) 40%, transparent);
+}
 /* per-node error-handling block in the config drawer */
 .wf-adv {
   margin-top: 10px;

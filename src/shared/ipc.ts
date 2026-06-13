@@ -87,6 +87,9 @@ export const IPC = {
   getWorkflowRun: 'workflows:getRun',
   exportWorkflow: 'workflows:export',
   importWorkflow: 'workflows:import',
+  secretsList: 'workflows:secretsList',
+  secretSet: 'workflows:secretSet',
+  secretDelete: 'workflows:secretDelete',
 
   // automations
   listAutomations: 'automations:list',
