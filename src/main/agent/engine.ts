@@ -18,6 +18,8 @@ import { runSecondOpinion, runArena } from './variants'
 import { compactSession } from './compact'
 import { distillSkill, distillMemories } from './distill'
 import { generateWorkflow } from '../workflows/generate'
+import { loadSkillScenarios, runSkillScenarios } from '../systems/skill-test'
+import type { SkillTestResult } from '@shared/skill-test'
 import { runSubagent } from './subagent'
 import { loadHooks, runHooks } from '../systems/hooks'
 import { pluginHooks } from '../systems/plugins'
@@ -227,6 +229,28 @@ export class AgentEngine {
 
   generateWorkflow(description: string, id: string, now: number): Promise<WorkflowDef> {
     return generateWorkflow(this.deps(), description, id, now)
+  }
+
+  // Validate a skill against its tests.json scenarios. Scenarios with a `mock` response run
+  // offline/free; the rest run the skill body + prompt through the model (no tools).
+  async testSkill(skillName: string, cwd?: string): Promise<{ found: boolean; results: SkillTestResult[] }> {
+    const { found, scenarios, body } = loadSkillScenarios(skillName, cwd)
+    if (!found) return { found: false, results: [] }
+    const complete = async (system: string, prompt: string): Promise<string> => {
+      const res = await this.client.streamChat(
+        [
+          { role: 'system', content: system },
+          { role: 'user', content: prompt }
+        ],
+        [],
+        {},
+        new AbortController().signal
+      )
+      if (res.usage) recordUsage(costOf(this.settings.provider, res.usage, this.settings.provider.model))
+      return res.content
+    }
+    const results = await runSkillScenarios(body, scenarios, complete)
+    return { found: true, results }
   }
 
   // --- approval ----------------------------------------------------------

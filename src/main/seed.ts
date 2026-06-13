@@ -35,6 +35,52 @@ When asked to review code or a diff:
 4. Offer to apply the fixes.
 `
   )
+  // example skill tests (run with /skill-test code-review) — both use `mock` so they pass
+  // offline/zero-token and demonstrate the format; omit "mock" to run the real model.
+  writeIfMissing(
+    join(PATHS.skills, 'code-review', 'tests.json'),
+    JSON.stringify(
+      {
+        scenarios: [
+          {
+            name: 'flags a SQL injection and proposes a fix',
+            prompt: "Review: db.query('SELECT * FROM users WHERE id = ' + req.params.id)",
+            expect: ['injection', 'fix'],
+            forbid: ['looks good', 'no issues'],
+            mock: 'Critical (security): SQL injection — user input is concatenated into the query. Fix: use a parameterized query, e.g. db.query("... WHERE id = ?", [req.params.id]).'
+          },
+          {
+            name: 'groups findings by severity',
+            prompt: 'Review a function that ignores its return value and has an off-by-one loop.',
+            expect: ['critical', 'nit'],
+            mock: 'Critical: off-by-one in the loop bound (use < length). Warning: return value ignored. Nit: name the magic number.'
+          }
+        ]
+      },
+      null,
+      2
+    )
+  )
+
+  // --- Skill: skill-creator (how to author good skills) ---
+  writeIfMissing(
+    join(PATHS.skills, 'skill-creator', 'SKILL.md'),
+    `---
+name: skill-creator
+description: Author effective, well-scoped skills for DeepCode — progressive disclosure, sharp triggers, testable
+---
+
+# Skill creator
+
+A skill is \`skills/<name>/SKILL.md\` with frontmatter (\`name\`, \`description\`) + a markdown playbook. The model is shown only name+description until it decides the skill applies, then the full body is injected.
+
+1. **Trigger lives in the description**, not the body: write a crisp \`description\` that says WHEN to use it (the model matches on this). Don't bury the trigger in prose.
+2. **Progressive disclosure / keep it tight**: aim well under ~500 lines. State the procedure as numbered, generalized steps with concrete commands/patterns — not an essay. Small local models have tight context budgets.
+3. **One job per skill**: split unrelated procedures into separate skills.
+4. **Make it testable**: add a \`tests.json\` next to SKILL.md with scenarios — \`prompt\`, \`expect\` (substrings the response should contain), \`forbid\` (must not contain), and an optional \`mock\` response so the test runs offline/zero-token. Validate with \`/skill-test <name>\`.
+5. Avoid session-specific paths/secrets; reference tools by name (read_file, run_command, use_skill, web_request, …).
+`
+  )
 
   // --- Skill: ast-grep structural search/rewrite (CLI via run_command) ---
   writeIfMissing(

@@ -69,6 +69,7 @@ builtins.set('help', ({ emit, session }) => {
   lines.push('- `/learn [Fokus]` — aus diesem Chat einen wiederverwendbaren Skill destillieren')
   lines.push('- `/remember` — bleibende Fakten aus diesem Chat ins Memory aufnehmen')
   lines.push('- `/wf [Name] [Eingabe]` — gespeicherten Workflow auflisten/aus dem Chat starten')
+  lines.push('- `/skill-test <name>` — einen Skill gegen seine tests.json prüfen (offline mit `mock`)')
   if (cmds.length) {
     lines.push('\n**Eigene Befehle:**')
     for (const c of cmds) lines.push(`- \`/${c.name}\` — ${c.description}`)
@@ -191,6 +192,38 @@ builtins.set('remember', async ({ session, emit, engine }) => {
     )
   } catch (e) {
     emitInfo(emit, `Extraktion fehlgeschlagen: ${(e as Error).message}`)
+  }
+})
+
+builtins.set('skill-test', async ({ args, emit, engine, session }) => {
+  const name = args.trim()
+  if (!name) {
+    emitInfo(emit, 'Nutzung: `/skill-test <skill-name>` — prüft einen Skill gegen seine `tests.json` (Szenarien mit expected/forbidden; `mock`-Antworten laufen offline/gratis).')
+    return
+  }
+  emit({ type: 'status', message: `Teste Skill „${name}"…` })
+  try {
+    const { found, results } = await engine.testSkill(name, session.cwd)
+    if (!found) {
+      emitInfo(emit, `Skill „${name}" nicht gefunden. \`/help\` listet verfügbare Skills.`)
+      return
+    }
+    if (!results.length) {
+      emitInfo(emit, `Skill „${name}" hat keine Tests. Lege eine \`tests.json\` neben die SKILL.md (siehe code-review als Beispiel).`)
+      return
+    }
+    const passed = results.filter((r) => r.pass).length
+    const lines = results.map((r) => {
+      const head = `${r.pass ? '✅' : '❌'} ${r.name}${r.usedMock ? ' _(mock)_' : ''}`
+      if (r.pass) return head
+      const det: string[] = []
+      if (r.missingExpect.length) det.push(`fehlt: ${r.missingExpect.map((s) => `\`${s}\``).join(', ')}`)
+      if (r.hitForbid.length) det.push(`verboten gefunden: ${r.hitForbid.map((s) => `\`${s}\``).join(', ')}`)
+      return `${head}\n   ${det.join(' · ')}`
+    })
+    emitInfo(emit, `## 🧪 Skill-Test „${name}": ${passed}/${results.length} bestanden\n\n${lines.join('\n')}`)
+  } catch (e) {
+    emitInfo(emit, `Skill-Test fehlgeschlagen: ${(e as Error).message}`)
   }
 })
 
