@@ -78,6 +78,9 @@ export function saveSettings(settings: AppSettings): void {
     ...settings,
     provider: { ...settings.provider, apiKey: '', googleApiKey: '', deepinfraApiKey: '' }
   }
+  // clamp maxTokens: a cleared field persists 0/NaN which the API rejects — coerce back to default.
+  const mt = Number(onDisk.provider.maxTokens)
+  if (!Number.isFinite(mt) || mt < 1) onDisk.provider.maxTokens = DEFAULT_SETTINGS.provider.maxTokens
   if (key && encryptionOk()) {
     try {
       onDisk._apiKeyEnc = safeStorage.encryptString(key).toString('base64')
@@ -179,7 +182,9 @@ export function saveSession(session: Session): void {
   // atomic write: tmp + rename, so a crash mid-write can't corrupt the session
   const target = sessionPath(session.id)
   const tmp = target + '.tmp'
-  writeFileSync(tmp, JSON.stringify(session, null, 2), 'utf8')
+  // no pretty-print: saveSession runs on every agent step (~100+ writes/turn); the 2-space indent
+  // ~doubled bytes + CPU for a machine-read file. Minified is parsed identically by getSession.
+  writeFileSync(tmp, JSON.stringify(session), 'utf8')
   renameSync(tmp, target)
   ensureSessionCache().set(session.id, { ...session, messages: [] })
 }

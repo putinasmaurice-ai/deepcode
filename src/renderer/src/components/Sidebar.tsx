@@ -106,7 +106,15 @@ export function Sidebar(p: SidebarProps): JSX.Element {
             <h4>Projekte</h4>
             <div
               className={'session-item' + (p.activeProjectId === null ? ' active' : '')}
+              role="button"
+              tabIndex={0}
               onClick={() => p.onSelectProject(null)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  p.onSelectProject(null)
+                }
+              }}
             >
               <span>Alle Chats</span>
             </div>
@@ -114,7 +122,15 @@ export function Sidebar(p: SidebarProps): JSX.Element {
               <div
                 key={proj.id}
                 className={'session-item' + (p.activeProjectId === proj.id ? ' active' : '')}
+                role="button"
+                tabIndex={0}
                 onClick={() => p.onSelectProject(proj.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    p.onSelectProject(proj.id)
+                  }
+                }}
                 title={proj.cwd}
               >
                 <span>
@@ -136,7 +152,19 @@ export function Sidebar(p: SidebarProps): JSX.Element {
           <>
             <h4>Treffer im Verlauf</h4>
             {p.contentHits.map((h) => (
-              <div key={h.sessionId} className="session-item" onClick={() => p.onOpenSession(h.sessionId)}>
+              <div
+                key={h.sessionId}
+                className="session-item"
+                role="button"
+                tabIndex={0}
+                onClick={() => p.onOpenSession(h.sessionId)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    p.onOpenSession(h.sessionId)
+                  }
+                }}
+              >
                 <div style={{ minWidth: 0, overflow: 'hidden' }}>
                   <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.title}</div>
                   <div className="session-meta">{h.snippet.slice(0, 60)}</div>
@@ -157,9 +185,24 @@ export function Sidebar(p: SidebarProps): JSX.Element {
             <div
               key={s.id}
               className={'session-item' + (p.activeSessionId === s.id ? ' active' : '')}
+              role="button"
+              tabIndex={p.renamingId === s.id ? -1 : 0}
               onClick={() => p.onOpenSession(s.id)}
               onDoubleClick={() => p.onStartRename(s.id, s.title || '')}
-              title={s.cwd + ' (Doppelklick: umbenennen)'}
+              onKeyDown={(e) => {
+                if (p.renamingId === s.id) return // the rename input handles its own keys
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  p.onOpenSession(s.id)
+                } else if (e.key === 'F2') {
+                  e.preventDefault()
+                  p.onStartRename(s.id, s.title || '')
+                } else if (e.key === 'Delete') {
+                  e.preventDefault()
+                  p.onDeleteSession(s.id)
+                }
+              }}
+              title={s.cwd + ' (Doppelklick / F2: umbenennen)'}
             >
               {p.renamingId === s.id ? (
                 <input
@@ -182,15 +225,18 @@ export function Sidebar(p: SidebarProps): JSX.Element {
                   </div>
                 </div>
               )}
-              <span
+              <button
+                type="button"
                 className="x"
+                aria-label={`Chat „${s.title || 'Untitled'}" löschen`}
                 onClick={(ev) => {
                   ev.stopPropagation()
                   p.onDeleteSession(s.id)
                 }}
+                onKeyDown={(ev) => ev.stopPropagation()}
               >
                 ✕
-              </span>
+              </button>
             </div>
           ))}
       </div>

@@ -79,6 +79,11 @@ export function coerceWorkflow(raw: RawWorkflow, id: string, now: number): Workf
       config: o.config && typeof o.config === 'object' ? (o.config as Record<string, unknown>) : {}
     })
   }
+  // force every generated trigger to MANUAL: a cron trigger would be auto-armed by the scheduler
+  // (~20s) before the user reviews the workflow the editor is about to open. The user can switch
+  // it to cron in the editor once they've vetted the (model-authored) agent/shell nodes.
+  for (const n of nodes) if (n.type === 'trigger') n.config = { mode: 'manual' }
+
   // guarantee an entry trigger: if the model produced none, prepend one wired to the first node
   if (nodes.length && !nodes.some((n) => n.type === 'trigger')) {
     const first = nodes[0]

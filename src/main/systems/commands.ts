@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { PATHS, projectConfigDir } from '../paths'
 import { parseFrontmatter, str } from './frontmatter'
+import { pluginCommands } from './plugins'
 import { SlashCommandDef } from '@shared/types'
 
 // A slash command is ~/.deepcode/commands/<name>.md whose body is a prompt
@@ -38,7 +39,9 @@ export function loadCommands(cwd?: string): SlashCommandDef[] {
 }
 
 export function expandCommand(name: string, args: string, cwd?: string): string | null {
-  const cmd = loadCommands(cwd).find((c) => c.name === name)
+  // include plugin-provided commands — the listing endpoints advertise them, so dispatch must
+  // resolve them too (file commands win on a name clash). Otherwise "/pluginCmd" was sent literally.
+  const cmd = [...loadCommands(cwd), ...pluginCommands()].find((c) => c.name === name)
   if (!cmd) return null
   if (cmd.template.includes('$ARGUMENTS')) return cmd.template.replaceAll('$ARGUMENTS', args)
   return args ? `${cmd.template}\n\n${args}` : cmd.template

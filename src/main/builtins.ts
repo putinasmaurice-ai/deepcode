@@ -239,9 +239,14 @@ builtins.set('wf', async ({ args, emit, runWorkflowFromChat }) => {
   try {
     const res = await runWorkflowFromChat(def, input)
     if (res.status === 'done') {
+      // cap the echoed result so a huge workflow output can't bloat the session / jank the chat
+      // (the full result stays available in the workflow's run history).
+      const full = res.output.trim()
+      const MAX_ECHO = 8000
+      const shown = full.length > MAX_ECHO ? `${full.slice(0, MAX_ECHO)}\n\n_…(${full.length - MAX_ECHO} Zeichen gekürzt — vollständig im Verlauf)_` : full
       emitInfo(
         emit,
-        `✅ **Workflow „${def.name}" abgeschlossen.**${res.output.trim() ? `\n\n${res.output.trim()}` : '\n\n_(keine Textausgabe)_'}`
+        `✅ **Workflow „${def.name}" abgeschlossen.**${shown ? `\n\n${shown}` : '\n\n_(keine Textausgabe)_'}`
       )
     } else if (res.status === 'cancelled') {
       emitInfo(emit, `⏹️ Workflow „${def.name}" abgebrochen.`)

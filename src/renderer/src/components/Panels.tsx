@@ -70,7 +70,17 @@ function SecretsCard(): JSX.Element {
 }
 
 function Switch({ on, onClick }: { on: boolean; onClick: () => void }): JSX.Element {
-  return <span className={'switch' + (on ? ' on' : '')} onClick={onClick} />
+  // a real role="switch" button → focusable + keyboard-operable (Space/Enter) for free, unlike
+  // a bare <span> which keyboard / screen-reader users could never toggle.
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      className={'switch' + (on ? ' on' : '')}
+      onClick={onClick}
+    />
+  )
 }
 
 // Manage the persistent, cwd-scoped "Immer erlauben" shell-command allowlist.
@@ -146,21 +156,32 @@ export function SettingsPanel({
 }): JSX.Element {
   const [s, setS] = useState<AppSettings>(settings)
   const [saved, setSaved] = useState(false)
+  const [dirty, setDirty] = useState(false)
   const p = s.provider
+
+  // re-sync the local copy when settings change OUTSIDE this panel (e.g. the sidebar theme
+  // toggle) — but only when there are no unsaved edits, so we don't clobber the user's input.
+  // Without this, save() would write the stale snapshot and silently revert the external change.
+  useEffect(() => {
+    if (!dirty) setS(settings)
+  }, [settings, dirty])
 
   function update(patch: Partial<AppSettings>): void {
     setS((cur) => ({ ...cur, ...patch }))
     setSaved(false)
+    setDirty(true)
   }
   function updateProvider(patch: Partial<AppSettings['provider']>): void {
     setS((cur) => ({ ...cur, provider: { ...cur.provider, ...patch } }))
     setSaved(false)
+    setDirty(true)
   }
 
   async function save(): Promise<void> {
     const next = await api.saveSettings(s)
     onSettings(next)
     setSaved(true)
+    setDirty(false)
   }
 
   async function pick(): Promise<void> {
@@ -712,7 +733,7 @@ export function MemoryPanel(): JSX.Element {
   const [name, setName] = useState('')
   const [desc, setDesc] = useState('')
   const [body, setBody] = useState('')
-  const [type, setType] = useState<MemoryEntry['type']>('project')
+  const [type, setType] = useState<MemoryEntry['type']>('user')
 
   async function load(): Promise<void> {
     setItems(await api.listMemory())
@@ -742,11 +763,12 @@ export function MemoryPanel(): JSX.Element {
           <div className="field">
             <label>Type</label>
             <select value={type} onChange={(e) => setType(e.target.value as MemoryEntry['type'])}>
-              <option value="project">project</option>
               <option value="user">user</option>
               <option value="feedback">feedback</option>
               <option value="reference">reference</option>
             </select>
+            {/* 'project' intentionally omitted: this global panel has no project context, so a
+                project-scoped memory can't get a projectId. Use /remember inside a project session. */}
           </div>
         </div>
         <div className="field">

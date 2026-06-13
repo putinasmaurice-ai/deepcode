@@ -235,7 +235,17 @@ export function App(): JSX.Element {
         e.preventDefault()
         setView('chat')
         setTimeout(() => document.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus(), 50)
-      } else if (e.key === 'Escape' && busy && session) {
+      } else if (
+        e.key === 'Escape' &&
+        busy &&
+        session &&
+        // an open overlay (palette / find) owns Escape itself; and a focused <input> is a
+        // rename/search/settings field whose Escape should not cancel the running turn. The
+        // composer is a <textarea>, so Escape-to-cancel from the composer still works.
+        !paletteOpen &&
+        !findOpen &&
+        (document.activeElement?.tagName || '').toLowerCase() !== 'input'
+      ) {
         api.cancelTurn(session.id).catch(() => {})
         setBusy(false)
         // cancelling means "stop" — don't let the queue-drain effect fire the next
@@ -266,7 +276,7 @@ export function App(): JSX.Element {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProjectId, settings, busy, session])
+  }, [activeProjectId, settings, busy, session, paletteOpen, findOpen])
 
   // ---- bootstrap ----
   useEffect(() => {
@@ -395,7 +405,10 @@ export function App(): JSX.Element {
     }
     switch (e.type) {
       case 'session':
-        // pushed after /compact: replace the transcript with the updated session
+        // pushed after /compact: replace the transcript with the updated session. Guard on the
+        // session's OWN id (not just the scoped envelope) so a /compact that resolves after the
+        // user switched chats can never overwrite the wrong transcript.
+        if (e.session.id !== sessionIdRef.current) break
         setMessages(e.session.messages.filter((m) => m.role !== 'tool'))
         setToolState(deriveToolState(e.session.messages))
         break

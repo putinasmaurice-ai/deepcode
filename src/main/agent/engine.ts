@@ -58,6 +58,7 @@ export class AgentEngine {
   // at the instant an agent node starts). acquireSession honours these so the race can't
   // let an already-cancelled turn run to completion.
   private pendingCancels = new Set<string>()
+  private warnedReasonerNoTools = new Set<string>() // session ids already warned about reasoner-strips-tools
   // the live session object of each in-flight turn, so mid-turn edits (rename / cwd /
   // model) mutate the SAME object the turn will save — otherwise the turn's saveSession
   // overwrites the edit (last-writer-wins).
@@ -194,6 +195,13 @@ export class AgentEngine {
   // would otherwise bleed into whatever chat the user currently has open.
   private scoped(sessionId: string, emit: Emit): Emit {
     return (e) => emit('sessionId' in e && (e as { sessionId?: string }).sessionId ? e : ({ ...e, sessionId } as AgentEvent))
+  }
+
+  // public wrapper so the IPC layer can scope the emit it hands to chat builtins (/wf, /learn,
+  // /remember, /compact) and to secondOpinion/arena — those run async LLM calls during which the
+  // user may switch chats, and their (otherwise unscoped) events would bleed into the open chat.
+  scopeEmit(sessionId: string, emit: Emit): Emit {
+    return this.scoped(sessionId, emit)
   }
 
   // --- delegated operations --------------------------------------------
@@ -506,6 +514,12 @@ export class AgentEngine {
     const cheapM = this.settings.provider.model
     const route = this.settings.autoRouteModels && baseModel === reasonerM && !!cheapM && cheapM !== reasonerM
     const stepModel = route ? cheapM : baseModel
+    // reasoner can't call tools (deepseek.ts strips them) → with auto-routing OFF, a reasoner
+    // session silently loses ALL tools and ends each step text-only. Warn once per session.
+    if (!route && baseModel === reasonerM && cheapM && cheapM !== reasonerM && apiTools.length > 0 && !this.warnedReasonerNoTools.has(session.id)) {
+      this.warnedReasonerNoTools.add(session.id)
+      emit({ type: 'status', message: '⚠ Das Reasoner-Modell kann keine Tools nutzen — aktiviere Auto-Routing (Settings) oder wähle das Chat-Modell für Aufgaben mit Tools.' })
+    }
     const cap = this.settings.maxCostPerTurn
     // error memory: remember "failed command → working follow-up" pairs
     let lastFailedCmd: { program: string; errorHead: string } | null = null

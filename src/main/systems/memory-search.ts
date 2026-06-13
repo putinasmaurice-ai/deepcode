@@ -74,7 +74,14 @@ export function scopedMemories(projectId?: string): MemoryEntry[] {
 // Returns the memory text to inject (index lines), semantically narrowed when the store is
 // large. NEVER throws — on any embedding error it returns the full (capped) scoped index.
 export async function buildMemoryContext(query: string, projectId: string | undefined, settings: EmbedSettings, signal?: AbortSignal): Promise<string> {
-  const scoped = scopedMemories(projectId)
+  // the scoped load (readdirSync) is itself inside the try — a memory-dir read error must return
+  // '' (inject nothing), NEVER throw and let the prompt fall back to the UNSCOPED global index.
+  let scoped: MemoryEntry[]
+  try {
+    scoped = scopedMemories(projectId)
+  } catch {
+    return ''
+  }
   if (!scoped.length) return ''
   const all = (): string => scoped.map(indexLine).join('\n').slice(0, CAP)
   if (scoped.length <= INLINE_ALL || !query.trim()) return all()

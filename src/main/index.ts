@@ -146,9 +146,23 @@ function createWindow(): void {
   }
 }
 
+// Single-instance: a second launch must not spawn a rival process that races on shared
+// ~/.deepcode state (settings/sessions/ledger). Only enforced in the packaged app so dev,
+// E2E and Playwright smoke launches are unaffected. A second launch focuses the open window.
+const gotSingleInstanceLock = !app.isPackaged || app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) app.quit()
+app.on('second-instance', () => {
+  const w = BrowserWindow.getAllWindows()[0]
+  if (w) {
+    if (w.isMinimized()) w.restore()
+    w.focus()
+  }
+})
+
 app
   .whenReady()
   .then(async () => {
+    if (!gotSingleInstanceLock) return // a rival instance owns the lock — we are quitting
     // required for HTML5 Notification toasts on Windows
     app.setAppUserModelId('com.maurice.deepcode')
     ensureConfigDirs()

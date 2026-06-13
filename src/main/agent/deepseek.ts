@@ -134,9 +134,12 @@ export class DeepSeekClient {
       model,
       messages,
       stream: true,
-      stream_options: { include_usage: true },
-      max_tokens: this.settings.maxTokens
+      stream_options: { include_usage: true }
     }
+    // only send max_tokens when it's a positive integer — a persisted 0/NaN/empty (e.g. the user
+    // cleared the field) would otherwise be sent verbatim and the API rejects it, bricking the turn.
+    const mt = Number(this.settings.maxTokens)
+    if (Number.isFinite(mt) && mt >= 1) body.max_tokens = Math.floor(mt)
     // deepseek-reasoner rejects temperature/top_p/tool params — only send them otherwise.
     if (!reasoner) {
       body.temperature = this.settings.temperature

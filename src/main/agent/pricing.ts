@@ -29,9 +29,12 @@ export function costOf(provider: ProviderSettings, usage: RawUsage, model?: stri
   return { ...usage, cost }
 }
 
-// Rough token estimate (~4 chars/token) used for the auto-compaction trigger.
+// Rough token estimate (~4 chars/token) used for the auto-compaction trigger. Counts only what
+// actually goes on the wire: assistant chain-of-thought (m.reasoning) is NEVER re-sent by
+// toApiMessages, so including it would over-estimate the real context (esp. on reasoner sessions)
+// and trigger compaction too early.
 export function estimateTokens(session: Session): number {
   let chars = 0
-  for (const m of session.messages) chars += (m.content?.length ?? 0) + (m.reasoning?.length ?? 0)
+  for (const m of session.messages) chars += m.content?.length ?? 0
   return Math.ceil(chars / 4)
 }

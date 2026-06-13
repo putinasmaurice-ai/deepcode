@@ -336,10 +336,14 @@ async function runNode(
       if (!deps.runSubBag) throw new Error('loop: sub-runs unavailable')
       const bodyId = String(cfg.bodyWorkflowId || '')
       if (!bodyId) throw new Error('loop: kein Body-Workflow gesetzt')
-      const items = parseList(resolve(cfg.listExpr ?? '{{last}}', rctx), String(cfg.listFormat || 'auto')).slice(
-        0,
-        Math.max(0, Math.min(Number(cfg.maxItems) || MAX_LOOP_ITEMS, MAX_LOOP_ITEMS))
-      )
+      const cap = Math.max(0, Math.min(Number(cfg.maxItems) || MAX_LOOP_ITEMS, MAX_LOOP_ITEMS))
+      const parsed = parseList(resolve(cfg.listExpr ?? '{{last}}', rctx), String(cfg.listFormat || 'auto'))
+      const items = parsed.slice(0, cap)
+      // a silent partial result looks complete — warn (visibly in the editor/run) when the input
+      // list was longer than the cap so the user knows only the first `cap` items ran.
+      if (parsed.length > items.length) {
+        onProgress?.(`⚠ Liste auf ${items.length} von ${parsed.length} Einträgen begrenzt (Limit ${MAX_LOOP_ITEMS}).`)
+      }
       const itemVar = String(cfg.itemVar || 'item')
       const indexVar = String(cfg.indexVar || 'index')
       const continueItemOnError = cfg.continueItemOnError === true

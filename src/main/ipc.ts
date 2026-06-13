@@ -241,7 +241,10 @@ export function registerIpc(win: BrowserWindow): void {
       const builtin = await runBuiltin(cmd, {
         session,
         args,
-        emit,
+        // scope the builtin's emit to this session — async builtins (/wf, /learn, /remember,
+        // /compact) run LLM calls during which the user may switch chats; their events (incl. the
+        // synthetic result message) must not bleed into whatever chat is then open.
+        emit: engine.scopeEmit(session.id, emit),
         engine,
         settings,
         // run a saved workflow from chat, unattended, and hand back its MASKED final output so a
@@ -369,13 +372,13 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.secondOpinion, async (_e, sessionId: string) => {
     const session = getSession(sessionId)
     if (!session) throw new Error('Session not found')
-    await engine.secondOpinion(session, emit)
+    await engine.secondOpinion(session, engine.scopeEmit(session.id, emit))
     return true
   })
   ipcMain.handle(IPC.arena, async (_e, sessionId: string, modelB?: string) => {
     const session = getSession(sessionId)
     if (!session) throw new Error('Session not found')
-    await engine.arena(session, emit, modelB)
+    await engine.arena(session, engine.scopeEmit(session.id, emit), modelB)
     return true
   })
   ipcMain.handle(IPC.arenaVote, (_e, winner: string, loser: string) => {
@@ -454,7 +457,7 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.compactSession, async (_e, sessionId: string) => {
     const session = getSession(sessionId)
     if (!session) throw new Error('Session not found')
-    const updated = await engine.compactSession(session, emit)
+    const updated = await engine.compactSession(session, engine.scopeEmit(session.id, emit))
     emit({ type: 'turn_done', sessionId: session.id })
     return updated
   })
@@ -891,12 +894,15 @@ export function registerIpc(win: BrowserWindow): void {
     wfAborters.set(runId, ac)
     const stopDeadline = armDeadline(ac)
     const cwd = validDir(settings.defaultCwd) || homedir()
+    // suppress file-watcher "externally changed" toasts for files this background run touches
+    beginAgentOp()
     // return the promise so the scheduler's in-flight guard knows when this run finishes
     return runWorkflow(def, makeWfDeps(cwd, ac.signal, 0, undefined, new Set([def.id])), { runId })
       .catch((e: unknown) =>
         emit({ type: 'workflow_run', runId, workflowId: def.id, status: 'error', message: (e as Error)?.message ?? String(e) })
       )
       .finally(() => {
+        endAgentOp()
         stopDeadline()
         wfAborters.delete(runId)
       })
@@ -923,7 +929,15 @@ async function runAutomationNow(a: AutomationDef, emit: (e: AgentEvent) => void)
   const policy = a.autonomy === 'full' ? 'full' : 'safe'
   // automations are headless/unattended too → same gate as workflow agent nodes: block
   // MCP / claude_code / task / git push|pr (no user present to approve outward actions).
-  await engine.runTurn(session, a.prompt, emit, policy, undefined, true)
+  // wrap in beginAgentOp/endAgentOp so the file watcher suppresses change toasts for files this
+  // background run touches (mirrors Night Shift) — otherwise the foreground chat flashes spurious
+  // "externally changed" notices.
+  beginAgentOp()
+  try {
+    await engine.runTurn(session, a.prompt, emit, policy, undefined, true)
+  } finally {
+    endAgentOp()
+  }
 }
 
 function validDir(p?: string): string | null {
