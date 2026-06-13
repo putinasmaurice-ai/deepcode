@@ -39,6 +39,9 @@ export interface PromptParts {
   project?: { name: string; instructions?: string; goal?: string } | null
   sessionGoal?: string
   planMode?: boolean
+  // pre-computed, project-scoped + semantically-narrowed memory index lines. When absent,
+  // falls back to the full memoryIndex() (legacy behaviour / embeddings unavailable).
+  memoryText?: string
 }
 
 export function buildSystemPrompt(parts: PromptParts): string {
@@ -101,7 +104,7 @@ You are in plan mode: write/shell tools are disabled. Investigate the codebase w
 
   // cap: accumulating memories (error solutions, arena votes) must not bloat
   // every request — the index stays small, details load on demand
-  const mem = memoryIndex().trim().slice(0, 4000)
+  const mem = (parts.memoryText ?? memoryIndex().trim()).slice(0, 4000)
   if (mem) {
     sections.push(
       `# Memory (persistent knowledge from past sessions)\n${mem}\n` +

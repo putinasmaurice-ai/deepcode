@@ -28,6 +28,14 @@ export function parseFrontmatter(text: string): Parsed {
         .split(',')
         .map((s) => s.trim().replace(/^["']|["']$/g, ''))
         .filter(Boolean)
+    } else if (val.length >= 2 && val.startsWith('"') && val.endsWith('"')) {
+      // JSON.stringify'd scalar (e.g. description) — JSON.parse to correctly unescape
+      // embedded quotes/newlines; fall back to a simple strip if it isn't valid JSON.
+      try {
+        val = JSON.parse(val) as string
+      } catch {
+        val = val.replace(/^["']|["']$/g, '')
+      }
     } else {
       val = val.replace(/^["']|["']$/g, '')
     }

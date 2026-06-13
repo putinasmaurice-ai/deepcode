@@ -28,7 +28,8 @@ export function loadMemory(): MemoryEntry[] {
         description: str(data.description),
         type: metaType(data),
         body: body.trim(),
-        path
+        path,
+        projectId: str(data.projectId) || undefined
       })
     } catch {
       /* skip */
@@ -59,7 +60,7 @@ export function saveMemory(entry: Omit<MemoryEntry, 'path'>): MemoryEntry {
 name: ${slug}
 description: ${JSON.stringify(entry.description)}
 type: ${entry.type}
----
+${entry.projectId ? `projectId: ${entry.projectId}\n` : ''}---
 
 ${entry.body.trim()}
 `

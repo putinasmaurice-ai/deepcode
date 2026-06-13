@@ -54,6 +54,7 @@ builtins.set('help', ({ emit, session }) => {
   lines.push('- `/rewind` — Datei-Änderungen der letzten Runde rückgängig machen')
   lines.push('- `/jobs [kill <id>]` — Hintergrund-Jobs anzeigen/stoppen')
   lines.push('- `/learn [Fokus]` — aus diesem Chat einen wiederverwendbaren Skill destillieren')
+  lines.push('- `/remember` — bleibende Fakten aus diesem Chat ins Memory aufnehmen')
   if (cmds.length) {
     lines.push('\n**Eigene Befehle:**')
     for (const c of cmds) lines.push(`- \`/${c.name}\` — ${c.description}`)
@@ -157,6 +158,25 @@ builtins.set('learn', async ({ session, args, emit, engine }) => {
     )
   } catch (e) {
     emitInfo(emit, `Destillation fehlgeschlagen: ${(e as Error).message}`)
+  }
+})
+
+builtins.set('remember', async ({ session, emit, engine }) => {
+  if (session.messages.filter((m) => m.role === 'assistant').length === 0) {
+    emitInfo(emit, 'Noch nichts zu merken — führe erst eine Aufgabe in diesem Chat durch.')
+    return
+  }
+  emit({ type: 'status', message: 'Extrahiere bleibende Fakten aus diesem Chat…' })
+  try {
+    const saved = await engine.extractMemories(session)
+    emitInfo(
+      emit,
+      saved.length
+        ? `🧠 **Gemerkt (${saved.length}):** ${saved.map((n) => `\`${n}\``).join(', ')}\n\nFließt ab sofort (semantisch relevant) in künftige Chats ein. Verwalten im Memory-Panel.`
+        : 'Nichts Neues, Dauerhaftes gefunden — die wichtigen Fakten sind schon im Memory.'
+    )
+  } catch (e) {
+    emitInfo(emit, `Extraktion fehlgeschlagen: ${(e as Error).message}`)
   }
 })
 

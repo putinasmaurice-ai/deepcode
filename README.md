@@ -29,7 +29,7 @@ On first launch, open **Settings** and paste your DeepSeek API key + model.
 | **MCP / Connector** | `~/.deepcode/mcp.json` | Connect external tools/data via Model Context Protocol; their tools become callable. |
 | **Subagent** | `~/.deepcode/agents/<name>.md` | A specialized assistant the agent delegates to via the `task` tool. |
 | **Hook** | `~/.deepcode/hooks.json` | Shell command run automatically on events (PreToolUse, PostToolUse, UserPromptSubmit, Stop). |
-| **Memory** | `~/.deepcode/memory/*.md` (+ `MEMORY.md` index) | Durable knowledge injected into every system prompt. |
+| **Memory** | `~/.deepcode/memory/*.md` (+ `MEMORY.md` index) | Durable knowledge. **Semantically retrieved** (only the most relevant entries injected per turn, via local embeddings — scales past a flat index), **project-scoped** (a memory can apply to one project or globally), and **auto-distilled** on demand with `/remember`. |
 | **Automation / Routine** | `~/.deepcode/automations.json` | Cron-scheduled prompts that run the agent headlessly. |
 | **Slash Command** | `~/.deepcode/commands/<name>.md` | Prompt template triggered by typing `/name` in chat. |
 | **Workflow** | `~/.deepcode/workflows/<id>.json` (runs under `workflows/runs/`) | Visual node-graph automation (n8n-style): wire Agent/Tool/Shell/HTTP/Condition/Transform/Sub-workflow/Output nodes on a canvas, run them, watch per-node status live. |

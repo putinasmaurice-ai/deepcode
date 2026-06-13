@@ -16,11 +16,12 @@ import { runVerify } from './verify'
 import { EngineDeps, Emit } from './deps'
 import { runSecondOpinion, runArena } from './variants'
 import { compactSession } from './compact'
-import { distillSkill } from './distill'
+import { distillSkill, distillMemories } from './distill'
 import { runSubagent } from './subagent'
 import { loadHooks, runHooks } from '../systems/hooks'
 import { pluginHooks } from '../systems/plugins'
 import { recordErrorSolution } from '../systems/memory'
+import { buildMemoryContext } from '../systems/memory-search'
 import { recordSnapshot, getTurnFiles } from '../checkpoints'
 import { getProject } from '../projects'
 import { saveSession } from '../store'
@@ -211,6 +212,10 @@ export class AgentEngine {
     return distillSkill(this.deps(), session, hint)
   }
 
+  extractMemories(session: Session): Promise<string[]> {
+    return distillMemories(this.deps(), session, session.projectId)
+  }
+
   // --- approval ----------------------------------------------------------
   private autoApproved(permission: string): boolean {
     if (permission === 'none') return true
@@ -378,6 +383,15 @@ export class AgentEngine {
       if (policy === 'interactive' && project?.trustLevel === 'trusted') policy = 'full'
       if (policy !== 'plan' && project?.trustLevel === 'restricted') policy = 'safe'
 
+      // project-scoped + semantically-narrowed memory for THIS turn (falls back to the full
+      // index if embeddings are unavailable or the store is small). Never blocks the turn.
+      let memoryText: string | undefined
+      try {
+        memoryText = await buildMemoryContext(userText, session.projectId, this.settings.provider, signal)
+      } catch {
+        /* fall back to the full index inside buildSystemPrompt */
+      }
+
       const system = buildSystemPrompt({
         cwd: session.cwd,
         skills: collectSkills(session.cwd),
@@ -386,10 +400,11 @@ export class AgentEngine {
           ? { name: project.name, instructions: project.instructions, goal: project.goal }
           : null,
         sessionGoal: session.goal,
-        planMode: policy === 'plan'
+        planMode: policy === 'plan',
+        memoryText
       })
 
-      const tools = buildTools(this.settings, session.cwd)
+      const tools = buildTools(this.settings, session.cwd, { projectId: session.projectId })
       const turnTag = String(Date.now())
       const ctx: ToolContext = {
         cwd: session.cwd,

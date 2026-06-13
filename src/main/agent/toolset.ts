@@ -3,7 +3,7 @@ import { Tool, buildToolset } from './tools'
 import { loadSkills } from '../systems/skills'
 import { loadSubagents } from '../systems/subagents'
 import { pluginSkills, pluginSubagents } from '../systems/plugins'
-import { loadMemory } from '../systems/memory'
+import { scopedMemories } from '../systems/memory-search'
 import { mcpManager } from '../systems/mcp'
 
 // Assembles the live tool/skill/subagent sets for a working directory
@@ -20,13 +20,14 @@ export function collectSubagents(cwd: string): SubagentDef[] {
 export function buildTools(
   settings: AppSettings,
   cwd: string,
-  opts?: { includeTask?: boolean; allow?: string[] }
+  opts?: { includeTask?: boolean; allow?: string[]; projectId?: string }
 ): Tool[] {
   const cc = settings.claudeCode
   return buildToolset({
     subagents: collectSubagents(cwd),
     skills: collectSkills(cwd),
-    memories: loadMemory(),
+    // scope use_memory the SAME way as the injected index → no cross-project body leak
+    memories: scopedMemories(opts?.projectId),
     mcpTools: mcpManager.getTools(),
     includeTask: opts?.includeTask,
     allow: opts?.allow,

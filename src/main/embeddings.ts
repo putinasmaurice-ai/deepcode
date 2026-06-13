@@ -69,7 +69,7 @@ function embedModel(s: Settingsish): string {
   return (s.embeddingModel || 'nomic-embed-text').replace(/^local:/, '')
 }
 
-async function embed(texts: string[], s: Settingsish, signal?: AbortSignal): Promise<number[][]> {
+export async function embed(texts: string[], s: Settingsish, signal?: AbortSignal): Promise<number[][]> {
   if (!texts.length) return []
   const base = (s.localBaseUrl || 'http://localhost:11434/v1').replace(/\/$/, '')
   const res = await fetch(`${base}/embeddings`, {

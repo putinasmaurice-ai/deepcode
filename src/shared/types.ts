@@ -402,6 +402,8 @@ export interface MemoryEntry {
   type: 'user' | 'feedback' | 'project' | 'reference'
   body: string
   path: string
+  // optional scope: when set, this memory only applies to that project (global otherwise)
+  projectId?: string
 }
 
 // ---- Visual workflow builder (n8n-style, simpler) ----
