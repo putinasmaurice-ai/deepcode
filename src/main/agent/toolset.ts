@@ -3,6 +3,7 @@ import { Tool, buildToolset } from './tools'
 import { loadSkills } from '../systems/skills'
 import { loadSubagents } from '../systems/subagents'
 import { pluginSkills, pluginSubagents } from '../systems/plugins'
+import { loadMemory } from '../systems/memory'
 import { mcpManager } from '../systems/mcp'
 
 // Assembles the live tool/skill/subagent sets for a working directory
@@ -25,6 +26,7 @@ export function buildTools(
   return buildToolset({
     subagents: collectSubagents(cwd),
     skills: collectSkills(cwd),
+    memories: loadMemory(),
     mcpTools: mcpManager.getTools(),
     includeTask: opts?.includeTask,
     allow: opts?.allow,

@@ -100,7 +100,9 @@ export async function runSubagent(
           if (!autoApproved(tool.permission)) {
             res = {
               ok: false,
-              content: `Tool ${call.name} requires approval; not available to subagents in this mode.`
+              content:
+                `Tool ${call.name} (${tool.permission}) needs approval and subagents run unattended, so it was skipped. ` +
+                `Enable auto-approve for "${tool.permission}" in Settings to let subagents use it, or work without this tool.`
             }
           } else {
             res = await tool.execute(args, ctx)

@@ -80,12 +80,12 @@ export function PreviewPane({ cwd, onClose }: { cwd: string; onClose: () => void
       )}
       <div className="preview-frame">
         {url ? (
+          // popups are denied by default; the main process (will-attach-webview /
+          // did-attach-webview) hardens the guest and routes window.open to the OS browser.
           createElement('webview', {
             ref: viewRef,
             src: url,
-            className: 'preview-webview',
-            // string attribute: disallow the guest from opening child windows itself
-            allowpopups: undefined
+            className: 'preview-webview'
           })
         ) : (
           <div className="preview-empty">

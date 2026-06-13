@@ -58,12 +58,16 @@ export function cronMatches(expr: string, date: Date): boolean {
   const fields = expr.trim().split(/\s+/)
   if (fields.length !== 5) return false
   const [min, hour, dom, mon, dow] = fields
+  const domMatch = matchField(dom, date.getDate(), 1, 31)
+  const dowMatch = matchField(dow, date.getDay(), 0, 6)
+  // Standard cron: when BOTH day-of-month and day-of-week are restricted, the job
+  // runs if EITHER matches (OR); otherwise the restricted one applies (AND with *).
+  const dayMatch = dom !== '*' && dow !== '*' ? domMatch || dowMatch : domMatch && dowMatch
   return (
     matchField(min, date.getMinutes(), 0, 59) &&
     matchField(hour, date.getHours(), 0, 23) &&
-    matchField(dom, date.getDate(), 1, 31) &&
     matchField(mon, date.getMonth() + 1, 1, 12) &&
-    matchField(dow, date.getDay(), 0, 6)
+    dayMatch
   )
 }
 

@@ -13,8 +13,12 @@ setlocal enabledelayedexpansion
 title DeepCode Publish
 cd /d "%~dp0"
 
+REM prefer the portable gh if present, else the one on PATH
+set "GH=gh"
+if exist "tools\bin\gh.exe" set "GH=tools\bin\gh.exe"
+
 where gh >nul 2>nul
-if errorlevel 1 (
+if errorlevel 1 if not exist "tools\bin\gh.exe" (
   echo.
   echo  GitHub CLI fehlt. Bitte einmalig installieren und einloggen:
   echo    winget install GitHub.cli
@@ -71,11 +75,16 @@ if errorlevel 1 (
   exit /b 1
 )
 
+REM latest.yml references the hyphenated asset name; GitHub turns spaces into dots,
+REM so upload copies named exactly like the manifest or auto-update 404s.
+copy /y "release\DeepCode Setup %VERSION%.exe" "release\DeepCode-Setup-%VERSION%.exe" >nul
+copy /y "release\DeepCode Setup %VERSION%.exe.blockmap" "release\DeepCode-Setup-%VERSION%.exe.blockmap" >nul
+
 echo  Erstelle Release v%VERSION% mit Installer + Update-Manifest...
-%GH% release create v%VERSION% "release\DeepCode Setup %VERSION%.exe" "release\DeepCode Setup %VERSION%.exe.blockmap" "release\latest.yml" --title "DeepCode v%VERSION%" --notes "Automatisches Release via PUBLISH.bat" 2>nul
+%GH% release create v%VERSION% "release\DeepCode-Setup-%VERSION%.exe" "release\DeepCode-Setup-%VERSION%.exe.blockmap" "release\latest.yml" --title "DeepCode v%VERSION%" --notes "Automatisches Release via PUBLISH.bat" 2>nul
 if errorlevel 1 (
   echo  Release existiert evtl. schon - versuche Upload der Dateien...
-  %GH% release upload v%VERSION% "release\DeepCode Setup %VERSION%.exe" "release\DeepCode Setup %VERSION%.exe.blockmap" "release\latest.yml" --clobber
+  %GH% release upload v%VERSION% "release\DeepCode-Setup-%VERSION%.exe" "release\DeepCode-Setup-%VERSION%.exe.blockmap" "release\latest.yml" --clobber
 )
 
 echo.

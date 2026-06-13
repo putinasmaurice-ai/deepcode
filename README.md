@@ -42,7 +42,7 @@ The agent runs a streaming tool-calling loop with these built-in tools:
 - `read_file`, `write_file`, `edit_file`, `apply_patch` (atomic multi-file), `list_dir`, `glob`, `grep`
 - `run_command` — shell (PowerShell on Windows); `run_background_command`/`job_status`/`kill_job` for long-running jobs
 - `web_fetch` — read documentation/APIs from the internet
-- `task` — delegate to a subagent · `use_skill` — load skill instructions · `todo_write` — visible task list
+- `task` — delegate to a subagent · `use_skill` — load skill instructions · `use_memory` — load a stored memory entry · `todo_write` — visible task list
 - `claude_code` — *optional* helper: delegate a sub-task to the Claude Code CLI (read-only by default). DeepSeek stays the orchestrator; Claude costs bill to your Anthropic account. Enable in Settings.
 - any tools exposed by connected MCP connectors
 

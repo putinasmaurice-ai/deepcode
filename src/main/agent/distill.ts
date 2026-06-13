@@ -3,6 +3,8 @@ import { join } from 'path'
 import { Session } from '@shared/types'
 import { EngineDeps } from './deps'
 import { PATHS } from '../paths'
+import { costOf } from './pricing'
+import { recordUsage } from '../ledger'
 
 // /learn: distill a session into a reusable skill — the app learns repeatable
 // procedures from real work (~/.deepcode/skills/<slug>/SKILL.md).
@@ -36,6 +38,8 @@ export async function distillSkill(
     {},
     new AbortController().signal
   )
+  // this is a billed round — record it like every other (engine/variants/compact)
+  if (res.usage) recordUsage(costOf(deps.settings.provider, res.usage, session.model))
 
   const nameMatch = res.content.match(/NAME:\s*(.+)/)
   const descMatch = res.content.match(/DESCRIPTION:\s*(.+)/)

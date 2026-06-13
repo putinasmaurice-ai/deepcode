@@ -16,6 +16,9 @@ import type {
   UsageSummary
 } from './types'
 
+// Approval mode the renderer can request for a turn (mirrors the engine's ApprovalPolicy).
+export type ApprovalMode = 'interactive' | 'plan' | 'full' | 'safe'
+
 export interface CwdInfo {
   cwd: string
   exists: boolean
@@ -82,12 +85,17 @@ export interface DeepCodeApi {
   searchSessions(q: string): Promise<SearchHit[]>
 
   // agent
-  sendMessage(sessionId: string, text: string, attachments?: string[], mode?: string): Promise<boolean>
+  sendMessage(
+    sessionId: string,
+    text: string,
+    attachments?: string[],
+    mode?: ApprovalMode
+  ): Promise<boolean>
   resendMessage(
     sessionId: string,
     messageId: string,
     newText?: string,
-    mode?: string,
+    mode?: ApprovalMode,
     attachments?: string[]
   ): Promise<boolean>
   cancelTurn(sessionId: string): Promise<boolean>

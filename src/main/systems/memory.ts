@@ -9,8 +9,7 @@ import { MemoryEntry } from '@shared/types'
 // injected into every system prompt. Mirrors the Claude Code memory model.
 
 function metaType(data: Record<string, string | string[]>): MemoryEntry['type'] {
-  // type may be nested under metadata in our writer, but we also accept top-level
-  const t = str(data.type) || str((data as any)['metadata.type'])
+  const t = str(data.type)
   if (t === 'feedback' || t === 'project' || t === 'reference') return t
   return 'user'
 }

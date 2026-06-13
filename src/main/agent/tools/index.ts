@@ -7,7 +7,8 @@ import { todoTool } from './todo'
 import { webFetchTool } from './web'
 import { jobTools } from './jobs'
 import { makeClaudeCodeTool, ClaudeCodeConfig } from './claude_code'
-import { SubagentDef, SkillDef } from '@shared/types'
+import { makeMemoryTool } from './memory'
+import { SubagentDef, SkillDef, MemoryEntry } from '@shared/types'
 import { ApiToolDef } from '../deepseek'
 
 export type { Tool } from './types'
@@ -20,10 +21,12 @@ export function buildToolset(opts: {
   includeTask?: boolean // false for subagents (no recursive delegation)
   allow?: string[] // restrict to these tool names ("*" = all); used by subagents
   claudeCode?: ClaudeCodeConfig // present only when the helper tool is enabled
+  memories?: MemoryEntry[] // stored memory entries, exposed via use_memory
 }): Tool[] {
   let tools: Tool[] = [...fsTools, bashTool, ...jobTools, webFetchTool, todoTool]
   if (opts.includeTask !== false) tools.push(makeTaskTool(opts.subagents))
   if (opts.skills?.length) tools.push(makeSkillTool(opts.skills))
+  if (opts.memories?.length) tools.push(makeMemoryTool(opts.memories))
   if (opts.claudeCode) tools.push(makeClaudeCodeTool(opts.claudeCode))
   if (opts.mcpTools?.length) tools = tools.concat(opts.mcpTools)
 

@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { appendFileSync } from 'fs'
 import { join, relative } from 'path'
-import { AppSettings, ChatMessage, Session, ToolResult } from '@shared/types'
+import { AgentEvent, AppSettings, ChatMessage, Session, ToolResult } from '@shared/types'
 import { DeepSeekClient } from './deepseek'
 import { Tool, toApiTools } from './tools'
 import { ToolContext } from './tools/types'
@@ -76,21 +76,25 @@ export class AgentEngine {
 
   approve(callId: string, approved: boolean, remember?: boolean): void {
     // "Immer erlauben": persist the exact command (scoped to its cwd) so it
-    // auto-approves next time in the same project.
+    // auto-approves next time in the same project. Read before settle() clears it.
     if (approved && remember) {
       const meta = this.pendingCommand.get(callId)
       if (meta) approveCommand(meta.command, meta.cwd)
     }
-    this.pendingCommand.delete(callId)
-    const resolver = this.pendingApprovals.get(callId)
-    if (resolver) {
-      this.pendingApprovals.delete(callId)
-      resolver(approved)
-    }
+    const settle = this.pendingApprovals.get(callId)
+    if (settle) settle(approved) // settle() removes the abort listener + clears both maps
+    else this.pendingCommand.delete(callId)
   }
 
   cancel(sessionId: string): void {
     this.aborters.get(sessionId)?.abort()
+  }
+
+  // Wrap an emit so every per-turn event carries its sessionId. The renderer uses
+  // this to drop events from background sessions (night shift / automations) that
+  // would otherwise bleed into whatever chat the user currently has open.
+  private scoped(sessionId: string, emit: Emit): Emit {
+    return (e) => emit('sessionId' in e && (e as { sessionId?: string }).sessionId ? e : ({ ...e, sessionId } as AgentEvent))
   }
 
   // --- delegated operations --------------------------------------------
@@ -131,17 +135,20 @@ export class AgentEngine {
     if (command) this.pendingCommand.set(callId, { command, cwd: cwd ?? '' })
     emit({ type: 'tool_pending', callId, name, args })
     return new Promise<boolean>((resolve) => {
-      // If the turn is cancelled while this prompt is open, resolve as denied and
-      // clear the maps — otherwise the promise (and the session lock) leak until
-      // the user eventually clicks approve/deny.
-      const onAbort = (): void => {
+      // settle() is the single resolve path: it detaches the abort listener (so it
+      // doesn't accumulate on the per-turn signal across many approvals) and clears
+      // both maps. Cancelling the turn while this prompt is open resolves it denied,
+      // so the promise (and the session lock) never leak.
+      const onAbort = (): void => settle(false)
+      const settle = (v: boolean): void => {
+        signal.removeEventListener('abort', onAbort)
         this.pendingApprovals.delete(callId)
         this.pendingCommand.delete(callId)
-        resolve(false)
+        resolve(v)
       }
-      if (signal.aborted) return onAbort()
+      if (signal.aborted) return settle(false)
       signal.addEventListener('abort', onAbort, { once: true })
-      this.pendingApprovals.set(callId, resolve)
+      this.pendingApprovals.set(callId, settle)
     })
   }
 
@@ -157,13 +164,20 @@ export class AgentEngine {
     signal: AbortSignal
   ): Promise<string | null> {
     const isCmd = call.name === 'run_command'
-    const dangerous = isCmd && isDangerousCommand(parsedArgs.command)
+    // Screen both foreground and background shell commands for catastrophic patterns.
+    const cmdArg =
+      isCmd || call.name === 'run_background_command' ? (parsedArgs.command as unknown) : undefined
+    const dangerous = typeof cmdArg === 'string' && isDangerousCommand(cmdArg)
+    // MCP tools can perform irreversible remote actions (drop tables, delete branches,
+    // send mail). They must never be silently auto-approved by the coarse write bucket —
+    // require an explicit prompt unless the user opted into full/trusted.
+    const isMcp = call.name.startsWith('mcp__')
     const mutating = tool.permission === 'write' || tool.permission === 'bash'
     if (policy === 'plan' && mutating) {
       return `Plan mode: "${call.name}" was NOT executed. Describe this change as part of your plan instead.`
     }
     if (policy === 'full') return null
-    if (this.autoApproved(tool.permission) && !dangerous) return null
+    if (this.autoApproved(tool.permission) && !dangerous && !isMcp) return null
     if (policy === 'safe') {
       // Unattended/restricted: deny anything not pre-approved. The interactive-only
       // allowlist must NOT punch through here — that's what autoApprove.bash is for.
@@ -191,12 +205,15 @@ export class AgentEngine {
   async runTurn(
     session: Session,
     userText: string,
-    emit: Emit,
+    rawEmit: Emit,
     policy: ApprovalPolicy = 'interactive',
     images?: string[]
   ): Promise<void> {
     const aborter = this.acquireSession(session.id)
     const signal = aborter.signal
+    // session-scoped emit: stamps sessionId so background turns don't bleed into
+    // the foreground chat (see scoped()).
+    const emit = this.scoped(session.id, rawEmit)
 
     try {
       const hooks = [...loadHooks(session.cwd), ...pluginHooks()]
@@ -207,17 +224,23 @@ export class AgentEngine {
       }
       const injected = await runHooks('UserPromptSubmit', { prompt: userText, cwd: session.cwd }, hooks)
 
+      const userMsgId = randomUUID()
       session.messages.push({
-        id: randomUUID(),
+        id: userMsgId,
         role: 'user',
         content: injected ? `${userText}\n\n<hook-context>\n${injected}\n</hook-context>` : userText,
         createdAt: Date.now(),
         images: images?.length ? images : undefined
       })
       saveSession(session)
+      // let the renderer reconcile its optimistic 'local-' id with the real one,
+      // so Regenerate/Edit work on a freshly-sent message (not just after reopen).
+      emit({ type: 'user_message', sessionId: session.id, id: userMsgId })
 
-      // images present → run this turn on the vision model (auto-routing)
-      const turnModel = images?.length ? this.settings.provider.visionModel : session.model
+      // images present → only the FIRST pass (which carries the image) runs on the
+      // vision model; later self-review/verify rounds are pure code work and must
+      // use the real coding model, not the small local vision model.
+      const visionFirstPass = !!images?.length
 
       if (this.settings.compactThreshold > 0 && estimateTokens(session) > this.settings.compactThreshold) {
         await this.compactSession(session, emit)
@@ -261,7 +284,8 @@ export class AgentEngine {
       let reviewDone = false
       let verifyAttempts = 0
       for (let round = 0; round < MAX_QUALITY_ROUNDS; round++) {
-        await this.runSteps(session, system, tools, ctx, policy, emit, signal, hooks, turnModel)
+        const roundModel = visionFirstPass && round === 0 ? this.settings.provider.visionModel : session.model
+        await this.runSteps(session, system, tools, ctx, policy, emit, signal, hooks, roundModel)
         if (signal.aborted) break
 
         const feedback = await this.qualityFeedback(

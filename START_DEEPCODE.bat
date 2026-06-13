@@ -22,7 +22,20 @@ if not exist "node_modules" (
   )
 )
 
-echo  Baue und starte die App...
+REM Build if there is no bundle yet (fresh clone / out\ deleted). `npm run start`
+REM is electron-vite preview, which only serves out\ and does NOT build itself.
+if not exist "out\main\index.js" (
+  echo  Baue die App ^(erstmalig^)...
+  call npm run build
+  if errorlevel 1 (
+    echo.
+    echo  FEHLER beim Build.
+    pause
+    exit /b 1
+  )
+)
+
+echo  Starte die App...
 call npm run start
 
 if errorlevel 1 (

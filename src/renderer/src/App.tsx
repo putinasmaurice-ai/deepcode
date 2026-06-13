@@ -74,6 +74,10 @@ export function App(): JSX.Element {
   // without re-subscribing the listener on every tool update).
   const toolStateRef = useRef(toolState)
   toolStateRef.current = toolState
+  // Active session id, read by the (deps:[]) agent-event handler to drop events
+  // from background sessions (night shift / automations) without a stale closure.
+  const sessionIdRef = useRef<string | null>(null)
+  sessionIdRef.current = session?.id ?? null
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
@@ -343,12 +347,33 @@ export function App(): JSX.Element {
   }, [])
 
   const handleEvent = useCallback((e: AgentEvent) => {
+    // Drop events from a background session (night shift / automations) so they
+    // don't bleed into the open chat. Still refresh the sidebar when one finishes.
+    const sid = 'sessionId' in e ? (e as { sessionId?: string }).sessionId : undefined
+    if (sid && sessionIdRef.current && sid !== sessionIdRef.current) {
+      if (e.type === 'turn_done') refreshSessions()
+      return
+    }
     switch (e.type) {
       case 'session':
         // pushed after /compact: replace the transcript with the updated session
         setMessages(e.session.messages.filter((m) => m.role !== 'tool'))
         setToolState(deriveToolState(e.session.messages))
         break
+      case 'user_message': {
+        // reconcile the optimistic 'local-' user id with the persisted server id
+        setMessages((m) => {
+          for (let i = m.length - 1; i >= 0; i--) {
+            if (m[i].role === 'user' && m[i].id.startsWith('local-')) {
+              const copy = m.slice()
+              copy[i] = { ...copy[i], id: e.id }
+              return copy
+            }
+          }
+          return m
+        })
+        break
+      }
       case 'message_start':
         setMessages((m) => [...m, e.message])
         break

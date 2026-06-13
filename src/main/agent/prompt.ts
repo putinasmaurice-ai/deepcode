@@ -103,7 +103,10 @@ You are in plan mode: write/shell tools are disabled. Investigate the codebase w
   // every request — the index stays small, details load on demand
   const mem = memoryIndex().trim().slice(0, 4000)
   if (mem) {
-    sections.push(`# Memory (persistent knowledge from past sessions)\n${mem}`)
+    sections.push(
+      `# Memory (persistent knowledge from past sessions)\n${mem}\n` +
+        `(Only the index is shown above. Call use_memory(name) to load the full content of an entry when it is relevant.)`
+    )
   }
 
   if (parts.skills.length) {

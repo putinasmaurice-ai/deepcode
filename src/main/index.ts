@@ -104,9 +104,23 @@ function createWindow(): void {
     Menu.buildFromTemplate(template).popup({ window: win })
   })
 
+  // Only ever hand http(s)/mailto to the OS shell. The preview <webview> can render
+  // untrusted project output, so a page there must not be able to open file:// or a
+  // dangerous custom scheme (ms-…:, etc.) via window.open.
+  const openExternalSafe = (url: string): void => {
+    if (/^(https?:|mailto:)/i.test(url)) shell.openExternal(url)
+  }
   win.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    openExternalSafe(details.url)
     return { action: 'deny' }
+  })
+  // Never let the app's own window navigate away from its origin.
+  win.webContents.on('will-navigate', (e, url) => {
+    const here = process.env['ELECTRON_RENDERER_URL']
+    if (!(here && url.startsWith(here)) && !url.startsWith('file://')) {
+      e.preventDefault()
+      openExternalSafe(url)
+    }
   })
 
   // Lock down the preview <webview>: no node access, no preload, popups go to the
@@ -118,7 +132,7 @@ function createWindow(): void {
   })
   win.webContents.on('did-attach-webview', (_e, guest) => {
     guest.setWindowOpenHandler((details) => {
-      shell.openExternal(details.url)
+      openExternalSafe(details.url)
       return { action: 'deny' }
     })
   })

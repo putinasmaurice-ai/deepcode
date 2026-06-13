@@ -242,21 +242,25 @@ export interface ToolResult {
 
 // ---- Streaming events main -> renderer ----
 
+// sessionId is stamped on every per-turn event by the engine so the renderer can
+// ignore events from background sessions (night shift / automations) that would
+// otherwise bleed into the currently-open chat.
 export type AgentEvent =
   | { type: 'session'; session: Session }
-  | { type: 'message_start'; message: ChatMessage }
-  | { type: 'reasoning_delta'; messageId: string; delta: string }
-  | { type: 'content_delta'; messageId: string; delta: string }
-  | { type: 'tool_call'; messageId: string; toolCall: ToolCall }
-  | { type: 'tool_pending'; callId: string; name: string; args: string }
-  | { type: 'tool_result'; callId: string; name: string; result: ToolResult }
-  | { type: 'message_done'; message: ChatMessage }
-  | { type: 'usage'; messageId: string; usage: TokenUsage }
+  | { type: 'user_message'; sessionId: string; id: string } // reconcile optimistic local- id with the persisted server id
+  | { type: 'message_start'; sessionId?: string; message: ChatMessage }
+  | { type: 'reasoning_delta'; sessionId?: string; messageId: string; delta: string }
+  | { type: 'content_delta'; sessionId?: string; messageId: string; delta: string }
+  | { type: 'tool_call'; sessionId?: string; messageId: string; toolCall: ToolCall }
+  | { type: 'tool_pending'; sessionId?: string; callId: string; name: string; args: string }
+  | { type: 'tool_result'; sessionId?: string; callId: string; name: string; result: ToolResult }
+  | { type: 'message_done'; sessionId?: string; message: ChatMessage }
+  | { type: 'usage'; sessionId?: string; messageId: string; usage: TokenUsage }
   | { type: 'todos'; sessionId: string; todos: TodoItem[] }
   | { type: 'fs_change'; files: string[] }
   | { type: 'turn_done'; sessionId: string }
+  | { type: 'status'; sessionId?: string; message: string }
   | { type: 'error'; message: string }
-  | { type: 'status'; message: string }
 
 // ---- Feature system descriptors (Skills / Hooks / Commands / Subagents / MCP / Plugins / Automations) ----
 
