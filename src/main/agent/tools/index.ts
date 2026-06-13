@@ -6,6 +6,7 @@ import { makeSkillTool } from './skill'
 import { todoTool } from './todo'
 import { webFetchTool } from './web'
 import { jobTools } from './jobs'
+import { gitStatusTool, gitTool } from './git'
 import { makeClaudeCodeTool, ClaudeCodeConfig } from './claude_code'
 import { makeMemoryTool } from './memory'
 import { SubagentDef, SkillDef, MemoryEntry } from '@shared/types'
@@ -23,7 +24,7 @@ export function buildToolset(opts: {
   claudeCode?: ClaudeCodeConfig // present only when the helper tool is enabled
   memories?: MemoryEntry[] // stored memory entries, exposed via use_memory
 }): Tool[] {
-  let tools: Tool[] = [...fsTools, bashTool, ...jobTools, webFetchTool, todoTool]
+  let tools: Tool[] = [...fsTools, bashTool, ...jobTools, gitStatusTool, gitTool, webFetchTool, todoTool]
   if (opts.includeTask !== false) tools.push(makeTaskTool(opts.subagents))
   if (opts.skills?.length) tools.push(makeSkillTool(opts.skills))
   if (opts.memories?.length) tools.push(makeMemoryTool(opts.memories))
