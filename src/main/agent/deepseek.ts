@@ -200,6 +200,9 @@ export class DeepSeekClient {
       } catch {
         return
       }
+      // JSON.parse("null") succeeds and returns null; guard before field access so a
+      // `data: null` keep-alive line can't throw and abort the whole turn.
+      if (!json || typeof json !== 'object') return
       if (json.usage) {
         usage = {
           promptTokens: json.usage.prompt_tokens ?? 0,
@@ -241,11 +244,25 @@ export class DeepSeekClient {
       }
     }
 
+    // Hard caps so a runaway/never-terminating or newline-less stream (a buggy local
+    // model or a compromised endpoint) can't grow memory until the app OOMs/hangs.
+    const MAX_STREAM_BYTES = 64 * 1024 * 1024 // total decoded payload ceiling
+    const MAX_BUFFER_BYTES = 4 * 1024 * 1024 // undrained buffer (no-newline) ceiling
+    let totalBytes = 0
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
+      totalBytes += value?.length ?? 0
       buffer += decoder.decode(value, { stream: true })
       drainLines()
+      if (totalBytes > MAX_STREAM_BYTES || buffer.length > MAX_BUFFER_BYTES) {
+        try {
+          await reader.cancel()
+        } catch {
+          /* ignore */
+        }
+        throw new Error('Antwort-Stream überschritt das Größenlimit — abgebrochen.')
+      }
     }
     // Flush any incomplete multi-byte sequence and the final newline-less line.
     buffer += decoder.decode()

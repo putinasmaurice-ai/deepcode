@@ -5,7 +5,7 @@ import { checkForUpdates } from './updater'
 import { randomUUID } from 'crypto'
 import { homedir } from 'os'
 import { existsSync, statSync, readFileSync } from 'fs'
-import { join } from 'path'
+import { join, resolve, sep } from 'path'
 import { IPC } from '@shared/ipc'
 import {
   AgentEvent,
@@ -66,6 +66,37 @@ export function getEngine(): AgentEngine {
 
 function emit(e: AgentEvent): void {
   if (currentWin && !currentWin.isDestroyed()) currentWin.webContents.send(IPC.agentEvent, e)
+}
+
+// Files the user explicitly chose via the OS file dialog (pickFiles) — a trusted
+// gesture that authorizes reading those exact paths.
+const pickedPaths = new Set<string>()
+
+function isInsideConfigDir(abs: string): boolean {
+  const root = resolve(PATHS.root)
+  return abs === root || abs.startsWith(root + sep)
+}
+
+// Confine renderer-supplied read paths: the config dir (settings/mcp/memory) is
+// always off-limits; otherwise allow only paths the user picked or that live inside
+// a directory the user actually works in (a session/project cwd or the default cwd).
+// Stops a compromised renderer from coercing readFileHead into arbitrary file reads.
+function pathAllowedForRead(p: unknown): boolean {
+  if (typeof p !== 'string' || !p) return false
+  let abs: string
+  try {
+    abs = resolve(p)
+  } catch {
+    return false
+  }
+  if (isInsideConfigDir(abs)) return false
+  if (pickedPaths.has(abs)) return true
+  const roots = new Set<string>()
+  if (settings?.defaultCwd) roots.add(resolve(settings.defaultCwd))
+  for (const s of listSessions()) if (s.cwd) roots.add(resolve(s.cwd))
+  for (const pr of loadProjects()) if (pr.cwd) roots.add(resolve(pr.cwd))
+  for (const root of roots) if (abs === root || abs.startsWith(root + sep)) return true
+  return false
 }
 
 export function registerIpc(win: BrowserWindow): void {
@@ -342,10 +373,14 @@ export function registerIpc(win: BrowserWindow): void {
       )
     })
   })
-  ipcMain.handle(IPC.imageDataUri, (_e, path: string) => imageToDataUri(path))
+  ipcMain.handle(IPC.imageDataUri, (_e, path: string) => {
+    // never expose the config dir; imageToDataUri itself rejects non-image bytes
+    if (typeof path !== 'string' || isInsideConfigDir(resolve(path))) return null
+    return imageToDataUri(path)
+  })
   ipcMain.handle(IPC.readFileHead, (_e, path: string, maxChars?: number) => {
+    if (!pathAllowedForRead(path)) return '(Zugriff verweigert: außerhalb des Projekts)'
     try {
-      if (!existsSync(path)) return '(Datei nicht gefunden)'
       const st = statSync(path)
       if (st.isDirectory()) return '(Ordner)'
       if (st.size > 2_000_000) return `(zu groß: ${Math.round(st.size / 1024)} KB)`
@@ -463,7 +498,10 @@ export function registerIpc(win: BrowserWindow): void {
     const res = await dialog.showOpenDialog(win, {
       properties: ['openFile', 'multiSelections']
     })
-    return res.canceled ? [] : res.filePaths
+    if (res.canceled) return []
+    // authorize these user-chosen paths for subsequent readFileHead/preview
+    for (const f of res.filePaths) pickedPaths.add(resolve(f))
+    return res.filePaths
   })
   ipcMain.handle(IPC.openConfigDir, () => {
     shell.openPath(PATHS.root)

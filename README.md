@@ -85,6 +85,13 @@ test/             vitest unit tests for the pure logic (pricing, danger heuristi
 ```
 
 `npm run typecheck && npm test` gates every push via GitHub Actions CI.
+`node scripts/ui-smoke.mjs` launches the built app via Playwright, clicks through every
+view/flow and asserts zero console errors / uncaught exceptions.
+
+File access is confined to the working directory (`confineToCwd`, symlink-resolved); the
+renderer-facing read IPCs (`readFileHead`, `imageDataUri`) are likewise confined and
+image reads are validated by magic bytes, so untrusted rendered content can't exfiltrate
+arbitrary files.
 
 ## Notes
 

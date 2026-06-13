@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readdirSync,
   statSync,
+  realpathSync,
   rmSync
 } from 'fs'
 import { join, resolve, relative, dirname, isAbsolute, sep } from 'path'
@@ -16,11 +17,34 @@ function resolvePath(cwd: string, p: string): string {
   return isAbsolute(p) ? p : resolve(cwd, p)
 }
 
+// Resolve symlinks/junctions on the real (existing) portion of a path so the
+// confinement check below can't be defeated by a link inside cwd that points out.
+function realResolve(p: string): string {
+  let probe = p
+  for (let i = 0; i < 40; i++) {
+    if (existsSync(probe)) {
+      try {
+        return resolve(realpathSync.native(probe), relative(probe, p))
+      } catch {
+        return p
+      }
+    }
+    const parent = dirname(probe)
+    if (parent === probe) break
+    probe = parent
+  }
+  return p
+}
+
 // Throws if `confine` is on and the resolved path escapes the working directory.
 function ensureInside(resolved: string, cwd: string, confine?: boolean): void {
   if (!confine) return
-  const rel = relative(cwd, resolved)
-  if (rel === '' ) return
+  // Compare REAL paths (symlink-resolved) on both sides so an in-cwd symlink/junction
+  // targeting outside the working dir is caught, not just lexical ../ escapes.
+  const realCwd = realResolve(cwd)
+  const realPath = realResolve(resolved)
+  const rel = relative(realCwd, realPath)
+  if (rel === '') return
   if (rel.startsWith('..') || isAbsolute(rel)) {
     throw new Error(
       `Path is outside the working directory and access is confined to it. Disable "Confine to working directory" in Settings to allow this.`
