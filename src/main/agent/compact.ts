@@ -4,6 +4,7 @@ import { EngineDeps, Emit } from './deps'
 import { saveSession } from '../store'
 import { costOf } from './pricing'
 import { recordUsage } from '../ledger'
+import { distillMemories } from './distill'
 
 // Summarize older turns into one synthetic message to keep context small while
 // preserving recent turns and tool-call/result pairing.
@@ -73,5 +74,19 @@ export async function compactSession(
   session.messages = [synthetic, ...recent]
   saveSession(session)
   emit({ type: 'status', message: `Compacted ${older.length} messages into a summary.` })
+
+  // opt-in auto-memory: distil durable facts from the FULL pre-compaction transcript (the
+  // detail being summarized away is exactly what's worth remembering). Fire-and-forget so it
+  // never delays the turn; reads `msgs` (the pre-compaction snapshot, since session.messages
+  // was just reassigned), saves independent memory files.
+  if (deps.settings.autoMemory) {
+    distillMemories(deps, { ...session, messages: msgs }, session.projectId)
+      .then((saved) => {
+        if (saved.length) emit({ type: 'status', message: `🧠 ${saved.length} bleibende Fakt(en) ins Memory aufgenommen.` })
+      })
+      .catch(() => {
+        /* best-effort — auto-memory must never disrupt a turn */
+      })
+  }
   return session
 }

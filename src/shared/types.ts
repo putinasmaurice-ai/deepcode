@@ -202,6 +202,9 @@ export interface AppSettings {
   watcherEnabled: boolean
   // after a turn that changed files, run one extra self-review pass (≈2x tokens)
   selfReview: boolean
+  // automatically distil durable facts into memory at each compaction (opt-in; /remember
+  // does it on demand regardless). Costs one extra cheap LLM call per compaction.
+  autoMemory: boolean
   // route mechanical agent steps to the cheap chat model and reserve the reasoner
   // for planning/debugging — cuts cost when the session model is the reasoner.
   autoRouteModels: boolean
@@ -261,6 +264,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   visionMode: 'online', // default to Gemini; falls back to local if no Google key is set
   watcherEnabled: false,
   selfReview: false,
+  autoMemory: false,
   autoRouteModels: true,
   maxCostPerTurn: 0,
   claudeCode: {

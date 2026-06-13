@@ -426,6 +426,10 @@ export function SettingsPanel({
             <Switch on={s.autoRouteModels} onClick={() => update({ autoRouteModels: !s.autoRouteModels })} />
             💸 Auto-Modell-Routing — wenn du den Reasoner als Session-Modell wählst, läuft die Agenten-Schleife auf dem günstigen Chat-Modell (der Reasoner kann keine Tools aufrufen): spart Kosten und macht Tool-Nutzung überhaupt erst möglich
           </label>
+          <label className="toggle">
+            <Switch on={s.autoMemory} onClick={() => update({ autoMemory: !s.autoMemory })} />
+            🧠 Auto-Memory — bei jeder Verdichtung (Compaction) werden bleibende Fakten automatisch ins Memory aufgenommen (sonst nur manuell mit /remember). Ein zusätzlicher günstiger LLM-Aufruf pro Compaction.
+          </label>
         </div>
         <div className="field" style={{ marginTop: 14 }}>
           <label>Max-Kosten pro Turn in $ (0 = aus) — der Agent pausiert bei Überschreitung statt weiterzulaufen</label>
