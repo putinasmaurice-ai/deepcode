@@ -61,8 +61,8 @@ const api: DeepCodeApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC.getAppInfo),
   checkUpdates: () => ipcRenderer.invoke(IPC.checkUpdates),
   cancelTurn: (sessionId: string) => ipcRenderer.invoke(IPC.cancelTurn, sessionId),
-  approveTool: (callId: string, approved: boolean) =>
-    ipcRenderer.invoke(IPC.approveTool, callId, approved),
+  approveTool: (callId: string, approved: boolean, remember?: boolean) =>
+    ipcRenderer.invoke(IPC.approveTool, callId, approved, remember),
   compactSession: (sessionId: string) => ipcRenderer.invoke(IPC.compactSession, sessionId),
   updateSessionModel: (id: string, model: string) =>
     ipcRenderer.invoke(IPC.updateSessionModel, id, model),
@@ -102,6 +102,27 @@ const api: DeepCodeApi = {
   saveAutomation: (a: unknown) => ipcRenderer.invoke(IPC.saveAutomation, a),
   deleteAutomation: (id: string) => ipcRenderer.invoke(IPC.deleteAutomation, id),
   runAutomation: (id: string) => ipcRenderer.invoke(IPC.runAutomation, id),
+
+  // persistent approval allowlist
+  listApprovedCommands: () => ipcRenderer.invoke(IPC.listApprovedCommands),
+  removeApprovedCommand: (command: string, cwd: string) =>
+    ipcRenderer.invoke(IPC.removeApprovedCommand, command, cwd),
+
+  // in-chat find
+  findInPage: (text: string, forward: boolean, findNext: boolean) =>
+    ipcRenderer.invoke(IPC.findInPage, text, forward, findNext),
+  stopFindInPage: () => ipcRenderer.invoke(IPC.stopFindInPage),
+  onFindResult: (cb: (r: { matches: number; activeMatchOrdinal: number }) => void): (() => void) => {
+    const listener = (_e: unknown, r: { matches: number; activeMatchOrdinal: number }): void => cb(r)
+    ipcRenderer.on(IPC.findResult, listener)
+    return () => {
+      ipcRenderer.removeListener(IPC.findResult, listener)
+    }
+  },
+
+  // project preview
+  detectPreview: (cwd: string) => ipcRenderer.invoke(IPC.detectPreview, cwd),
+  openExternal: (url: string) => ipcRenderer.invoke(IPC.openExternal, url),
 
   // misc
   pickDirectory: () => ipcRenderer.invoke(IPC.pickDirectory),

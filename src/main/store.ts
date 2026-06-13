@@ -24,7 +24,8 @@ export function loadSettings(): AppSettings {
         ...DEFAULT_SETTINGS,
         ...raw,
         provider: { ...DEFAULT_SETTINGS.provider, ...(raw.provider ?? {}) },
-        autoApprove: { ...DEFAULT_SETTINGS.autoApprove, ...(raw.autoApprove ?? {}) }
+        autoApprove: { ...DEFAULT_SETTINGS.autoApprove, ...(raw.autoApprove ?? {}) },
+        claudeCode: { ...DEFAULT_SETTINGS.claudeCode, ...(raw.claudeCode ?? {}) }
       }
       // Decrypt the API key from OS secure storage if present.
       if (raw._apiKeyEnc && encryptionOk()) {

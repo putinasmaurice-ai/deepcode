@@ -7,6 +7,7 @@ import { Tool, toApiTools } from './tools'
 import { ToolContext } from './tools/types'
 import { buildSystemPrompt } from './prompt'
 import { ApprovalPolicy, isDangerousCommand } from './policy'
+import { isCommandApproved, approveCommand } from '../approvals'
 import { toApiMessages, toolResultMessage } from './api-messages'
 import { costOf, estimateTokens } from './pricing'
 import { collectSkills, buildTools } from './toolset'
@@ -37,6 +38,9 @@ export class AgentEngine {
   private client: DeepSeekClient
   private sessionsStarted = new Set<string>()
   private pendingApprovals = new Map<string, (approved: boolean) => void>()
+  // command + cwd behind each pending run_command approval, so "always allow" can
+  // persist it scoped to the directory it was approved in
+  private pendingCommand = new Map<string, { command: string; cwd: string }>()
   private aborters = new Map<string, AbortController>()
 
   constructor(private settings: AppSettings) {
@@ -70,7 +74,14 @@ export class AgentEngine {
     }
   }
 
-  approve(callId: string, approved: boolean): void {
+  approve(callId: string, approved: boolean, remember?: boolean): void {
+    // "Immer erlauben": persist the exact command (scoped to its cwd) so it
+    // auto-approves next time in the same project.
+    if (approved && remember) {
+      const meta = this.pendingCommand.get(callId)
+      if (meta) approveCommand(meta.command, meta.cwd)
+    }
+    this.pendingCommand.delete(callId)
     const resolver = this.pendingApprovals.get(callId)
     if (resolver) {
       this.pendingApprovals.delete(callId)
@@ -108,9 +119,28 @@ export class AgentEngine {
     return false
   }
 
-  private requestApproval(emit: Emit, callId: string, name: string, args: string): Promise<boolean> {
+  private requestApproval(
+    emit: Emit,
+    callId: string,
+    name: string,
+    args: string,
+    signal: AbortSignal,
+    command?: string,
+    cwd?: string
+  ): Promise<boolean> {
+    if (command) this.pendingCommand.set(callId, { command, cwd: cwd ?? '' })
     emit({ type: 'tool_pending', callId, name, args })
     return new Promise<boolean>((resolve) => {
+      // If the turn is cancelled while this prompt is open, resolve as denied and
+      // clear the maps — otherwise the promise (and the session lock) leak until
+      // the user eventually clicks approve/deny.
+      const onAbort = (): void => {
+        this.pendingApprovals.delete(callId)
+        this.pendingCommand.delete(callId)
+        resolve(false)
+      }
+      if (signal.aborted) return onAbort()
+      signal.addEventListener('abort', onAbort, { once: true })
       this.pendingApprovals.set(callId, resolve)
     })
   }
@@ -122,9 +152,12 @@ export class AgentEngine {
     call: { id: string; name: string; arguments: string },
     parsedArgs: any,
     policy: ApprovalPolicy,
-    emit: Emit
+    emit: Emit,
+    cwd: string,
+    signal: AbortSignal
   ): Promise<string | null> {
-    const dangerous = call.name === 'run_command' && isDangerousCommand(parsedArgs.command)
+    const isCmd = call.name === 'run_command'
+    const dangerous = isCmd && isDangerousCommand(parsedArgs.command)
     const mutating = tool.permission === 'write' || tool.permission === 'bash'
     if (policy === 'plan' && mutating) {
       return `Plan mode: "${call.name}" was NOT executed. Describe this change as part of your plan instead.`
@@ -132,9 +165,25 @@ export class AgentEngine {
     if (policy === 'full') return null
     if (this.autoApproved(tool.permission) && !dangerous) return null
     if (policy === 'safe') {
+      // Unattended/restricted: deny anything not pre-approved. The interactive-only
+      // allowlist must NOT punch through here — that's what autoApprove.bash is for.
       return `Skipped "${call.name}" — not permitted in unattended (safe) mode.`
     }
-    const approved = await this.requestApproval(emit, call.id, call.name, call.arguments)
+    // Interactive only: a command the user blessed before (in THIS cwd) runs without
+    // a prompt — never a dangerous one (screened above), never cross-project.
+    if (isCmd && !dangerous && isCommandApproved(parsedArgs.command, cwd)) {
+      emit({ type: 'status', message: `Auto-erlaubt (Allowlist): ${String(parsedArgs.command).slice(0, 80)}` })
+      return null
+    }
+    const approved = await this.requestApproval(
+      emit,
+      call.id,
+      call.name,
+      call.arguments,
+      signal,
+      isCmd && !dangerous ? parsedArgs.command : undefined,
+      cwd
+    )
     return approved ? null : 'Tool call was denied by the user.'
   }
 
@@ -345,7 +394,7 @@ export class AgentEngine {
       return { ok: false, content: `Invalid JSON arguments: ${call.arguments}` }
     }
 
-    const denial = await this.gateToolCall(tool, call, parsedArgs, policy, emit)
+    const denial = await this.gateToolCall(tool, call, parsedArgs, policy, emit, cwd, ctx.signal)
     if (denial) return { ok: false, content: denial }
 
     await runHooks('PreToolUse', { toolName: call.name, toolArgs: parsedArgs, cwd }, hooks)

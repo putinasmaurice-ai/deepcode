@@ -6,6 +6,7 @@ import { makeSkillTool } from './skill'
 import { todoTool } from './todo'
 import { webFetchTool } from './web'
 import { jobTools } from './jobs'
+import { makeClaudeCodeTool, ClaudeCodeConfig } from './claude_code'
 import { SubagentDef, SkillDef } from '@shared/types'
 import { ApiToolDef } from '../deepseek'
 
@@ -18,10 +19,12 @@ export function buildToolset(opts: {
   mcpTools?: Tool[]
   includeTask?: boolean // false for subagents (no recursive delegation)
   allow?: string[] // restrict to these tool names ("*" = all); used by subagents
+  claudeCode?: ClaudeCodeConfig // present only when the helper tool is enabled
 }): Tool[] {
   let tools: Tool[] = [...fsTools, bashTool, ...jobTools, webFetchTool, todoTool]
   if (opts.includeTask !== false) tools.push(makeTaskTool(opts.subagents))
   if (opts.skills?.length) tools.push(makeSkillTool(opts.skills))
+  if (opts.claudeCode) tools.push(makeClaudeCodeTool(opts.claudeCode))
   if (opts.mcpTools?.length) tools = tools.concat(opts.mcpTools)
 
   if (opts.allow && !opts.allow.includes('*')) {

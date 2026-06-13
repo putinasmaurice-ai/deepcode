@@ -8,4 +8,6 @@ release
 .env.local
 
 *.tsbuildinfo
-tools/
+# portable gh CLI lives in the repo-root tools/ — anchor to root so it does NOT
+# also ignore the source dir src/main/agent/tools/
+/tools/

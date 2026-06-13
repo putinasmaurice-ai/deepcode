@@ -48,7 +48,7 @@ function MessageViewImpl({
 }: {
   message: ChatMessage
   toolState: Record<string, ToolState>
-  onApprove: (callId: string, approved: boolean) => void
+  onApprove: (callId: string, approved: boolean, remember?: boolean) => void
   onEdit?: (messageId: string, content: string) => void
   onAutomate?: (content: string) => void
   cwd?: string
@@ -128,7 +128,7 @@ function MessageViewImpl({
           args={tc.arguments}
           state={toolState[tc.id]}
           cwd={cwd}
-          onApprove={(ok) => onApprove(tc.id, ok)}
+          onApprove={(ok, remember) => onApprove(tc.id, ok, remember)}
         />
       ))}
       {message.finishReason === 'length' && (
@@ -212,7 +212,7 @@ function ToolBlock({
   args: string
   state?: ToolState
   cwd?: string
-  onApprove: (ok: boolean) => void
+  onApprove: (ok: boolean, remember?: boolean) => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const [pendingDiff, setPendingDiff] = useState<string | null>(null)
@@ -261,6 +261,15 @@ function ToolBlock({
             <button className="btn ghost sm" onClick={() => onApprove(false)}>
               Deny <kbd>N</kbd>
             </button>
+            {name === 'run_command' && (
+              <button
+                className="btn ghost sm"
+                onClick={() => onApprove(true, true)}
+                title="Diesen exakten Befehl künftig automatisch erlauben (in Settings verwaltbar)"
+              >
+                Immer erlauben
+              </button>
+            )}
             <span className="approve-hint">
               <kbd>A</kbd> erlaubt alle offenen
             </span>

@@ -33,6 +33,8 @@ import { loadMemory, saveMemory, deleteMemory, recordArenaVote } from './systems
 import { mcpManager } from './systems/mcp'
 import { PATHS } from './paths'
 import { buildAttachmentContext, listProjectFiles } from './attachments'
+import { listApprovedCommands, removeApprovedCommand } from './approvals'
+import { detectPreview } from './preview'
 import { runBuiltin } from './builtins'
 import { execFile } from 'child_process'
 import type { ApprovalPolicy } from './agent/engine'
@@ -356,8 +358,43 @@ export function registerIpc(win: BrowserWindow): void {
     engine.cancel(sessionId)
     return true
   })
-  ipcMain.handle(IPC.approveTool, (_e, callId: string, approved: boolean) => {
-    engine.approve(callId, approved)
+  ipcMain.handle(IPC.approveTool, (_e, callId: string, approved: boolean, remember?: boolean) => {
+    engine.approve(callId, approved, remember)
+    return true
+  })
+
+  // ---- persistent approval allowlist ----
+  ipcMain.handle(IPC.listApprovedCommands, () => listApprovedCommands())
+  ipcMain.handle(IPC.removeApprovedCommand, (_e, command: string, cwd: string) =>
+    removeApprovedCommand(command, cwd)
+  )
+
+  // ---- in-chat find (Electron native findInPage with highlight-all) ----
+  win.webContents.on('found-in-page', (_e, result) => {
+    win.webContents.send(IPC.findResult, {
+      matches: result.matches,
+      activeMatchOrdinal: result.activeMatchOrdinal
+    })
+  })
+  ipcMain.handle(IPC.findInPage, (_e, text: string, forward: boolean, findNext: boolean) => {
+    if (!text) {
+      win.webContents.stopFindInPage('clearSelection')
+      return true
+    }
+    win.webContents.findInPage(text, { forward, findNext })
+    return true
+  })
+  ipcMain.handle(IPC.stopFindInPage, () => {
+    win.webContents.stopFindInPage('clearSelection')
+    return true
+  })
+
+  // ---- project preview detection ----
+  ipcMain.handle(IPC.detectPreview, (_e, cwd: string) => detectPreview(cwd))
+  ipcMain.handle(IPC.openExternal, (_e, url: string) => {
+    // http(s) only — the webview already renders file:// internally, and forwarding
+    // file:// to the OS shell would open arbitrary local paths/folders.
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url)
     return true
   })
 

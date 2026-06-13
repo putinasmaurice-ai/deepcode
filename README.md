@@ -43,6 +43,7 @@ The agent runs a streaming tool-calling loop with these built-in tools:
 - `run_command` — shell (PowerShell on Windows); `run_background_command`/`job_status`/`kill_job` for long-running jobs
 - `web_fetch` — read documentation/APIs from the internet
 - `task` — delegate to a subagent · `use_skill` — load skill instructions · `todo_write` — visible task list
+- `claude_code` — *optional* helper: delegate a sub-task to the Claude Code CLI (read-only by default). DeepSeek stays the orchestrator; Claude costs bill to your Anthropic account. Enable in Settings.
 - any tools exposed by connected MCP connectors
 
 Modes: **Interaktiv** (asks before changes), **Plan** (read-only, proposes a plan), **Auto** (approves everything).
@@ -50,12 +51,16 @@ File changes are checkpointed — `/rewind` undoes the last turn. Dangerous comm
 
 Built-in slash commands: `/help /init /goal /cost /model /compact /rewind /jobs` + file-based custom commands.
 
+**👁 Live preview pane** — a side panel next to the chat that renders the project you're building
+(static `index.html` or a dev-server URL, auto-detected) in an isolated webview, like Claude Code's preview.
+
 More: Projects (instructions + goal + trust level), cost dashboard (per chat/project/total),
 @-file mentions, drag&drop attachments, edit-and-resend, regenerate, GitHub-flavored
 markdown rendering with syntax highlighting, session export, desktop notifications.
+Per-command **approval allowlist** ("Immer erlauben" — exact command, scoped to its project dir; managed in Settings).
 
 **Keyboard:** `Ctrl+P` command palette (fuzzy: every view, action & recent chat) ·
-`Ctrl+N` new chat · `Ctrl+K` focus composer · `Esc` cancel turn ·
+`Ctrl+F` in-chat find · `Ctrl+N` new chat · `Ctrl+K` focus composer · `Esc` cancel turn ·
 `Y`/`N`/`A` approve / deny / approve-all the pending tool call. The context pill is
 model-aware (knows each model's real context window).
 

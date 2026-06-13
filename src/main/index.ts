@@ -64,7 +64,9 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.mjs'),
       sandbox: false,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // enables the <webview> tag used by the project preview pane
+      webviewTag: true
     }
   })
 
@@ -105,6 +107,20 @@ function createWindow(): void {
   win.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
+  })
+
+  // Lock down the preview <webview>: no node access, no preload, popups go to the
+  // OS browser. The pane only ever renders the user's own project output.
+  win.webContents.on('will-attach-webview', (_e, webPreferences) => {
+    delete webPreferences.preload
+    webPreferences.nodeIntegration = false
+    webPreferences.contextIsolation = true
+  })
+  win.webContents.on('did-attach-webview', (_e, guest) => {
+    guest.setWindowOpenHandler((details) => {
+      shell.openExternal(details.url)
+      return { action: 'deny' }
+    })
   })
 
   registerIpc(win)

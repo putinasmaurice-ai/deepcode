@@ -36,6 +36,24 @@ export interface SearchHit {
   updatedAt: number
 }
 
+export interface FindResult {
+  matches: number
+  activeMatchOrdinal: number
+}
+
+export interface ApprovedCommand {
+  command: string
+  cwd: string
+}
+
+export interface PreviewInfo {
+  // best-guess URL to load (file:// for static html, http://localhost for dev servers)
+  url: string | null
+  kind: 'static' | 'dev' | 'none'
+  // a dev script exists in package.json (so the user can start it)
+  devScript: string | null
+}
+
 // The full typed surface of window.deepcode (implemented in src/preload).
 export interface DeepCodeApi {
   // settings
@@ -73,7 +91,7 @@ export interface DeepCodeApi {
     attachments?: string[]
   ): Promise<boolean>
   cancelTurn(sessionId: string): Promise<boolean>
-  approveTool(callId: string, approved: boolean): Promise<boolean>
+  approveTool(callId: string, approved: boolean, remember?: boolean): Promise<boolean>
   compactSession(sessionId: string): Promise<Session>
   secondOpinion(sessionId: string): Promise<boolean>
   arena(sessionId: string, modelB?: string): Promise<boolean>
@@ -125,6 +143,19 @@ export interface DeepCodeApi {
   // watcher
   watchStart(cwd: string): Promise<boolean>
   watchStop(): Promise<boolean>
+
+  // persistent approval allowlist (cwd-scoped)
+  listApprovedCommands(): Promise<ApprovedCommand[]>
+  removeApprovedCommand(command: string, cwd: string): Promise<ApprovedCommand[]>
+
+  // in-chat find
+  findInPage(text: string, forward: boolean, findNext: boolean): Promise<boolean>
+  stopFindInPage(): Promise<boolean>
+  onFindResult(cb: (r: FindResult) => void): () => void
+
+  // project preview
+  detectPreview(cwd: string): Promise<PreviewInfo>
+  openExternal(url: string): Promise<boolean>
 
   // misc
   pickDirectory(): Promise<string | null>

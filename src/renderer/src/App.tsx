@@ -22,6 +22,8 @@ import { FirstRunModal } from './components/FirstRunModal'
 import { MarketPanel } from './components/MarketPanel'
 import { Sidebar, NAV } from './components/Sidebar'
 import { CommandPalette, PaletteItem } from './components/CommandPalette'
+import { FindBar } from './components/FindBar'
+import { PreviewPane } from './components/PreviewPane'
 import {
   SettingsPanel,
   SkillsPanel,
@@ -77,6 +79,8 @@ export function App(): JSX.Element {
   const [error, setError] = useState('')
   const [view, setView] = useState<View>('chat')
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [findOpen, setFindOpen] = useState(false)
+  const [previewOpen, setPreviewOpen] = useState(false)
   const [sessionUsage, setSessionUsage] = useState<{ tokens: number; cost: number }>({
     tokens: 0,
     cost: 0
@@ -200,6 +204,10 @@ export function App(): JSX.Element {
       if (e.ctrlKey && e.key.toLowerCase() === 'p') {
         e.preventDefault()
         setPaletteOpen((o) => !o)
+      } else if (e.ctrlKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        setView('chat') // FindBar only renders in the chat view
+        setFindOpen(true)
       } else if (e.ctrlKey && e.key.toLowerCase() === 'n') {
         e.preventDefault()
         newSession()
@@ -656,8 +664,8 @@ export function App(): JSX.Element {
     }
   }
 
-  const approve = useCallback((callId: string, approved: boolean): void => {
-    api.approveTool(callId, approved)
+  const approve = useCallback((callId: string, approved: boolean, remember?: boolean): void => {
+    api.approveTool(callId, approved, remember)
     setToolState((t) => ({ ...t, [callId]: { ...t[callId], pending: false } }))
   }, [])
 
@@ -697,6 +705,25 @@ export function App(): JSX.Element {
         run: () => {
           setView('chat')
           setTimeout(() => document.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus(), 50)
+        }
+      },
+      {
+        id: 'act:find',
+        icon: '🔎',
+        label: 'Im Chat suchen',
+        hint: 'Ctrl+F',
+        run: () => {
+          setView('chat')
+          setFindOpen(true)
+        }
+      },
+      {
+        id: 'act:preview',
+        icon: '👁',
+        label: 'Projekt-Vorschau umschalten',
+        run: () => {
+          setView('chat')
+          setPreviewOpen((o) => !o)
         }
       },
       { id: 'act:export', icon: '⬇️', label: 'Chat exportieren (Markdown)', run: () => void exportChat() },
@@ -808,6 +835,13 @@ export function App(): JSX.Element {
               <button className="btn ghost sm" onClick={exportChat} title="Chat als Markdown exportieren">
                 Export
               </button>
+              <button
+                className={'btn ghost sm' + (previewOpen ? ' on' : '')}
+                onClick={() => setPreviewOpen((o) => !o)}
+                title="Live-Vorschau des Projekts (HTML / Dev-Server) neben dem Chat"
+              >
+                👁 Vorschau
+              </button>
               {sessionUsage.tokens > 0 && (
                 <span className="pill" title="Tokens / estimated cost this session">
                   {sessionUsage.tokens.toLocaleString()} tok
@@ -866,7 +900,9 @@ export function App(): JSX.Element {
         </div>
 
         {view === 'chat' ? (
-          <>
+          <div className={'chat-split' + (previewOpen ? ' with-preview' : '')}>
+           <div className="chat-col">
+            {findOpen && <FindBar onClose={() => setFindOpen(false)} />}
             <div className="chat" ref={chatRef} onScroll={onChatScroll}>
               <div className="chat-inner">
                 {apiKeyMissing && (
@@ -1000,7 +1036,11 @@ export function App(): JSX.Element {
               prefill={composerPrefill}
               onPrefillConsumed={() => setComposerPrefill(null)}
             />
-          </>
+           </div>
+           {previewOpen && session && (
+             <PreviewPane cwd={session.cwd} onClose={() => setPreviewOpen(false)} />
+           )}
+          </div>
         ) : view === 'projects' ? (
           <ProjectsPanel
             onOpenProject={(pid) => {

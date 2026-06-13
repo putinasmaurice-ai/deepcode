@@ -174,6 +174,15 @@ export interface AppSettings {
   watcherEnabled: boolean
   // after a turn that changed files, run one extra self-review pass (≈2x tokens)
   selfReview: boolean
+  // optional: let the agent call the Claude Code CLI as a helper tool. DeepSeek
+  // stays the orchestrator; Claude costs are billed to the user's Anthropic account.
+  claudeCode: {
+    enabled: boolean
+    path: string // binary, default 'claude'
+    permissionMode: 'plan' | 'acceptEdits' // ceiling; 'plan' = read-only
+    model: string // claude alias/id; '' = default
+    maxBudgetUsd: number // 0 = no cap
+  }
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -204,7 +213,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   monthlyBudget: 0,
   theme: 'dark',
   watcherEnabled: false,
-  selfReview: false
+  selfReview: false,
+  claudeCode: {
+    enabled: false,
+    path: 'claude',
+    permissionMode: 'plan',
+    model: '',
+    maxBudgetUsd: 0
+  }
 }
 
 // ---- Tool plumbing ----

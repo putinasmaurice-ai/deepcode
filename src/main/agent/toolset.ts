@@ -17,15 +17,24 @@ export function collectSubagents(cwd: string): SubagentDef[] {
 }
 
 export function buildTools(
-  _settings: AppSettings,
+  settings: AppSettings,
   cwd: string,
   opts?: { includeTask?: boolean; allow?: string[] }
 ): Tool[] {
+  const cc = settings.claudeCode
   return buildToolset({
     subagents: collectSubagents(cwd),
     skills: collectSkills(cwd),
     mcpTools: mcpManager.getTools(),
     includeTask: opts?.includeTask,
-    allow: opts?.allow
+    allow: opts?.allow,
+    claudeCode: cc?.enabled
+      ? {
+          path: cc.path,
+          permissionMode: cc.permissionMode,
+          model: cc.model,
+          maxBudgetUsd: cc.maxBudgetUsd
+        }
+      : undefined
   })
 }

@@ -81,6 +81,19 @@ export const IPC = {
   deleteAutomation: 'automations:delete',
   runAutomation: 'automations:run',
 
+  // persistent approval allowlist
+  listApprovedCommands: 'approvals:list',
+  removeApprovedCommand: 'approvals:remove',
+
+  // in-chat find (Electron findInPage)
+  findInPage: 'find:inPage',
+  stopFindInPage: 'find:stop',
+  findResult: 'find:result', // main -> renderer push channel
+
+  // project preview pane
+  detectPreview: 'preview:detect',
+  openExternal: 'shell:openExternal',
+
   // misc
   pickDirectory: 'dialog:pickDirectory',
   pickFiles: 'dialog:pickFiles',
