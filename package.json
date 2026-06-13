@@ -1,6 +1,6 @@
 {
   "name": "deepcode",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "DeepCode — an agentic coding desktop app powered by DeepSeek. A Claude-Code / Codex style assistant with Plugins, Skills, MCP, Subagents, Hooks, Memory, Automations and Slash Commands.",
   "main": "./out/main/index.js",
   "author": "Maurice",
@@ -15,14 +15,18 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "package": "electron-vite build && electron-builder",
-    "package:win": "electron-vite build && electron-builder --win"
+    "package:win": "electron-vite build && electron-builder --win",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
     "electron-updater": "^6.8.9",
-    "highlight.js": "^11.11.1"
+    "highlight.js": "^11.11.1",
+    "markdown-it": "^14.2.0"
   },
   "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
     "@types/node": "^22.10.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
@@ -36,7 +40,8 @@
     "react-dom": "^18.3.1",
     "sharp": "^0.35.1",
     "typescript": "^5.7.2",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "vitest": "^4.1.8"
   },
   "build": {
     "appId": "com.maurice.deepcode",

@@ -12,8 +12,8 @@ const DANGER_PATTERNS: RegExp[] = [
   /\brm\s+-rf?\s+[/~]/i,
   /\b(format|mkfs|fdisk)\b/i,
   /\bdd\s+if=/i,
-  /\b(Remove-Item|rmdir)\b.*\b-Recurse\b/i,
-  /\b:\(\)\s*\{.*\}\s*;/, // fork bomb
+  /\b(Remove-Item|rmdir)\b.*-Recurse\b/i,
+  /:\(\)\s*\{.*\}\s*;/, // fork bomb (no leading \b — ':' is non-word, would never match at line start)
   />\s*\/dev\/sd[a-z]/i,
   /\bgit\s+push\b.*--force/i
 ]

@@ -314,6 +314,14 @@ export class AgentEngine {
       // one write per round instead of per tool result (sessions get big)
       saveSession(session)
     }
+    // Exhausted the step budget without a tool-free answer — say so instead of
+    // ending silently, so the user knows to continue (the agent isn't "stuck").
+    if (!signal.aborted) {
+      emit({
+        type: 'status',
+        message: `Step limit (${MAX_STEPS}) reached — work may be unfinished. Send "weiter" to continue.`
+      })
+    }
   }
 
   // Parse, gate, run hooks around, and execute a single tool call.

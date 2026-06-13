@@ -49,6 +49,11 @@ function backfill(): Ledger {
       /* skip corrupt */
     }
   }
+  console.info(
+    `[ledger] no usage-ledger.json — reconstructed from ${files.length} session(s): ` +
+      `${led.tokens.toLocaleString()} tokens, $${led.cost.toFixed(4)}. ` +
+      `Totals are now persistent and won't drop when chats are deleted.`
+  )
   return led
 }
 

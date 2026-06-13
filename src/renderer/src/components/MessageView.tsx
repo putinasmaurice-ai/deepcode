@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react'
 import type { ChatMessage } from '../../../shared/types'
 import type { ToolState } from '../App'
 import hljs from '../highlight'
+import { renderMarkdown } from '../markdown'
 
 // Highlight code blocks + inject per-block copy buttons after the streamed
 // content settles (debounced — re-highlighting on every delta would be wasteful).
@@ -117,7 +118,7 @@ function MessageViewImpl({
         <div
           className="bubble"
           ref={bubbleRef}
-          dangerouslySetInnerHTML={{ __html: renderMd(message.content) }}
+          dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
         />
       )}
       {message.toolCalls?.map((tc) => (
@@ -255,11 +256,14 @@ function ToolBlock({
           </div>
           <div className="approve-actions">
             <button className="btn sm" onClick={() => onApprove(true)}>
-              Allow
+              Allow <kbd>Y</kbd>
             </button>
             <button className="btn ghost sm" onClick={() => onApprove(false)}>
-              Deny
+              Deny <kbd>N</kbd>
             </button>
+            <span className="approve-hint">
+              <kbd>A</kbd> erlaubt alle offenen
+            </span>
           </div>
         </div>
       )}
@@ -345,88 +349,4 @@ function summarizeArgs(name: string, raw: string): string {
   } catch {
     return raw.slice(0, 90)
   }
-}
-
-// Minimal, safe markdown: escape HTML first, then headings, lists, code fences,
-// inline code and bold. dangerouslySetInnerHTML is safe because all text is escaped.
-function renderMd(text: string): string {
-  const esc = (s: string): string =>
-    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  const inline = (s: string): string =>
-    esc(s)
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
-      .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
-      // [text](https://url) → external link (window-open handler routes to the browser)
-      .replace(
-        /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
-        '<a href="$2" target="_blank" rel="noopener">$1</a>'
-      )
-
-  const out: string[] = []
-  const segments = text.split(/```/)
-  for (let i = 0; i < segments.length; i++) {
-    if (i % 2 === 1) {
-      const langMatch = segments[i].match(/^([a-zA-Z0-9+-]*)\n/)
-      const lang = langMatch?.[1] ?? ''
-      const body = segments[i].replace(/^[a-zA-Z0-9+-]*\n/, '')
-      out.push(
-        `<pre class="codeblock">${lang ? `<span class="code-lang">${esc(lang)}</span>` : ''}<code${lang ? ` class="language-${esc(lang)}"` : ''}>${esc(body)}</code></pre>`
-      )
-      continue
-    }
-    const lines = segments[i].split('\n')
-    let inList = false
-    let tableBuf: string[] = []
-    const flushTable = (): void => {
-      if (!tableBuf.length) return
-      const rows = tableBuf.filter((r) => !/^\s*\|[\s:|-]+\|\s*$/.test(r)) // drop separator row
-      const html = rows
-        .map((r, ri) => {
-          const cells = r.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|')
-          const tag = ri === 0 ? 'th' : 'td'
-          return `<tr>${cells.map((c) => `<${tag}>${inline(c.trim())}</${tag}>`).join('')}</tr>`
-        })
-        .join('')
-      out.push(`<table class="md-table">${html}</table>`)
-      tableBuf = []
-    }
-    for (const raw of lines) {
-      const line = raw.replace(/\s+$/, '')
-      // markdown table rows: |…|…|
-      if (/^\s*\|.*\|\s*$/.test(line)) {
-        if (inList) {
-          out.push('</ul>')
-          inList = false
-        }
-        tableBuf.push(line)
-        continue
-      }
-      flushTable()
-      const h = line.match(/^(#{1,4})\s+(.*)$/)
-      const li = line.match(/^\s*[-*]\s+(.*)$/)
-      if (h) {
-        if (inList) {
-          out.push('</ul>')
-          inList = false
-        }
-        const lvl = h[1].length + 2
-        out.push(`<div class="md-h" style="font-size:${17 - lvl}px">${inline(h[2])}</div>`)
-      } else if (li) {
-        if (!inList) {
-          out.push('<ul class="md-ul">')
-          inList = true
-        }
-        out.push(`<li>${inline(li[1])}</li>`)
-      } else {
-        if (inList) {
-          out.push('</ul>')
-          inList = false
-        }
-        out.push(line ? `<div>${inline(line)}</div>` : '<div class="md-sp"></div>')
-      }
-    }
-    flushTable()
-    if (inList) out.push('</ul>')
-  }
-  return out.join('')
 }

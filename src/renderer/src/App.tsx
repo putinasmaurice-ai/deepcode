@@ -17,9 +17,11 @@ import { UsagePanel } from './components/UsagePanel'
 import { AuditPanel } from './components/AuditPanel'
 import { NightShiftPanel } from './components/NightShiftPanel'
 import { Welcome, TodoStrip, ContextPill, WorkingIndicator, basename, relTime } from './components/ChatExtras'
+import { contextLimit } from '../../shared/models'
 import { FirstRunModal } from './components/FirstRunModal'
 import { MarketPanel } from './components/MarketPanel'
 import { Sidebar, NAV } from './components/Sidebar'
+import { CommandPalette, PaletteItem } from './components/CommandPalette'
 import {
   SettingsPanel,
   SkillsPanel,
@@ -66,10 +68,15 @@ export function App(): JSX.Element {
   const [session, setSession] = useState<Session | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [toolState, setToolState] = useState<Record<string, ToolState>>({})
+  // Mirror of toolState read by the global keydown handler (avoids a stale closure
+  // without re-subscribing the listener on every tool update).
+  const toolStateRef = useRef(toolState)
+  toolStateRef.current = toolState
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
   const [view, setView] = useState<View>('chat')
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const [sessionUsage, setSessionUsage] = useState<{ tokens: number; cost: number }>({
     tokens: 0,
     cost: 0
@@ -190,7 +197,10 @@ export function App(): JSX.Element {
   // global shortcuts: Ctrl+N new chat, Ctrl+K focus composer, Esc cancel turn
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.ctrlKey && e.key.toLowerCase() === 'n') {
+      if (e.ctrlKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault()
+        setPaletteOpen((o) => !o)
+      } else if (e.ctrlKey && e.key.toLowerCase() === 'n') {
         e.preventDefault()
         newSession()
       } else if (e.ctrlKey && e.key.toLowerCase() === 'k') {
@@ -200,6 +210,26 @@ export function App(): JSX.Element {
       } else if (e.key === 'Escape' && busy && session) {
         api.cancelTurn(session.id)
         setBusy(false)
+      } else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        // y / n / a approve the pending tool call(s) — but only when not typing,
+        // so a "y" in a message never silently approves a shell command.
+        const el = document.activeElement as HTMLElement | null
+        const tag = (el?.tagName || '').toLowerCase()
+        if (tag === 'input' || tag === 'textarea' || el?.isContentEditable) return
+        const ts = toolStateRef.current
+        const pendingIds = Object.keys(ts).filter((id) => ts[id]?.pending)
+        if (!pendingIds.length) return
+        const k = e.key.toLowerCase()
+        if (k === 'y') {
+          e.preventDefault()
+          approve(pendingIds[0], true)
+        } else if (k === 'n') {
+          e.preventDefault()
+          approve(pendingIds[0], false)
+        } else if (k === 'a') {
+          e.preventDefault()
+          pendingIds.forEach((id) => approve(id, true))
+        }
       }
     }
     window.addEventListener('keydown', onKey)
@@ -654,11 +684,52 @@ export function App(): JSX.Element {
 
   const transcript = useMemo(() => messages.filter((m) => !m.hidden), [messages])
 
+  // Command palette (Ctrl+P): every view, the common actions, and the recent
+  // chats — all fuzzy-searchable from one place.
+  const paletteItems = useMemo<PaletteItem[]>(() => {
+    const actions: PaletteItem[] = [
+      { id: 'act:new', icon: '✨', label: 'Neuer Chat', hint: 'Ctrl+N', run: () => newSession() },
+      {
+        id: 'act:focus',
+        icon: '⌨️',
+        label: 'Eingabe fokussieren',
+        hint: 'Ctrl+K',
+        run: () => {
+          setView('chat')
+          setTimeout(() => document.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus(), 50)
+        }
+      },
+      { id: 'act:export', icon: '⬇️', label: 'Chat exportieren (Markdown)', run: () => void exportChat() },
+      { id: 'act:compact', icon: '🗜️', label: 'Kontext komprimieren (/compact)', run: () => void compact() },
+      { id: 'act:uncensored', icon: '🔓', label: 'Uncensored-Modus umschalten', run: () => void toggleUncensored() },
+      { id: 'act:theme', icon: '🌓', label: 'Theme wechseln', run: () => toggleTheme() }
+    ]
+    const views: PaletteItem[] = NAV.map((n) => ({
+      id: 'view:' + n.view,
+      icon: n.icon,
+      label: 'Öffnen: ' + n.label,
+      run: () => setView(n.view)
+    }))
+    const chats: PaletteItem[] = sessions.slice(0, 25).map((s) => ({
+      id: 'chat:' + s.id,
+      icon: '💬',
+      label: s.title || 'Untitled',
+      hint: relTime(s.updatedAt),
+      run: () => {
+        setView('chat')
+        void openSession(s.id)
+      }
+    }))
+    return [...actions, ...views, ...chats]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions])
+
   if (!settings) return <div className="spinner" />
 
 
   return (
     <div className="app">
+      {paletteOpen && <CommandPalette items={paletteItems} onClose={() => setPaletteOpen(false)} />}
       <Sidebar
         settings={settings}
         view={view}
@@ -730,7 +801,10 @@ export function App(): JSX.Element {
                 <option value="plan">📋 Plan</option>
                 <option value="full">⚡ Auto</option>
               </select>
-              <ContextPill messages={messages} maxTokens={64000} />
+              <ContextPill
+                messages={messages}
+                maxTokens={contextLimit(session.model || settings.provider.model)}
+              />
               <button className="btn ghost sm" onClick={exportChat} title="Chat als Markdown exportieren">
                 Export
               </button>

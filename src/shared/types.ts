@@ -183,7 +183,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     model: 'deepseek-chat',
     reasonerModel: 'deepseek-reasoner',
     temperature: 0.1, // DeepSeek empfiehlt für Coding niedrige Temperatur
-    maxTokens: 8192,
+    maxTokens: 16384, // DeepSeek erlaubt bis 8K Output je Antwort; höheres Cap lässt der Server selbst clampen, verhindert aber unnötig kurze Antworten
     pricePerMillionInput: 0.27,
     pricePerMillionOutput: 1.1,
     reasonerPricePerMillionInput: 0.55,

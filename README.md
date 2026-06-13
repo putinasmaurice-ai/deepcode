@@ -51,8 +51,13 @@ File changes are checkpointed — `/rewind` undoes the last turn. Dangerous comm
 Built-in slash commands: `/help /init /goal /cost /model /compact /rewind /jobs` + file-based custom commands.
 
 More: Projects (instructions + goal + trust level), cost dashboard (per chat/project/total),
-@-file mentions, drag&drop attachments, edit-and-resend, regenerate, syntax highlighting,
-session export, desktop notifications, Ctrl+N/Ctrl+K/Esc shortcuts.
+@-file mentions, drag&drop attachments, edit-and-resend, regenerate, GitHub-flavored
+markdown rendering with syntax highlighting, session export, desktop notifications.
+
+**Keyboard:** `Ctrl+P` command palette (fuzzy: every view, action & recent chat) ·
+`Ctrl+N` new chat · `Ctrl+K` focus composer · `Esc` cancel turn ·
+`Y`/`N`/`A` approve / deny / approve-all the pending tool call. The context pill is
+model-aware (knows each model's real context window).
 
 Local models: pick any Ollama/LM Studio model with the `local:` prefix (free, offline).
 🔓 Uncensored toggle (local unaligned model) and 👁 image analysis — attach a screenshot
@@ -70,7 +75,11 @@ src/
     ipc.ts        IPC handlers wiring the renderer to the engine
   preload/        contextBridge API (window.deepcode)
   renderer/       React UI (chat, streaming, tool approvals, all management panels)
+test/             vitest unit tests for the pure logic (pricing, danger heuristic,
+                  cron matcher, context-window map, message elision, line-diff)
 ```
+
+`npm run typecheck && npm test` gates every push via GitHub Actions CI.
 
 ## Notes
 
