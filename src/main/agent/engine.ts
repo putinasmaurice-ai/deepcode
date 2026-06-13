@@ -298,10 +298,14 @@ export class AgentEngine {
       // command with auto-fix feedback. Hard-capped at MAX_QUALITY_ROUNDS.
       let reviewDone = false
       let verifyAttempts = 0
+      const budget = { usd: 0 } // accumulates across all quality rounds of this turn
+      const cap = this.settings.maxCostPerTurn
       for (let round = 0; round < MAX_QUALITY_ROUNDS; round++) {
         const roundModel = visionFirstPass && round === 0 ? this.settings.provider.visionModel : session.model
-        await this.runSteps(session, system, tools, ctx, policy, emit, signal, hooks, roundModel)
+        await this.runSteps(session, system, tools, ctx, policy, emit, signal, hooks, roundModel, budget)
         if (signal.aborted) break
+        // budget breached inside runSteps → stop the whole turn (don't run more rounds)
+        if (cap > 0 && budget.usd >= cap) break
 
         const feedback = await this.qualityFeedback(
           session,
@@ -346,10 +350,21 @@ export class AgentEngine {
     emit: Emit,
     signal: AbortSignal,
     hooks: ReturnType<typeof loadHooks>,
-    model?: string
+    model?: string,
+    budget?: { usd: number }
   ): Promise<void> {
-    const turnModel = model ?? session.model
+    const baseModel = model ?? session.model
     const apiTools = toApiTools(tools)
+    // Cost routing: the reasoner cannot drive the tool loop at all — deepseek.ts
+    // strips tools for reasoner models, so a reasoner step returns text-only and ends
+    // the pass. So when a reasoner is the session model and auto-routing is on, run the
+    // WHOLE agentic loop on the cheap, tool-capable chat model. This both saves money
+    // and makes a reasoner-as-session-model actually able to use tools.
+    const reasonerM = this.settings.provider.reasonerModel
+    const cheapM = this.settings.provider.model
+    const route = this.settings.autoRouteModels && baseModel === reasonerM && !!cheapM && cheapM !== reasonerM
+    const stepModel = route ? cheapM : baseModel
+    const cap = this.settings.maxCostPerTurn
     // error memory: remember "failed command → working follow-up" pairs
     let lastFailedCmd: { program: string; errorHead: string } | null = null
 
@@ -363,7 +378,7 @@ export class AgentEngine {
         apiTools,
         streamCallbacksFor(assistantMsg, emit),
         signal,
-        turnModel
+        stepModel
       )
 
       assistantMsg.toolCalls = result.toolCalls.map((tc) => ({
@@ -373,13 +388,23 @@ export class AgentEngine {
       }))
       assistantMsg.finishReason = result.finishReason
       if (result.usage) {
-        assistantMsg.usage = costOf(this.settings.provider, result.usage, turnModel)
+        assistantMsg.usage = costOf(this.settings.provider, result.usage, stepModel)
         recordUsage(assistantMsg.usage)
+        if (budget) budget.usd += assistantMsg.usage.cost
         emit({ type: 'usage', messageId: assistantMsg.id, usage: assistantMsg.usage })
       }
       session.messages.push(assistantMsg)
       emit({ type: 'message_done', message: assistantMsg })
       saveSession(session)
+
+      // Per-turn budget guard: stop spending once the cap is hit (pause, don't churn).
+      if (cap > 0 && budget && budget.usd >= cap) {
+        emit({
+          type: 'status',
+          message: `Budget-Limit ($${cap.toFixed(2)}) für diesen Turn erreicht — gestoppt. Erhöhe "Max-Kosten/Turn" in Settings oder sende "weiter".`
+        })
+        return
+      }
 
       if (!assistantMsg.toolCalls.length) {
         if (result.finishReason === 'length') {

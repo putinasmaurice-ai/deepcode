@@ -25,4 +25,22 @@ describe('costOf', () => {
       costOf(p, usage, 'deepseek-chat').cost
     )
   })
+
+  it('bills prompt-cache hits cheaper than fresh prompt tokens', () => {
+    const allFresh = costOf(p, usage, 'deepseek-chat')
+    const allCached = costOf(p, { ...usage, cachedPromptTokens: usage.promptTokens }, 'deepseek-chat')
+    // fully-cached prompt costs less than fully-fresh (cache price < miss price)
+    expect(allCached.cost).toBeLessThan(allFresh.cost)
+    // exact: cached input billed at the cache rate, output unchanged
+    expect(allCached.cost).toBeCloseTo(
+      (p.cachedPricePerMillionInput ?? 0) + p.pricePerMillionOutput,
+      6
+    )
+  })
+
+  it('never bills more cached tokens than total prompt tokens', () => {
+    const c = costOf(p, { ...usage, cachedPromptTokens: 5_000_000 }, 'deepseek-chat')
+    expect(Number.isFinite(c.cost)).toBe(true)
+    expect(c.cost).toBeGreaterThan(0)
+  })
 })

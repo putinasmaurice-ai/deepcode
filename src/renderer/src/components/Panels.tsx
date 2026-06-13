@@ -226,6 +226,26 @@ export function SettingsPanel({
             />
           </div>
         </div>
+        <div className="row">
+          <div className="field">
+            <label>Cache-Treffer-Preis / 1M Input ($) — DeepSeek bucht gecachte Tokens günstiger</label>
+            <input
+              type="number"
+              step="0.01"
+              value={p.cachedPricePerMillionInput ?? 0.07}
+              onChange={(e) => updateProvider({ cachedPricePerMillionInput: Number(e.target.value) })}
+            />
+          </div>
+          <div className="field">
+            <label>Reasoner-Cache-Treffer / 1M Input ($)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={p.reasonerCachedPricePerMillionInput ?? 0.14}
+              onChange={(e) => updateProvider({ reasonerCachedPricePerMillionInput: Number(e.target.value) })}
+            />
+          </div>
+        </div>
       </div>
 
       <div className="card">
@@ -262,6 +282,20 @@ export function SettingsPanel({
             <Switch on={s.selfReview} onClick={() => update({ selfReview: !s.selfReview })} />
             🔍 Selbst-Review — nach jeder Änderung prüft der Agent seinen eigenen Code (≈ doppelte Tokens, deutlich weniger Bugs)
           </label>
+          <label className="toggle">
+            <Switch on={s.autoRouteModels} onClick={() => update({ autoRouteModels: !s.autoRouteModels })} />
+            💸 Auto-Modell-Routing — wenn du den Reasoner als Session-Modell wählst, läuft die Agenten-Schleife auf dem günstigen Chat-Modell (der Reasoner kann keine Tools aufrufen): spart Kosten und macht Tool-Nutzung überhaupt erst möglich
+          </label>
+        </div>
+        <div className="field" style={{ marginTop: 14 }}>
+          <label>Max-Kosten pro Turn in $ (0 = aus) — der Agent pausiert bei Überschreitung statt weiterzulaufen</label>
+          <input
+            type="number"
+            step="0.05"
+            value={s.maxCostPerTurn ?? 0}
+            onChange={(e) => update({ maxCostPerTurn: Number(e.target.value) })}
+            placeholder="z.B. 0.50"
+          />
         </div>
         <div className="field" style={{ marginTop: 14 }}>
           <label>Auto-compact threshold (tokens, 0 = off)</label>

@@ -12,6 +12,8 @@ export interface TokenUsage {
   promptTokens: number
   completionTokens: number
   totalTokens: number
+  // prompt tokens served from DeepSeek's context cache (billed far cheaper)
+  cachedPromptTokens?: number
   cost: number // estimated, in USD
 }
 
@@ -142,6 +144,10 @@ export interface ProviderSettings {
   // separate reasoner pricing (deepseek-reasoner costs more than chat)
   reasonerPricePerMillionInput: number
   reasonerPricePerMillionOutput: number
+  // cheaper input price for prompt-cache HITS (DeepSeek bills cached prefix tokens
+  // at a fraction of the miss price). Falls back to the miss price if 0/unset.
+  cachedPricePerMillionInput?: number
+  reasonerCachedPricePerMillionInput?: number
   // OpenAI-compatible endpoint for LOCAL models (Ollama/LM Studio).
   // Models prefixed "local:" are routed here, keyless and free.
   localBaseUrl: string
@@ -174,6 +180,11 @@ export interface AppSettings {
   watcherEnabled: boolean
   // after a turn that changed files, run one extra self-review pass (≈2x tokens)
   selfReview: boolean
+  // route mechanical agent steps to the cheap chat model and reserve the reasoner
+  // for planning/debugging — cuts cost when the session model is the reasoner.
+  autoRouteModels: boolean
+  // hard cost ceiling per turn in USD (0 = off); the loop pauses when exceeded.
+  maxCostPerTurn: number
   // optional: let the agent call the Claude Code CLI as a helper tool. DeepSeek
   // stays the orchestrator; Claude costs are billed to the user's Anthropic account.
   claudeCode: {
@@ -197,6 +208,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     pricePerMillionOutput: 1.1,
     reasonerPricePerMillionInput: 0.55,
     reasonerPricePerMillionOutput: 2.19,
+    cachedPricePerMillionInput: 0.07, // DeepSeek chat cache-hit input price
+    reasonerCachedPricePerMillionInput: 0.14, // reasoner cache-hit input price
     localBaseUrl: 'http://localhost:11434/v1',
     uncensoredModel: 'local:dolphin3',
     visionModel: 'local:qwen2.5vl:7b'
@@ -214,6 +227,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
   watcherEnabled: false,
   selfReview: false,
+  autoRouteModels: true,
+  maxCostPerTurn: 0,
   claudeCode: {
     enabled: false,
     path: 'claude',

@@ -330,7 +330,8 @@ export const grepTool: Tool = {
       path: { type: 'string', description: 'Base directory (default: working dir).' },
       glob: { type: 'string', description: 'Optional file glob filter (e.g. "*.ts").' },
       ignore_case: { type: 'boolean', description: 'Case-insensitive (default false).' },
-      context: { type: 'number', description: 'Lines of context before/after each match (default 0).' }
+      context: { type: 'number', description: 'Lines of context before/after each match (default 0). Saves a follow-up read_file.' },
+      max_results: { type: 'number', description: 'Max matching lines to return (default 300).' }
     },
     required: ['pattern']
   },
@@ -344,13 +345,17 @@ export const grepTool: Tool = {
     } catch (e) {
       return fail(`Invalid regex: ${(e as Error).message}`)
     }
+    const ctxLines = Math.max(0, Math.min(Number(args.context) || 0, 10))
+    const cap = Math.max(1, Math.min(Number(args.max_results) || 300, 1000))
     const fileRe = args.glob ? globToRegex(args.glob) : null
     const files: string[] = []
     walk(base, files)
     const out: string[] = []
+    let matches = 0
     let scanned = 0
+    let capped = false
     for (const f of files) {
-      if (out.length >= 300) break
+      if (capped) break
       const rel = relative(base, f).split(sep).join('/')
       if (fileRe && !fileRe.test(rel) && !fileRe.test(rel.split('/').pop() || '')) continue
       let text: string
@@ -364,14 +369,44 @@ export const grepTool: Tool = {
       if (text.includes(NUL)) continue // skip binary files
       scanned++
       const lines = text.split('\n')
+      // collect match line indices (respecting the global match cap)
+      const hits: number[] = []
       for (let i = 0; i < lines.length; i++) {
         if (re.test(lines[i])) {
-          out.push(`${rel}:${i + 1}:${lines[i].slice(0, 300)}`)
-          if (out.length >= 300) break
+          hits.push(i)
+          if (++matches >= cap) {
+            capped = true
+            break
+          }
         }
       }
+      if (!hits.length) continue
+      if (ctxLines === 0) {
+        for (const i of hits) out.push(`${rel}:${i + 1}:${lines[i].slice(0, 300)}`)
+      } else {
+        // expand each hit to a ±context window and MERGE overlapping/adjacent windows
+        // (ripgrep-style), so clustered matches don't duplicate lines.
+        const hitSet = new Set(hits)
+        const ranges: { from: number; to: number }[] = []
+        for (const i of hits) {
+          const from = Math.max(0, i - ctxLines)
+          const to = Math.min(lines.length - 1, i + ctxLines)
+          const last = ranges[ranges.length - 1]
+          if (last && from <= last.to + 1) last.to = Math.max(last.to, to)
+          else ranges.push({ from, to })
+        }
+        for (const r of ranges) {
+          if (out.length) out.push('--') // separator BETWEEN groups, never trailing
+          for (let j = r.from; j <= r.to; j++) {
+            out.push(`${rel}:${j + 1}${hitSet.has(j) ? ':' : '-'}${lines[j].slice(0, 300)}`)
+          }
+        }
+      }
+      if (capped) break
     }
-    return ok(out.join('\n') || '(no matches)', { count: out.length, scanned })
+    const body = out.join('\n') || '(no matches)'
+    const note = capped ? `\n… (truncated at ${cap} matches; raise max_results to see more)` : ''
+    return ok(body + note, { count: matches, scanned })
   }
 }
 

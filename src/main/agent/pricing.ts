@@ -12,8 +12,20 @@ export function costOf(provider: ProviderSettings, usage: RawUsage, model?: stri
   const outPrice = isReasoner
     ? provider.reasonerPricePerMillionOutput || provider.pricePerMillionOutput || 0
     : provider.pricePerMillionOutput || 0
+  // Prompt-cache hits are billed at a fraction of the miss price. Split the prompt
+  // tokens into cached (cheap) + fresh and price each correctly.
+  // ?? (not ||) so an explicit 0 ("cache reads are free") is honored; clamp so the
+  // cached rate can never exceed the miss rate even if mistyped higher.
+  const cachedPrice = Math.min(
+    inPrice,
+    (isReasoner ? provider.reasonerCachedPricePerMillionInput : provider.cachedPricePerMillionInput) ?? inPrice
+  )
+  const cached = Math.min(usage.cachedPromptTokens ?? 0, usage.promptTokens)
+  const fresh = usage.promptTokens - cached
   const cost =
-    (usage.promptTokens / 1_000_000) * inPrice + (usage.completionTokens / 1_000_000) * outPrice
+    (fresh / 1_000_000) * inPrice +
+    (cached / 1_000_000) * cachedPrice +
+    (usage.completionTokens / 1_000_000) * outPrice
   return { ...usage, cost }
 }
 
