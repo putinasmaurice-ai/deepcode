@@ -21,7 +21,9 @@ const BUILTIN: SlashCommandDef[] = [
   b('jobs', 'Hintergrund-Jobs anzeigen/stoppen — /jobs kill <id>'),
   b('learn', 'Aus diesem Chat einen wiederverwendbaren Skill destillieren'),
   b('remember', 'Bleibende Fakten aus diesem Chat ins Memory aufnehmen'),
-  b('wf', 'Workflow auflisten/starten — /wf <Name> [Eingabe]')
+  b('wf', 'Workflow auflisten/starten — /wf <Name> [Eingabe]'),
+  b('skill-test', 'Einen Skill gegen seine tests.json prüfen — /skill-test <name>'),
+  b('blueprint', 'PROJECT.md-Plan setzen/erzeugen (fließt in Subagents & Workflows)')
 ]
 
 export function Composer({

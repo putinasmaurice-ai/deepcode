@@ -1,4 +1,6 @@
 import { randomUUID } from 'crypto'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { join } from 'path'
 import { AgentEvent, AppSettings, ChatMessage, Session, WorkflowDef } from '@shared/types'
 import { AgentEngine } from './agent/engine'
 import { getProject, upsertProject } from './projects'
@@ -70,6 +72,7 @@ builtins.set('help', ({ emit, session }) => {
   lines.push('- `/remember` — bleibende Fakten aus diesem Chat ins Memory aufnehmen')
   lines.push('- `/wf [Name] [Eingabe]` — gespeicherten Workflow auflisten/aus dem Chat starten')
   lines.push('- `/skill-test <name>` — einen Skill gegen seine tests.json prüfen (offline mit `mock`)')
+  lines.push('- `/blueprint [Plan|generate]` — PROJECT.md-Plan setzen/erzeugen (wird in Subagents & Workflows injiziert)')
   if (cmds.length) {
     lines.push('\n**Eigene Befehle:**')
     for (const c of cmds) lines.push(`- \`/${c.name}\` — ${c.description}`)
@@ -224,6 +227,52 @@ builtins.set('skill-test', async ({ args, emit, engine, session }) => {
     emitInfo(emit, `## 🧪 Skill-Test „${name}": ${passed}/${results.length} bestanden\n\n${lines.join('\n')}`)
   } catch (e) {
     emitInfo(emit, `Skill-Test fehlgeschlagen: ${(e as Error).message}`)
+  }
+})
+
+// /blueprint — view/set/generate the task-scoped PROJECT.md blueprint. It is injected (cwd-based)
+// into the main turn AND delegated subagents AND workflow agent nodes, so delegated work follows
+// the same plan and doesn't drift.
+builtins.set('blueprint', ({ session, args, emit }) => {
+  const rootPath = join(session.cwd, 'PROJECT.md')
+  const dotPath = join(session.cwd, '.deepcode', 'PROJECT.md')
+  const read = (): { name: string; text: string } | null => {
+    for (const [name, p] of [['PROJECT.md', rootPath], ['.deepcode/PROJECT.md', dotPath]] as const) {
+      if (existsSync(p)) {
+        try {
+          return { name, text: readFileSync(p, 'utf8') }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    return null
+  }
+  const a = args.trim()
+  if (!a) {
+    const cur = read()
+    emitInfo(
+      emit,
+      cur
+        ? `📋 **Blueprint (${cur.name})** — fließt in Haupt-Chat, Subagents & Workflow-Agent-Schritte:\n\n${cur.text.slice(0, 4000)}\n\n_Ändern: \`/blueprint <Plan>\` · neu generieren: \`/blueprint generate\`_`
+        : 'Kein **PROJECT.md**-Blueprint in diesem Projekt. Ein Blueprint ist ein task-scoped Plan (Architektur, Entscheidungen, Konventionen, nächste Schritte), der in **alle** Agenten — auch delegierte Subagents und Workflow-Agent-Schritte — injiziert wird, damit nichts vom Plan abweicht.\n\nSetzen: `/blueprint <Plan-Text>` · automatisch erzeugen: `/blueprint generate`'
+    )
+    return
+  }
+  if (a === 'generate') {
+    // expand into a normal agent turn that writes PROJECT.md
+    return (
+      'Analysiere dieses Projekt und schreibe eine knappe, plan-first **PROJECT.md** in den Projekt-Root: ' +
+      'Zweck, Architektur/Schlüsselmodule, Konventionen und den aktuellen Plan/nächste Schritte. ' +
+      'Halte sie kompakt (die „source of truth" für die laufende Arbeit, an der sich auch delegierte Subagents ausrichten). ' +
+      'Nutze write_file für PROJECT.md.'
+    )
+  }
+  try {
+    writeFileSync(rootPath, a + '\n', 'utf8')
+    emitInfo(emit, '📋 Blueprint in `PROJECT.md` gespeichert. Fließt ab sofort in Haupt-Chat, Subagents und Workflow-Agent-Schritte.')
+  } catch (e) {
+    emitInfo(emit, `Konnte PROJECT.md nicht schreiben: ${(e as Error).message}`)
   }
 })
 

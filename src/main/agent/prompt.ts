@@ -32,6 +32,24 @@ function projectInstructions(cwd: string): string {
   return ''
 }
 
+// Task-scoped project BLUEPRINT (PROJECT.md): a plan-first source of truth for the current effort.
+// Read from cwd just like projectInstructions, so it reaches EVERY execution path that has a cwd —
+// the main turn, delegated subagents, AND workflow agent nodes — keeping them aligned (no drift).
+function projectBlueprint(cwd: string): string {
+  for (const name of ['PROJECT.md', '.deepcode/PROJECT.md']) {
+    const p = join(cwd, name)
+    if (existsSync(p)) {
+      try {
+        const body = readFileSync(p, 'utf8').slice(0, 8000).trim()
+        if (body) return body
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return ''
+}
+
 export interface PromptParts {
   cwd: string
   skills: SkillDef[]
@@ -99,6 +117,16 @@ You are in plan mode: write/shell tools are disabled. Investigate the codebase w
   if (goal?.trim()) {
     sections.push(
       `# Active goal\nThe user's standing goal for this work is:\n"${goal.trim()}"\nKeep every action aligned with this goal. If a request conflicts with it, point that out.`
+    )
+  }
+
+  // The PROJECT.md blueprint is the authoritative plan for the current effort. Inject it high
+  // (right after the goal) and in EVERY path (main/subagent/workflow-agent) so delegated work
+  // stays aligned with the plan instead of drifting.
+  const blueprint = projectBlueprint(parts.cwd)
+  if (blueprint) {
+    sections.push(
+      `# Project blueprint / plan (PROJECT.md)\nThis is the source of truth for the current effort — architecture, decisions, conventions, and the plan. Keep all work (including delegated steps) aligned with it; if you must deviate, say why.\n\n${blueprint}`
     )
   }
 

@@ -50,7 +50,12 @@ The agent runs a streaming tool-calling loop with these built-in tools:
 Modes: **Interaktiv** (asks before changes), **Plan** (read-only, proposes a plan), **Auto** (approves everything).
 File changes are checkpointed — `/rewind` undoes the last turn. Dangerous commands always require approval.
 
-Built-in slash commands: `/help /init /goal /cost /model /compact /rewind /jobs /learn /remember /wf` + file-based custom commands.
+Built-in slash commands: `/help /init /goal /cost /model /compact /rewind /jobs /learn /remember /wf /skill-test /blueprint` + file-based custom commands.
+
+**📋 Project blueprint** — a `PROJECT.md` in the project root (set with `/blueprint <plan>`, or
+`/blueprint generate` to have the agent write one) is a plan-first source of truth that is injected
+into **every** execution path that has the project's cwd — the main chat, **delegated sub-agents**,
+and **workflow agent steps** — so delegated work stays aligned with the plan instead of drifting.
 
 **🕸️ Visual workflow builder** — a graphical canvas (React Flow) where you wire nodes into an
 automation and run it: **Agent** (a full DeepSeek tool-loop turn), **Tool** (any built-in tool),
