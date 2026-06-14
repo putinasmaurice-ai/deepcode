@@ -10,12 +10,16 @@ export function SwarmPanel(): JSX.Element {
   const [diff, setDiff] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState('')
   const [msg, setMsg] = useState('')
+  // The swarm IPC resolves its cwd to settings.defaultCwd (homedir fallback), NOT the active
+  // project — show that directory so the user knows where merge/discard actually run.
+  const [cwd, setCwd] = useState('')
 
   const load = (): void => {
     api.swarmBranches().then(setBranches)
   }
   useEffect(() => {
     load()
+    api.getSettings().then((s: { defaultCwd?: string }) => setCwd(s?.defaultCwd ?? ''))
     // refresh when a swarm run finishes while the panel is open
     const off = api.onAgentEvent((e: AgentEvent) => {
       if (e.type === 'swarm_run' && e.status === 'done') load()
@@ -70,7 +74,13 @@ export function SwarmPanel(): JSX.Element {
         <h1>🐝 Schwarm — Merge-Gate</h1>
         <p className="sub">
           Branches aus <code>/swarm</code>-Läufen prüfen und in den aktuellen Branch mergen (Konflikte werden sicher
-          abgebrochen) oder verwerfen. Quelle sind die <code>swarm/*</code>-Branches im Projekt-Repo.
+          abgebrochen) oder verwerfen. Quelle sind die <code>swarm/*</code>-Branches im Arbeitsverzeichnis.
+        </p>
+        <p className="sub">
+          Arbeitsverzeichnis: <code className="swarm-cwd">{cwd || '(noch nicht geladen)'}</code>
+          <br />
+          Hinweis: Schwarm-Branch-Aktionen (Liste, Diff, Merge, Löschen) laufen in diesem Verzeichnis —
+          nicht zwingend im aktuell geöffneten Projekt.
         </p>
         <div className="field" style={{ display: 'flex', gap: 8 }}>
           <button className="btn ghost sm" onClick={load}>⟳ Aktualisieren</button>

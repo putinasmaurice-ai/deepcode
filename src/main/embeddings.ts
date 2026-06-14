@@ -45,10 +45,11 @@ export function chunkLines(text: string, file: string, size = CHUNK_LINES, overl
 }
 
 export function cosine(a: number[], b: number[]): number {
+  if (a.length !== b.length) return 0 // mismatched dims would silently corrupt ranking — skip
   let dot = 0
   let na = 0
   let nb = 0
-  const n = Math.min(a.length, b.length)
+  const n = a.length
   for (let i = 0; i < n; i++) {
     dot += a[i] * b[i]
     na += a[i] * a[i]
@@ -110,6 +111,13 @@ interface IndexFile {
 const INDEX_PATH = (cwd: string): string => join(INDEX_DIR, createHash('sha1').update(cwd).digest('hex') + '.json')
 const memCache = new Map<string, IndexFile>() // cwd -> index (avoids re-parsing the big JSON each search)
 
+// Bound the in-memory index map: evict the oldest cwd before inserting once size exceeds 8
+// (scanCache is capped at 16; without this a long-lived process opening many cwds grows it forever).
+function setMemCache(cwd: string, idx: IndexFile): void {
+  if (!memCache.has(cwd) && memCache.size >= 8) memCache.delete(memCache.keys().next().value as string)
+  memCache.set(cwd, idx)
+}
+
 function loadIndex(cwd: string): IndexFile | null {
   const cached = memCache.get(cwd)
   if (cached) return cached
@@ -118,7 +126,7 @@ function loadIndex(cwd: string): IndexFile | null {
   try {
     const idx = JSON.parse(readFileSync(p, 'utf8')) as IndexFile
     if (idx && idx.files && Array.isArray(idx.chunks)) {
-      memCache.set(cwd, idx)
+      setMemCache(cwd, idx)
       return idx
     }
   } catch {
@@ -242,7 +250,7 @@ async function rebuild(
   } catch {
     /* persisting is best-effort; the in-memory index is still returned */
   }
-  memCache.set(cwd, index)
+  setMemCache(cwd, index)
   return index
 }
 
@@ -265,8 +273,7 @@ export async function semanticSearch(
   const model = embedModel(s)
   let index = loadIndex(cwd)
   if (index && index.model !== model) index = null // model switch → full rebuild
-  const scanned: ScannedFile[] = []
-  scan(cwd, cwd, scanned)
+  const scanned = scanCached(cwd)
   if (!index || filesChanged(index.files, scanned)) {
     index = await rebuild(cwd, s, signal, index, scanned)
   }
@@ -281,8 +288,7 @@ export async function semanticSearch(
 
 // Build/refresh the index up front (e.g. an explicit "index project" action).
 export async function buildIndex(cwd: string, s: Settingsish, signal: AbortSignal): Promise<IndexResult> {
-  const scanned: ScannedFile[] = []
-  scan(cwd, cwd, scanned)
+  const scanned = scanCached(cwd)
   const idx = await rebuild(cwd, s, signal, loadIndex(cwd), scanned)
   return { chunks: idx.chunks.length, files: scanned.length }
 }

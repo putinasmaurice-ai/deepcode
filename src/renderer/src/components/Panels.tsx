@@ -826,7 +826,13 @@ export function MemoryPanel(): JSX.Element {
 
   async function add(): Promise<void> {
     if (!name.trim() || !body.trim()) return
+    // saveMemory slugifies the name; mirror that here so a colliding slug is visible and never
+    // silently overwrites an existing entry.
+    const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    const collision = items.some((m) => m.name === slug)
+    if (collision && !window.confirm(`Memory „${slug}" existiert bereits — überschreiben?`)) return
     await api.saveMemory({ name, description: desc, body, type })
+    window.alert(`Gespeichert als „${slug}".`)
     setName('')
     setDesc('')
     setBody('')
@@ -1051,6 +1057,22 @@ export function AutomationsPanel({
   const [schedule, setSchedule] = useState('0 9 * * *')
   const [prompt, setPrompt] = useState('')
   const [autonomy, setAutonomy] = useState<'safe' | 'full'>('safe')
+  const [running, setRunning] = useState<string | null>(null)
+  const [runErr, setRunErr] = useState<Record<string, string>>({})
+
+  // "Jetzt ausführen" awaits the run so the button can show progress and surface a rejection,
+  // instead of firing a floating promise the user gets no feedback from.
+  async function run(id: string): Promise<void> {
+    setRunning(id)
+    setRunErr((e) => ({ ...e, [id]: '' }))
+    try {
+      await api.runAutomation(id)
+    } catch (e) {
+      setRunErr((errs) => ({ ...errs, [id]: String((e as Error).message ?? e) }))
+    } finally {
+      setRunning(null)
+    }
+  }
 
   // "Als Automation speichern" from a chat message pre-fills the form
   useEffect(() => {
@@ -1137,12 +1159,13 @@ export function AutomationsPanel({
                   load()
                 }}
               />
-              <button className="btn ghost sm" onClick={() => api.runAutomation(a.id)}>
-                Run now
+              <button className="btn ghost sm" disabled={running === a.id} onClick={() => run(a.id)}>
+                {running === a.id ? 'Läuft…' : 'Run now'}
               </button>
               <button
                 className="btn danger sm"
                 onClick={async () => {
+                  if (!window.confirm('Automation wirklich löschen?')) return
                   await api.deleteAutomation(a.id)
                   load()
                 }}
@@ -1153,6 +1176,7 @@ export function AutomationsPanel({
           </div>
           <p>{a.prompt}</p>
           <p className="meta">{a.cwd || '(no working dir)'}</p>
+          {runErr[a.id] && <p style={{ color: 'var(--red)', marginTop: 4 }}>⚠ {runErr[a.id]}</p>}
         </div>
       ))}
     </PanelShell>

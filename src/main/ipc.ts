@@ -11,6 +11,7 @@ import {
   AgentEvent,
   AppSettings,
   AutomationDef,
+  DEFAULT_SETTINGS,
   McpServerDef,
   MemoryEntry,
   Session
@@ -99,6 +100,30 @@ function emit(e: AgentEvent): void {
 // gesture that authorizes reading those exact paths.
 const pickedPaths = new Set<string>()
 
+// Sanitize renderer-supplied settings before they replace the in-memory + on-disk object.
+// Mirrors loadSettings's deep-merge over DEFAULT_SETTINGS (so a partial/garbage payload can't
+// drop required nested fields) and clamps the numeric ceilings to sane non-negative ranges in
+// memory — saveSettings only clamped maxTokens, and only on disk, so the live `settings` object
+// (and engine.updateSettings) trusted whatever the renderer sent. confineToCwd stays boolean.
+function sanitizeSettings(raw: Partial<AppSettings>): AppSettings {
+  const r = (raw ?? {}) as Partial<AppSettings>
+  const merged: AppSettings = {
+    ...DEFAULT_SETTINGS,
+    ...r,
+    provider: { ...DEFAULT_SETTINGS.provider, ...(r.provider ?? {}) },
+    autoApprove: { ...DEFAULT_SETTINGS.autoApprove, ...(r.autoApprove ?? {}) },
+    claudeCode: { ...DEFAULT_SETTINGS.claudeCode, ...(r.claudeCode ?? {}) }
+  }
+  const mt = Number(merged.provider.maxTokens)
+  merged.provider.maxTokens = Number.isFinite(mt) && mt >= 1 ? mt : DEFAULT_SETTINGS.provider.maxTokens
+  const turn = Number(merged.maxCostPerTurn)
+  merged.maxCostPerTurn = Number.isFinite(turn) && turn >= 0 ? turn : 0
+  const day = Number(merged.maxCostPerDay)
+  merged.maxCostPerDay = Number.isFinite(day) && day >= 0 ? day : 0
+  merged.confineToCwd = !!merged.confineToCwd
+  return merged
+}
+
 function isInsideConfigDir(abs: string): boolean {
   const root = resolve(PATHS.root)
   return abs === root || abs.startsWith(root + sep)
@@ -140,9 +165,12 @@ export function registerIpc(win: BrowserWindow): void {
   // ---- settings ----
   ipcMain.handle(IPC.getSettings, () => settings)
   ipcMain.handle(IPC.saveSettings, (_e, next: AppSettings) => {
-    settings = next
-    saveSettings(next)
-    engine.updateSettings(next)
+    // deep-merge over DEFAULT_SETTINGS + clamp numeric ceilings BEFORE it touches memory, disk,
+    // or the engine — never persist/apply the renderer's raw object verbatim.
+    const clean = sanitizeSettings(next)
+    settings = clean
+    saveSettings(clean)
+    engine.updateSettings(clean)
     return settings
   })
 
@@ -469,7 +497,8 @@ export function registerIpc(win: BrowserWindow): void {
     return new Promise((resolvePromise) => {
       execFile(
         'git',
-        ['clone', '--depth', '1', url.trim(), dest],
+        // harden against an untrusted repo: block file:// submodule transports and skip tag fetching
+        ['clone', '--depth', '1', '--no-tags', '-c', 'protocol.file.allow=never', '-c', 'submodule.recurse=false', url.trim(), dest],
         { timeout: 60_000 },
         (err) => {
           if (err) {
@@ -478,6 +507,9 @@ export function registerIpc(win: BrowserWindow): void {
           }
           const hasPlugin = existsSync(join(dest, 'plugin.json'))
           const hasSkills = existsSync(join(dest, 'skills')) || existsSync(join(dest, 'SKILL.md'))
+          // install DISABLED — a freshly cloned bundle's hooks/MCP would otherwise run on the next
+          // tool call (RCE). The user enables it explicitly in the Plugins panel.
+          togglePlugin(name, false)
           resolvePromise({
             ok: true,
             message: `"${name}" installiert${hasPlugin ? ' (Plugin)' : hasSkills ? ' (Skills)' : ''} — im Plugins-Panel aktivierbar.`

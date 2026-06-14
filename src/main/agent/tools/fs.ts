@@ -255,9 +255,16 @@ export const editTool: Tool = {
     if (count === 0) return fail('old_string not found in file. Read the file to get the exact text.')
     if (count > 1 && !args.replace_all)
       return fail(`old_string appears ${count} times. Make it unique or set replace_all=true.`)
-    const next = args.replace_all
-      ? text.split(args.old_string).join(args.new_string)
-      : text.replace(args.old_string, args.new_string)
+    let next: string
+    if (args.replace_all) {
+      next = text.split(args.old_string).join(args.new_string)
+    } else {
+      // Replace the FIRST occurrence by index slicing, not String.replace, so
+      // $&, $1..$9, $`, $' and $$ in new_string are written literally instead
+      // of being interpreted as special replacement patterns.
+      const i = text.indexOf(args.old_string)
+      next = text.slice(0, i) + args.new_string + text.slice(i + args.old_string.length)
+    }
     ctx.snapshot?.(p)
     writeFileSync(p, next, 'utf8')
     const d = lineDiff(text, next)
@@ -346,6 +353,10 @@ export const grepTool: Tool = {
   async execute(args, ctx) {
     const base = resolvePath(ctx.cwd, args.path ?? '.')
     ensureInside(base, ctx.cwd, ctx.confineToCwd)
+    // Reject very long patterns up front: a catastrophic-backtracking regex from
+    // the model can freeze the main process, and length is a cheap first guard.
+    if (String(args.pattern ?? '').length > 1000)
+      return fail('Pattern too long (>1000 chars). Use a simpler regular expression.')
     let re: RegExp
     try {
       re = new RegExp(args.pattern, args.ignore_case ? 'i' : '')
@@ -361,8 +372,15 @@ export const grepTool: Tool = {
     let matches = 0
     let scanned = 0
     let capped = false
+    // Bail out if the scan runs too long or is aborted, so a pathological regex
+    // (catastrophic backtracking) can't freeze the main process. Capture the
+    // start with the standard clock before the loop and check both periodically.
+    const startedAt = Date.now()
+    const DEADLINE_MS = 5000
+    let timedOut = false
+    let lineBudget = 0
     for (const f of files) {
-      if (capped) break
+      if (capped || timedOut) break
       const rel = relative(base, f).split(sep).join('/')
       if (fileRe && !fileRe.test(rel) && !fileRe.test(rel.split('/').pop() || '')) continue
       let text: string
@@ -379,6 +397,15 @@ export const grepTool: Tool = {
       // collect match line indices (respecting the global match cap)
       const hits: number[] = []
       for (let i = 0; i < lines.length; i++) {
+        // Every ~5000 lines, honour abort and the wall-clock deadline so a
+        // backtracking pattern can't run unbounded on the main thread.
+        if (++lineBudget >= 5000) {
+          lineBudget = 0
+          if (ctx.signal?.aborted || Date.now() - startedAt > DEADLINE_MS) {
+            timedOut = true
+            break
+          }
+        }
         if (re.test(lines[i])) {
           hits.push(i)
           if (++matches >= cap) {
@@ -409,11 +436,14 @@ export const grepTool: Tool = {
           }
         }
       }
-      if (capped) break
+      if (capped || timedOut) break
     }
     const body = out.join('\n') || '(no matches)'
-    const note = capped ? `\n… (truncated at ${cap} matches; raise max_results to see more)` : ''
-    return ok(body + note, { count: matches, scanned })
+    let note = ''
+    if (capped) note = `\n… (truncated at ${cap} matches; raise max_results to see more)`
+    else if (timedOut)
+      note = `\n… (search truncated after ${DEADLINE_MS}ms; showing partial results — narrow the pattern or path)`
+    return ok(body + note, { count: matches, scanned, timedOut })
   }
 }
 
@@ -488,9 +518,16 @@ export const applyPatchTool: Tool = {
           writeFileSync(p, op.content, 'utf8')
         } else if (op.type === 'edit') {
           const text = readFileSync(p, 'utf8')
-          const next = op.replace_all
-            ? text.split(op.old_string).join(op.new_string ?? '')
-            : text.replace(op.old_string, op.new_string ?? '')
+          const repl = op.new_string ?? ''
+          let next: string
+          if (op.replace_all) {
+            next = text.split(op.old_string).join(repl)
+          } else {
+            // Index-slice the FIRST occurrence so $-patterns in repl stay literal
+            // (String.replace would interpret $&, $1, $`, $', $$).
+            const i = text.indexOf(op.old_string)
+            next = text.slice(0, i) + repl + text.slice(i + op.old_string.length)
+          }
           writeFileSync(p, next, 'utf8')
         } else if (op.type === 'delete') {
           if (existsSync(p)) rmSync(p)

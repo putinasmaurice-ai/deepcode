@@ -278,7 +278,9 @@ function parseList(raw: string, format: string): unknown[] {
     try {
       const j = JSON.parse(s)
       if (Array.isArray(j)) return j
-      if (format === 'json') return j === null || j === undefined ? [] : [j]
+      // valid JSON that is NOT an array (object/number/string) → wrap as a single item
+      // for BOTH formats; only a JSON.parse THROW falls back to asLines() (auto only).
+      return j === null || j === undefined ? [] : [j]
     } catch {
       if (format === 'json') return []
     }
@@ -370,8 +372,12 @@ async function runNode(
       const mode = cfg.mode || 'template'
       let out = ''
       if (mode === 'extract') {
+        // ReDoS guard: reject overlong patterns (complexity proxy) BEFORE compiling, and cap the
+        // resolved input — {{last}} can carry attacker-influenced text and exec() runs on the main thread.
+        const pattern = String(cfg.pattern || '')
+        if (pattern.length > 1000) throw new Error('transform: Regex-Muster zu lang (max. 1000 Zeichen)')
         try {
-          const m = new RegExp(String(cfg.pattern || '')).exec(resolve(cfg.input ?? '{{last}}', rctx))
+          const m = new RegExp(pattern).exec(resolve(cfg.input ?? '{{last}}', rctx).slice(0, 200_000))
           out = m ? (m[1] ?? m[0]) : ''
         } catch {
           throw new Error('transform: invalid regex')

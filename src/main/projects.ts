@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
+import { atomicWriteJson } from './atomic'
 import { PATHS, ensureConfigDirs } from './paths'
 import { ProjectDef } from '@shared/types'
 import { listSessions, deleteSession } from './store'
@@ -29,13 +30,13 @@ export function upsertProject(p: ProjectDef): ProjectDef[] {
   p.updatedAt = Date.now()
   if (idx >= 0) list[idx] = p
   else list.push(p)
-  writeFileSync(FILE, JSON.stringify(list, null, 2), 'utf8')
+  atomicWriteJson(FILE, list)
   return list
 }
 
 export function deleteProject(id: string): ProjectDef[] {
   const list = loadProjects().filter((x) => x.id !== id)
-  writeFileSync(FILE, JSON.stringify(list, null, 2), 'utf8')
+  atomicWriteJson(FILE, list)
   // cascade: a project's sessions would otherwise orphan in the usage panel
   for (const s of listSessions()) {
     if (s.projectId === id) deleteSession(s.id)

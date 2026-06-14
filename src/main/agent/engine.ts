@@ -20,7 +20,7 @@ import { generateWorkflow } from '../workflows/generate'
 import { loadSkillScenarios, runSkillScenarios } from '../systems/skill-test'
 import type { SkillTestResult } from '@shared/skill-test'
 import { runSubagent } from './subagent'
-import { loadHooks, runHooks } from '../systems/hooks'
+import { loadHooks, runHooks, runPreToolUseHooks } from '../systems/hooks'
 import { pluginHooks } from '../systems/plugins'
 import { recordErrorSolution } from '../systems/memory'
 import { buildMemoryContext } from '../systems/memory-search'
@@ -151,7 +151,12 @@ export class AgentEngine {
   // DESCRIBES them first and the text model works from that description. ONLINE mode uses
   // Gemini (Google AI Studio); LOKAL uses the configured local vision model (Ollama).
   // Returns the description text, or null if it failed (the caller then proceeds text-only).
-  private async describeImages(images: string[], signal: AbortSignal, emit: Emit): Promise<string | null> {
+  private async describeImages(
+    images: string[],
+    signal: AbortSignal,
+    emit: Emit,
+    budget?: { usd: number; tokens: number } // per-turn budget: vision spend counts toward maxCostPerTurn
+  ): Promise<string | null> {
     const p = this.settings.provider
     const online = this.settings.visionMode === 'online'
     const hasGoogleKey = !!(p.googleApiKey && p.googleApiKey.trim())
@@ -194,7 +199,16 @@ export class AgentEngine {
       // google:/local: by the model id — local is free) so screenshot/attachment vision can't
       // run up invisible spend in an agent loop (e.g. repeated preview_probe screenshots).
       const res = await this.client.streamChat(messages, [], {}, signal, modelId)
-      if (res.usage) recordUsage(costOf(this.settings.provider, res.usage, modelId))
+      if (res.usage) {
+        const usage = costOf(this.settings.provider, res.usage, modelId)
+        recordUsage(usage)
+        // count vision spend toward the per-turn cap the same way LLM rounds do, so an agent
+        // loop (e.g. repeated preview_probe screenshots) can't bypass maxCostPerTurn.
+        if (budget) {
+          budget.usd += usage.cost
+          budget.tokens += usage.totalTokens
+        }
+      }
       return res.content.trim() || null
     } catch (e) {
       if ((e as Error).name === 'AbortError' || signal.aborted) throw e
@@ -345,7 +359,10 @@ export class AgentEngine {
     if (dangerous && policy !== 'interactive') {
       return `Blocked: „${call.name}" wurde als gefährlicher Befehl eingestuft und darf unbeaufsichtigt (Modus: ${policy}) nicht laufen. Wechsle in den Interaktiv-Modus, um ihn ausdrücklich zu bestätigen.`
     }
-    if (policy === 'full') return null
+    // MCP tools NEVER auto-approve — not even under 'full'/trusted. They can perform
+    // irreversible remote actions, so they always fall through to an explicit prompt
+    // (the 'full' short-circuit below must not swallow them — see comment above).
+    if (policy === 'full' && !isMcp) return null
     if (this.autoApproved(tool.permission) && !dangerous && !isMcp) return null
     if (policy === 'safe') {
       // Unattended/restricted: deny anything not pre-approved. The interactive-only
@@ -421,11 +438,16 @@ export class AgentEngine {
       })
       trace = tr
 
+      // budget accumulates across this whole turn (all quality rounds + vision describes) so the
+      // per-turn cap covers vision spend the same way it covers LLM rounds. Declared up here so
+      // even the initial user-image describe below is metered against it.
+      const budget = { usd: 0, tokens: 0 }
+
       // images present → the vision model (Gemini online / local) describes them, then the
       // text model works from that description. Persist the description on the message so a
       // reopen/regenerate keeps it (and the transcript thumbnails still render the image).
       if (images?.length) {
-        const desc = await this.describeImages(images, signal, emit)
+        const desc = await this.describeImages(images, signal, emit, budget)
         const msg = session.messages.find((m) => m.id === userMsgId)
         if (msg) {
           msg.imageDescription = desc ?? '[Bild konnte nicht analysiert werden — bitte beschreibe es kurz im Text.]'
@@ -485,8 +507,9 @@ export class AgentEngine {
           emit({ type: 'todos', sessionId: session.id, todos })
         },
         trace: tr,
-        // preview_probe turns a screenshot (data URI) into text via the same vision pipeline
-        describeImage: (dataUri) => this.describeImages([dataUri], signal, emit),
+        // preview_probe turns a screenshot (data URI) into text via the same vision pipeline;
+        // pass budget so its vision spend counts toward the per-turn cap (can't bypass it).
+        describeImage: (dataUri) => this.describeImages([dataUri], signal, emit, budget),
         spawnSubagent: async (agentName, prompt) => {
           // nest the subagent under the tool span that spawned it (the 'task' tool);
           // bubble its summed cost/tokens onto the span via onUsage.
@@ -528,7 +551,6 @@ export class AgentEngine {
       let reviewDone = false
       let verifyAttempts = 0
       const synthState = { requested: false, attempts: 0 } // "Beweisbare Änderungen" per-turn state
-      const budget = { usd: 0, tokens: 0 } // accumulates across all quality rounds of this turn
       const turnStart = Date.now()
       const cap = this.settings.maxCostPerTurn
       for (let round = 0; round < MAX_QUALITY_ROUNDS; round++) {
@@ -643,7 +665,9 @@ export class AgentEngine {
             // worktrees have no node_modules and the orchestrator commits — workers are PURE
             // EDITORS: restrict to read/edit/search tools (no shell/git/build/network/etc), so a
             // worker can't run tests/git in a depless worktree or race siblings on the .git lock.
-            SWARM_WORKER_TOOLS
+            SWARM_WORKER_TOOLS,
+            // force confineToCwd — swarm workers are jailed to their worktree regardless of setting
+            true
           ),
         emit,
         signal: swarmAc.signal,
@@ -748,6 +772,12 @@ export class AgentEngine {
         })
         return
       }
+      // Daily cap guard (unattended only): a single long workflow/cron turn must not blow
+      // past maxCostPerDay mid-turn — re-check after each billed round (mirrors subagent.ts).
+      if (ctx.unattended && overDailyCap(this.settings.maxCostPerDay)) {
+        emit({ type: 'status', message: 'Tagesbudget erreicht — unbeaufsichtigter Lauf gestoppt.' })
+        return
+      }
 
       if (!assistantMsg.toolCalls.length) {
         if (result.finishReason === 'length') {
@@ -828,7 +858,14 @@ export class AgentEngine {
         return { ok: false, content: denial }
       }
 
-      await runHooks('PreToolUse', { toolName: call.name, toolArgs: parsedArgs, cwd }, hooks)
+      // A PreToolUse hook may VETO the call (exit non-zero / DEEPCODE_BLOCK token). When it
+      // does, short-circuit: skip tool.execute and surface the reason like a denied approval.
+      const gate = await runPreToolUseHooks({ toolName: call.name, toolArgs: parsedArgs, cwd }, hooks)
+      if (gate.block) {
+        const reason = gate.reason || 'Tool call was blocked by a PreToolUse hook.'
+        ctx.trace?.end(toolSpan, { status: 'error', error: reason })
+        return { ok: false, content: reason }
+      }
       let res: ToolResult
       try {
         res = await tool.execute(parsedArgs, ctx)

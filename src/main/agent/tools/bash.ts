@@ -3,7 +3,7 @@ import { platform } from 'os'
 import { isAbsolute, resolve } from 'path'
 import { Tool, ok, fail } from './types'
 import { assertCwdInside } from './fs'
-import { auditLog } from '../../audit'
+import { auditLog, safeEnv } from '../../audit'
 
 const isWin = platform() === 'win32'
 
@@ -50,7 +50,7 @@ export const bashTool: Tool = {
       let killed = false
       const child = spawn(shell, shellArgs, {
         cwd,
-        env: process.env,
+        env: safeEnv(),
         windowsHide: true
       })
 

@@ -51,16 +51,19 @@ export interface HookContext {
   cwd: string
 }
 
-// Runs all hooks matching an event. Returns combined stdout (which the caller
-// may inject into context, e.g. for UserPromptSubmit). Failures are swallowed
-// but reported in the returned text.
-export async function runHooks(
-  event: HookEvent,
-  ctx: HookContext,
-  hooks?: HookDef[]
-): Promise<string> {
+// A matched PreToolUse hook may VETO the tool: it blocks when the hook process exits
+// non-zero, or when it prints the deny token "DEEPCODE_BLOCK" anywhere on stdout/stderr.
+// The remaining output (token stripped) is surfaced to the model as the block reason.
+const DENY_TOKEN = 'DEEPCODE_BLOCK'
+
+export interface HookGate {
+  block: boolean
+  reason?: string
+}
+
+function matchedHooks(event: HookEvent, ctx: HookContext, hooks?: HookDef[]): HookDef[] {
   const all = (hooks ?? loadHooks(ctx.cwd)).filter((h) => h.event === event)
-  const matched = all.filter((h) => {
+  return all.filter((h) => {
     if (!h.matcher) return true
     if (event !== 'PreToolUse' && event !== 'PostToolUse') return true
     try {
@@ -69,13 +72,24 @@ export async function runHooks(
       return false
     }
   })
+}
+
+// Runs all hooks matching an event. Returns combined stdout (which the caller
+// may inject into context, e.g. for UserPromptSubmit). Failures are swallowed
+// but reported in the returned text.
+export async function runHooks(
+  event: HookEvent,
+  ctx: HookContext,
+  hooks?: HookDef[]
+): Promise<string> {
+  const matched = matchedHooks(event, ctx, hooks)
   if (!matched.length) return ''
 
   const outputs: string[] = []
   for (const hook of matched) {
     try {
-      const text = await runOne(hook.command, ctx)
-      if (text.trim()) outputs.push(text.trim())
+      const { out } = await runOne(hook.command, ctx)
+      if (out.trim()) outputs.push(out.trim())
     } catch (e) {
       outputs.push(`[hook error] ${(e as Error).message}`)
     }
@@ -83,7 +97,28 @@ export async function runHooks(
   return outputs.join('\n')
 }
 
-function runOne(command: string, ctx: HookContext): Promise<string> {
+// PreToolUse gate: like runHooks, but a matched hook that exits non-zero (or prints the
+// DEEPCODE_BLOCK deny token) vetoes the tool. The engine short-circuits tool.execute and
+// surfaces `reason` to the model. A hook error is treated as non-blocking (fail-open) so a
+// broken hook can't wedge every tool call.
+export async function runPreToolUseHooks(ctx: HookContext, hooks?: HookDef[]): Promise<HookGate> {
+  const matched = matchedHooks('PreToolUse', ctx, hooks)
+  for (const hook of matched) {
+    try {
+      const { code, out } = await runOne(hook.command, ctx)
+      const denied = code !== 0 || out.includes(DENY_TOKEN)
+      if (denied) {
+        const reason = out.split(DENY_TOKEN).join('').trim()
+        return { block: true, reason: reason || `PreToolUse-Hook hat den Aufruf blockiert (Exit-Code ${code}).` }
+      }
+    } catch {
+      /* a broken hook must never wedge the tool loop — fail open */
+    }
+  }
+  return { block: false }
+}
+
+function runOne(command: string, ctx: HookContext): Promise<{ code: number; out: string }> {
   const shell = isWin ? 'powershell.exe' : '/bin/bash'
   const shellArgs = isWin
     ? ['-NoProfile', '-NonInteractive', '-Command', command]
@@ -116,9 +151,10 @@ function runOne(command: string, ctx: HookContext): Promise<string> {
       clearTimeout(timer)
       reject(e)
     })
-    child.on('close', () => {
+    child.on('close', (code) => {
       clearTimeout(timer)
-      resolve(out)
+      // SIGKILL (timeout/buffer cap) yields a null code → treat as failure (non-zero)
+      resolve({ code: code ?? 1, out })
     })
   })
 }

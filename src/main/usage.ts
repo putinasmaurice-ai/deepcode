@@ -21,11 +21,6 @@ export function computeUsageSummary(): UsageSummary {
     files = []
   }
 
-  const now = new Date()
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
-  let monthTokens = 0
-  let monthCost = 0
-
   for (const f of files) {
     try {
       const s = JSON.parse(readFileSync(join(PATHS.sessions, f), 'utf8')) as Session
@@ -35,10 +30,6 @@ export function computeUsageSummary(): UsageSummary {
         if (m.usage) {
           tokens += m.usage.totalTokens
           cost += m.usage.cost
-          if (m.createdAt >= monthStart) {
-            monthTokens += m.usage.totalTokens
-            monthCost += m.usage.cost
-          }
         }
       }
       perSession.push({
@@ -55,11 +46,7 @@ export function computeUsageSummary(): UsageSummary {
   }
 
   const byProject = new Map<string, { tokens: number; cost: number; sessions: number }>()
-  let totalTokens = 0
-  let totalCost = 0
   for (const s of perSession) {
-    totalTokens += s.tokens
-    totalCost += s.cost
     const key = s.projectId ?? ''
     const agg = byProject.get(key) ?? { tokens: 0, cost: 0, sessions: 0 }
     agg.tokens += s.tokens
@@ -80,11 +67,7 @@ export function computeUsageSummary(): UsageSummary {
 
   // Headline totals come from the persistent ledger so they never drop when
   // chats are deleted. The per-project / per-chat breakdown stays live (existing
-  // sessions only). void the now-unused live sums to keep the breakdown logic.
-  void totalTokens
-  void totalCost
-  void monthTokens
-  void monthCost
+  // sessions only).
   const life = lifetimeTotals()
   const mon = monthTotals()
   return {

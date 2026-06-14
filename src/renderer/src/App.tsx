@@ -119,6 +119,8 @@ export function App(): JSX.Element {
     text: string
     attachments?: string[]
     sessionId: string
+    // snapshot of the edit target at defer time, so a later normal send can't reuse a stale one (H8)
+    editId?: string | null
   } | null>(null)
   // toggling the switch either way cancels any pending wait (predictable "never mind")
   const toggleDefer = useCallback(() => {
@@ -141,7 +143,7 @@ export function App(): JSX.Element {
   const [toasts, setToasts] = useState<
     { id: number; text: string; kind: 'info' | 'error'; action?: { label: string; run: () => void } }[]
   >([])
-  const [queue, setQueue] = useState<{ sessionId: string; text: string; attachments?: string[] }[]>([])
+  const [queue, setQueue] = useState<{ sessionId: string; text: string; attachments?: string[]; editId?: string | null }[]>([])
   const [contentHits, setContentHits] = useState<{ sessionId: string; title: string; snippet: string }[]>([])
   const [moreOpen, setMoreOpen] = useState(() => localStorage.getItem('nav-more') === '1')
   const [firstRunDismissed, setFirstRunDismissed] = useState(() => localStorage.getItem('firstrun-dismissed') === '1')
@@ -226,6 +228,9 @@ export function App(): JSX.Element {
     if (idx === -1) return
     const next = queue[idx]
     setQueue((q) => q.filter((_, i) => i !== idx))
+    // restore the edit target snapshotted when this item was queued, so an edit-and-resend
+    // typed mid-turn still truncates from the right point (H8)
+    editTargetRef.current = next.editId ?? null
     send(next.text, next.attachments)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busy, queue, session?.id])
@@ -685,15 +690,22 @@ export function App(): JSX.Element {
 
   async function send(text: string, attachments?: string[]): Promise<void> {
     if (!session) return
-    // mid-turn steering: queue messages typed while the agent is working
+    // mid-turn steering: queue messages typed while the agent is working.
+    // Snapshot + clear the edit target NOW (H8): leaving it set would make the next
+    // normal send wrongly truncate from this stale edit point. The queued item carries it.
     if (busy) {
-      setQueue((q) => [...q, { sessionId: session.id, text, attachments }])
+      const editId = editTargetRef.current
+      editTargetRef.current = null
+      setQueue((q) => [...q, { sessionId: session.id, text, attachments, editId }])
       addToast('In Warteschlange — wird nach diesem Turn gesendet.')
       return
     }
-    // 🔮 off-peak defer: hold a fresh send until the discount window opens
+    // 🔮 off-peak defer: hold a fresh send until the discount window opens. Same H8
+    // snapshot-and-clear so the held edit target can't leak into a later normal send.
     if (deferOffPeak && !inOffPeak()) {
-      setDeferred({ text, attachments, sessionId: session.id })
+      const editId = editTargetRef.current
+      editTargetRef.current = null
+      setDeferred({ text, attachments, sessionId: session.id, editId })
       addToast('⏳ Wird im günstigen Off-Peak-Fenster gesendet.')
       return
     }
@@ -761,6 +773,8 @@ export function App(): JSX.Element {
       if (inOffPeak() && deferred.sessionId === sessionIdRef.current) {
         const d = deferred
         setDeferred(null)
+        // restore the edit target snapshotted at defer time so the resend truncates correctly (H8)
+        editTargetRef.current = d.editId ?? null
         sendRef.current(d.text, d.attachments)
       }
     }
@@ -970,7 +984,19 @@ export function App(): JSX.Element {
         <div className="topbar">
           {view === 'chat' && session && (
             <>
-              <div className="cwd" onClick={pickCwd} title="Click to change the working directory">
+              <div
+                className="cwd"
+                role="button"
+                tabIndex={0}
+                onClick={pickCwd}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    void pickCwd()
+                  }
+                }}
+                title="Click to change the working directory"
+              >
                 📁 {session.cwd}
               </div>
               {gitBranch && (
@@ -982,8 +1008,16 @@ export function App(): JSX.Element {
               {(activeProject?.goal || session.goal) && (
                 <span
                   className="pill goal-pill"
+                  role="button"
+                  tabIndex={0}
                   title={activeProject?.goal || session.goal}
                   onClick={() => setView('projects')}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setView('projects')
+                    }
+                  }}
                 >
                   🎯 {(activeProject?.goal || session.goal || '').slice(0, 40)}
                   {(activeProject?.goal || session.goal || '').length > 40 ? '…' : ''}

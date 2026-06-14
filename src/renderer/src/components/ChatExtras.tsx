@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import type { KeyboardEvent } from 'react'
 import type { AppSettings, ChatMessage, TodoItem } from '../../../shared/types'
 import type { View } from '../App'
 
@@ -28,9 +29,15 @@ export function ContextPill({
   messages: ChatMessage[]
   maxTokens: number
 }): JSX.Element | null {
-  let chars = 0
-  for (const m of messages) chars += (m.content?.length ?? 0) + (m.reasoning?.length ?? 0)
-  const tokens = Math.ceil(chars / 4)
+  // Memoize on a cheap signature so streaming deltas (App re-renders per frame)
+  // don't re-sum every message on each render.
+  const last = messages[messages.length - 1]
+  const sig = `${messages.length}:${last?.id ?? ''}:${last?.content?.length ?? 0}`
+  const tokens = useMemo(() => {
+    let chars = 0
+    for (const m of messages) chars += (m.content?.length ?? 0) + (m.reasoning?.length ?? 0)
+    return Math.ceil(chars / 4)
+  }, [sig])
   const pct = Math.min(100, Math.round((tokens / maxTokens) * 100))
   if (pct < 5) return null
   const color = pct > 80 ? 'var(--red)' : pct > 60 ? 'var(--yellow)' : 'var(--text-dim)'
@@ -75,7 +82,13 @@ export function TodoStrip({ todos, onClear }: { todos: TodoItem[]; onClear: () =
         <span>
           📋 Aufgaben <b>{done}/{todos.length}</b>
         </span>
-        <span className="todo-clear" onClick={onClear}>
+        <span
+          className="todo-clear"
+          role="button"
+          tabIndex={0}
+          onClick={onClear}
+          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onClear()}
+        >
           ausblenden
         </span>
       </div>
@@ -119,6 +132,13 @@ export function Welcome({
   }, [])
 
   const keyOk = !!settings.provider.apiKey
+  // Run a click action on Enter/Space so div/span controls are keyboard-usable.
+  const onKey = (fn: () => void) => (e: KeyboardEvent): void => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      fn()
+    }
+  }
   const examples = [
     'Erkläre mir die Struktur dieses Projekts und die wichtigsten Dateien.',
     'Finde und behebe Bugs in dieser Codebasis. Führe danach die Tests aus.',
@@ -130,17 +150,32 @@ export function Welcome({
       <h2>🐋 DeepCode</h2>
       <p>Dein agentischer Coding-Assistent — powered by DeepSeek.</p>
       <div className="checklist">
-        <div className={'check ' + (keyOk ? 'ok' : 'todo')} onClick={() => !keyOk && onNavigate('settings')}>
+        <div
+          className={'check ' + (keyOk ? 'ok' : 'todo')}
+          role="button"
+          tabIndex={0}
+          onClick={() => !keyOk && onNavigate('settings')}
+          onKeyDown={onKey(() => !keyOk && onNavigate('settings'))}
+        >
           {keyOk ? '✓ API-Key eingerichtet' : '○ API-Key fehlt — hier einrichten'}
         </div>
         <div
           className={'check ' + (projectCount > 0 ? 'ok' : 'todo')}
+          role="button"
+          tabIndex={0}
           onClick={() => projectCount === 0 && onNavigate('projects')}
+          onKeyDown={onKey(() => projectCount === 0 && onNavigate('projects'))}
         >
           {projectCount > 0 ? `✓ ${projectCount} Projekt(e)` : '○ Erstes Projekt anlegen'}
         </div>
         <div className="check ok">{skillCount === null ? '… Skills' : `✓ ${skillCount} Skills geladen`}</div>
-        <div className={'check ' + ((mcpConnected ?? 0) > 0 ? 'ok' : 'dim')} onClick={() => onNavigate('mcp')}>
+        <div
+          className={'check ' + ((mcpConnected ?? 0) > 0 ? 'ok' : 'dim')}
+          role="button"
+          tabIndex={0}
+          onClick={() => onNavigate('mcp')}
+          onKeyDown={onKey(() => onNavigate('mcp'))}
+        >
           {mcpConnected === null
             ? '… MCP'
             : mcpConnected > 0
@@ -150,7 +185,14 @@ export function Welcome({
       </div>
       <div className="examples">
         {examples.map((e) => (
-          <div className="ex" key={e} onClick={() => onPick(e)}>
+          <div
+            className="ex"
+            key={e}
+            role="button"
+            tabIndex={0}
+            onClick={() => onPick(e)}
+            onKeyDown={onKey(() => onPick(e))}
+          >
             {e}
           </div>
         ))}

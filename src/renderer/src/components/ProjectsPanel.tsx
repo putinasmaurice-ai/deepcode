@@ -205,6 +205,7 @@ export function ProjectsPanel({
                   <button
                     className="btn danger sm"
                     onClick={async () => {
+                      if (!window.confirm(`Projekt "${p.name}" wirklich löschen? Zugehörige Sessions werden ebenfalls entfernt.`)) return
                       await api.deleteProject(p.id)
                       load()
                     }}

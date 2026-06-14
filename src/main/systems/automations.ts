@@ -105,6 +105,10 @@ export function cronMatches(expr: string, date: Date): boolean {
 
 export type AutomationRunner = (a: AutomationDef) => Promise<void>
 
+// Replay at most this many recent minutes per tick so a missed minute (main process blocked
+// across a boundary) still fires, while a long freeze/sleep can't unleash a backlog storm.
+const MAX_CATCHUP_MINUTES = 5
+
 export class AutomationScheduler {
   private timer: NodeJS.Timeout | null = null
   private lastTickMinute = -1
@@ -129,12 +133,30 @@ export class AutomationScheduler {
     if (minuteKey === this.lastTickMinute) return // evaluate the schedule at most once per minute
     this.lastTickMinute = minuteKey
 
-    for (const a of loadAutomations()) {
+    // Each tick fires every 20s but evaluates at most once per minute. If the main process is
+    // blocked across one or more minute boundaries, those minutes' automations would never fire.
+    // So replay each skipped minute, oldest first — BOUNDED to the last 5 to avoid a firing storm
+    // after a long sleep/freeze. cronMatches is tested per minute; lastRun bookkeeping + per-id
+    // overlap locks prevent double-firing a minute that already ran.
+    const list = loadAutomations()
+    for (let back = MAX_CATCHUP_MINUTES - 1; back >= 0; back--) {
+      const at = new Date(now.getTime() - back * 60_000)
+      this.fireDueMinute(list, at)
+    }
+  }
+
+  // Fire every automation whose cron matches `at`'s minute and whose lastRun predates that minute.
+  private fireDueMinute(list: AutomationDef[], at: Date): void {
+    const minuteStart = new Date(at)
+    minuteStart.setSeconds(0, 0)
+    const minuteStartMs = minuteStart.getTime()
+    for (const a of list) {
       if (!a.enabled) continue
       if (this.inFlight.has(a.id)) continue // a previous run of THIS automation is still going
-      if (!cronMatches(a.schedule, now)) continue
+      if ((a.lastRun ?? 0) >= minuteStartMs) continue // already ran for this minute (no double-fire)
+      if (!cronMatches(a.schedule, at)) continue
       this.inFlight.add(a.id)
-      const firedAt = now.getTime()
+      const firedAt = minuteStartMs
       // dispatch concurrently (do NOT await) so a slow run can't block sibling automations
       // that are due in the same minute; track overlap per id.
       Promise.resolve()

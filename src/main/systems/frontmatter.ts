@@ -12,10 +12,14 @@ export function parseFrontmatter(text: string): Parsed {
   if (!normalized.startsWith('---\n')) {
     return { data: {}, body: normalized }
   }
-  const end = normalized.indexOf('\n---', 4)
-  if (end === -1) return { data: {}, body: normalized }
+  // Require a full-line closing fence ('---' alone on its own line); a loose
+  // indexOf('\n---') would also match '----', '---foo', a horizontal rule, or a
+  // value containing '---'.
+  const close = /\n---[ \t]*(\n|$)/.exec(normalized.slice(4))
+  if (!close) return { data: {}, body: normalized }
+  const end = 4 + close.index
   const raw = normalized.slice(4, end)
-  const body = normalized.slice(end + 4).replace(/^\n/, '')
+  const body = normalized.slice(end + close[0].length).replace(/^\n/, '')
   const data: Record<string, string | string[]> = {}
   for (const line of raw.split('\n')) {
     const m = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/)

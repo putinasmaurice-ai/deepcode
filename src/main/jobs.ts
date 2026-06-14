@@ -1,7 +1,7 @@
 import { spawn, spawnSync, ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
 import { platform } from 'os'
-import { auditLog } from './audit'
+import { auditLog, safeEnv } from './audit'
 
 // Background shell jobs: long-running commands (dev servers, watch builds,
 // downloads) that keep running while the agent continues working. The agent
@@ -40,7 +40,7 @@ export function startJob(command: string, cwd: string): JobInfo {
   const shellArgs = isWin
     ? ['-NoProfile', '-NonInteractive', '-Command', command]
     : ['-lc', command]
-  const child = spawn(shell, shellArgs, { cwd, windowsHide: true })
+  const child = spawn(shell, shellArgs, { cwd, windowsHide: true, env: safeEnv() })
 
   const job: Job = {
     id: randomUUID().slice(0, 8),

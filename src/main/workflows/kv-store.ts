@@ -33,12 +33,16 @@ function persist(): void {
   try {
     writeFileSync(tmp, JSON.stringify(cache), 'utf8')
     renameSync(tmp, FILE)
-  } catch {
+  } catch (err) {
+    // surface a failed write — clean up the tmp file, then RETHROW so the calling
+    // `store` node fails loudly instead of silently losing data. The cache may now
+    // hold an unpersisted change; the next load() reconciles from disk.
     try {
       if (existsSync(tmp)) unlinkSync(tmp)
     } catch {
-      /* ignore */
+      /* ignore cleanup failure */
     }
+    throw err
   }
 }
 

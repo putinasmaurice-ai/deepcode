@@ -1,6 +1,6 @@
 import { spawn } from 'child_process'
 import { Tool, ok, fail } from './types'
-import { auditLog } from '../../audit'
+import { auditLog, safeEnv } from '../../audit'
 
 // Structured git/SCM tools so the agent does version control through a typed, safe
 // path instead of blindly shelling out via run_command. Args are passed as argv
@@ -32,7 +32,8 @@ function runProc(
     }
     let child: ReturnType<typeof spawn>
     try {
-      child = spawn(cmd, args, { cwd, env: process.env, windowsHide: true })
+      // safeEnv() keeps PATH/HOME/USERPROFILE (credential helpers still work) but strips secrets
+      child = spawn(cmd, args, { cwd, env: safeEnv(), windowsHide: true })
     } catch (e) {
       return resolve({ code: null, out: `failed to start ${cmd}: ${(e as Error).message}` })
     }

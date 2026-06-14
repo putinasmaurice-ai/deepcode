@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from 'fs'
+import { existsSync, readFileSync, readdirSync, openSync, readSync, closeSync, statSync } from 'fs'
 import { join } from 'path'
 import { PATHS } from './paths'
 import { Session } from '@shared/types'
@@ -11,11 +11,32 @@ export interface AuditEntry {
   detail: string
 }
 
+// Cap how much of the (unbounded) audit.log we pull into memory per open.
+const AUDIT_TAIL_BYTES = 256 * 1024
+
+// Read only the trailing slice of a file so we never load the whole log.
+function tailRead(file: string, maxBytes: number): string {
+  const { size } = statSync(file)
+  if (size <= maxBytes) return readFileSync(file, 'utf8')
+  const start = size - maxBytes
+  const buf = Buffer.alloc(maxBytes)
+  const fd = openSync(file, 'r')
+  try {
+    readSync(fd, buf, 0, maxBytes, start)
+  } finally {
+    closeSync(fd)
+  }
+  // Drop the leading partial line left by the byte-aligned read.
+  const text = buf.toString('utf8')
+  const nl = text.indexOf('\n')
+  return nl === -1 ? text : text.slice(nl + 1)
+}
+
 export function listAudit(limit = 300): AuditEntry[] {
   const file = join(PATHS.root, 'audit.log')
   if (!existsSync(file)) return []
   try {
-    const lines = readFileSync(file, 'utf8').trim().split('\n')
+    const lines = tailRead(file, AUDIT_TAIL_BYTES).trim().split('\n')
     return lines
       .slice(-limit)
       .map((l) => {

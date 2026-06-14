@@ -54,6 +54,11 @@ export function screenUnattendedCall(name: string, parsedArgs: unknown): string 
   if (name === 'preview_probe') {
     return 'Blocked: „preview_probe" braucht die offene Live-Vorschau und läuft nicht unbeaufsichtigt.'
   }
+  // web_request issues arbitrary outbound HTTP (POST/headers/body) — a perfect exfiltration
+  // channel unattended (no user to vet the destination), so it's blocked like MCP/task above.
+  if (name === 'web_request') {
+    return 'Blocked: „web_request" darf unbeaufsichtigt nicht ohne Freigabe laufen.'
+  }
   if (name === 'git' && /^(push|pr)$/i.test(String(a.action ?? ''))) {
     return 'Blocked: git push/pr ist unbeaufsichtigt nicht erlaubt.'
   }

@@ -34,7 +34,12 @@ export function AuditPanel(): JSX.Element {
   return (
     <div className="panel">
       <div className="panel-inner">
-        <h1>Audit-Log</h1>
+        <div className="flex-between">
+          <h1>Audit-Log</h1>
+          <button className="btn ghost sm" onClick={() => api.listAudit().then(setItems)}>
+            ↻ Aktualisieren
+          </button>
+        </div>
         <p className="sub">
           Jeder ausgeführte Shell-Befehl, Hintergrund-Job und Hook wird hier protokolliert
           (~/.deepcode/audit.log).

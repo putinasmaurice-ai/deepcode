@@ -1,5 +1,7 @@
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { PATHS } from '../paths'
+import { atomicWriteJson } from '../atomic'
+import { safeEnv } from '../audit'
 import { McpServerDef } from '@shared/types'
 import { Tool, ok, fail } from '../agent/tools/types'
 import { pluginMcpServers } from './plugins'
@@ -71,10 +73,11 @@ export class McpManager {
         args: d.args,
         env: d.env,
         url: d.url,
+        transport: d.transport,
         enabled: d.enabled
       }
     }
-    writeFileSync(PATHS.mcp, JSON.stringify({ mcpServers }, null, 2), 'utf8')
+    atomicWriteJson(PATHS.mcp, { mcpServers })
   }
 
   listStatus(): McpServerDef[] {
@@ -105,7 +108,7 @@ export class McpManager {
       transport = new StdioClientTransport({
         command,
         args,
-        env: { ...process.env, ...(def.env ?? {}) } as Record<string, string>
+        env: safeEnv(def.env ?? {}) as Record<string, string>
       })
     } else if (def.transport === 'sse') {
       const { SSEClientTransport } = await import('@modelcontextprotocol/sdk/client/sse.js')

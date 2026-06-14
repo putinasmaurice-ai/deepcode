@@ -26,7 +26,8 @@ export async function runSubagent(
   emit: Emit,
   signal: AbortSignal,
   onUsage?: (u: TokenUsage) => void, // trace/cost bubbling: called per billed round
-  allowOverride?: string[] // restrict the worker's toolset (swarm workers = pure editors)
+  allowOverride?: string[], // restrict the worker's toolset (swarm workers = pure editors)
+  forceConfine?: boolean // swarm workers: force cwd confinement even if the user disabled it
 ): Promise<string> {
   const agent = getSubagent(agentName, cwd) ?? pluginSubagents().find((a) => a.name === agentName)
   const systemBase = buildSystemPrompt({
@@ -52,7 +53,7 @@ export async function runSubagent(
   const ctx: ToolContext = {
     cwd,
     signal,
-    confineToCwd: deps.settings.confineToCwd,
+    confineToCwd: forceConfine ? true : deps.settings.confineToCwd,
     // subagents are by definition unattended → mark the context so every tool's in-execute
     // unattended guard (e.g. preview_probe) is authoritative, not just screenUnattendedCall.
     unattended: true,

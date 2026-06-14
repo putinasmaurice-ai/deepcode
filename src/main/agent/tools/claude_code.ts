@@ -1,6 +1,6 @@
 import { spawn } from 'child_process'
 import { Tool, ok, fail } from './types'
-import { auditLog } from '../../audit'
+import { auditLog, safeEnv } from '../../audit'
 
 // Configuration for the Claude Code helper tool (from AppSettings.claudeCode).
 export interface ClaudeCodeConfig {
@@ -65,11 +65,17 @@ export function makeClaudeCodeTool(cfg: ClaudeCodeConfig): Tool {
           resolve(r)
         }
 
+        // Don't leak the whole ambient env to the CLI; pass only the Anthropic
+        // auth/config keys it legitimately needs (see safeEnv for the baseline).
+        const extra: Record<string, string> = {}
+        for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_OAUTH_TOKEN'])
+          if (process.env[k]) extra[k] = process.env[k] as string
+
         let child: ReturnType<typeof spawn>
         try {
           child = spawn(cfg.path || 'claude', cliArgs, {
             cwd: ctx.cwd,
-            env: process.env,
+            env: safeEnv(extra),
             windowsHide: true
           })
         } catch (err) {

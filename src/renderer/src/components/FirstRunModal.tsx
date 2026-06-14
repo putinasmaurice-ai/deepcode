@@ -16,15 +16,23 @@ export function FirstRunModal({
 }): JSX.Element {
   const [key, setKey] = useState('')
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
 
   async function save(): Promise<void> {
     if (!key.trim()) return
     setSaving(true)
-    const next = await api.saveSettings({
-      ...settings,
-      provider: { ...settings.provider, apiKey: key.trim() }
-    })
-    onSaved(next)
+    setError('')
+    try {
+      const next = await api.saveSettings({
+        ...settings,
+        provider: { ...settings.provider, apiKey: key.trim() }
+      })
+      onSaved(next)
+    } catch (err) {
+      // A rejected save must not leave the modal stuck on 'Speichere…'
+      setSaving(false)
+      setError(err instanceof Error ? err.message : 'Speichern fehlgeschlagen.')
+    }
   }
 
   return (
@@ -52,6 +60,7 @@ export function FirstRunModal({
           verlässt ihn nur Richtung DeepSeek. Alternativ kannst du komplett <b>lokal & kostenlos</b>{' '}
           arbeiten: Ollama starten und oben rechts ein <code>local:</code>-Modell wählen.
         </p>
+        {error && <p className="modal-error">{error}</p>}
         <div className="modal-actions">
           <button className="btn" onClick={save} disabled={!key.trim() || saving}>
             {saving ? 'Speichere…' : 'Los geht’s'}

@@ -60,6 +60,9 @@ const CATEGORY_ORDER = ['Code-Intelligenz', 'Wissen / Docs', 'Wissen / RAG', 'Ge
 export function MarketPanel(): JSX.Element {
   const [installed, setInstalled] = useState<Set<string>>(new Set())
   const [busyName, setBusyName] = useState<string | null>(null)
+  // per-entry connect error: connectMcp returns { status:'error', error } instead of throwing,
+  // so a failed activation must be tracked here rather than rendering a false 'installiert'.
+  const [errors, setErrors] = useState<Record<string, string>>({})
   const [gitUrl, setGitUrl] = useState('')
   const [gitMsg, setGitMsg] = useState<string | null>(null)
   const [gitBusy, setGitBusy] = useState(false)
@@ -83,7 +86,13 @@ export function MarketPanel(): JSX.Element {
           { name: entry.name, transport: 'stdio', command: entry.command, args: entry.args, enabled: true }
         ])
       }
-      await api.connectMcp(entry.name)
+      const res = await api.connectMcp(entry.name)
+      setErrors((prev) => {
+        const next = { ...prev }
+        if (res.status === 'error') next[entry.name] = res.error ?? 'Verbindung fehlgeschlagen'
+        else delete next[entry.name]
+        return next
+      })
       await refresh()
     } finally {
       setBusyName(null)
@@ -160,7 +169,11 @@ export function MarketPanel(): JSX.Element {
                     {entry.name}
                     <span className="badge">{entry.command}</span>
                   </h3>
-                  {installed.has(entry.name) ? (
+                  {errors[entry.name] ? (
+                    <button className="btn sm" onClick={() => addMcp(entry)} disabled={busyName === entry.name}>
+                      {busyName === entry.name ? 'Verbinde…' : '↻ Erneut'}
+                    </button>
+                  ) : installed.has(entry.name) ? (
                     <span className="badge" style={{ color: 'var(--green)' }}>installiert</span>
                   ) : (
                     <button className="btn sm" onClick={() => addMcp(entry)} disabled={busyName === entry.name}>
@@ -169,6 +182,12 @@ export function MarketPanel(): JSX.Element {
                   )}
                 </div>
                 <p>{entry.desc}</p>
+                {errors[entry.name] && (
+                  <p className="meta" style={{ color: 'var(--red)' }}>
+                    Fehler: {errors[entry.name]}
+                    {entry.note ? ` — ggf. den nötigen Token setzen (${entry.note})` : ' — ggf. den nötigen Token unter „MCP / Connectors" setzen'}
+                  </p>
+                )}
                 {entry.note && <p className="meta">ℹ {entry.note}</p>}
               </div>
             ))}
