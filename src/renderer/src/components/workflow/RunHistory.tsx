@@ -32,6 +32,8 @@ export function RunHistory({ workflowId, onClose }: { workflowId: string; onClos
   const [runs, setRuns] = useState<WorkflowRun[]>([])
   const [sel, setSel] = useState<WorkflowRun | null>(null)
   const [loading, setLoading] = useState(true)
+  const [healing, setHealing] = useState(false)
+  const [healMsg, setHealMsg] = useState('')
 
   useEffect(() => {
     let alive = true
@@ -52,14 +54,45 @@ export function RunHistory({ workflowId, onClose }: { workflowId: string; onClos
   useEffect(() => {
     const off = api.onAgentEvent((e: AgentEvent) => {
       if (e.type === 'workflow_run' && e.workflowId === workflowId && e.status !== 'start') {
+        // a heal's FRESH run that succeeds on the first try emits no workflow_heal — clear the
+        // spinner on any terminal run for this workflow so it can't hang forever.
+        setHealing(false)
         api.listWorkflowRuns(workflowId).then((r) => {
           setRuns(r)
           setSel((cur) => cur ?? r[0] ?? null) // keep the user's current selection
         })
       }
+      // self-heal progress: stream the coder's repair steps; on a terminal heal, refresh and
+      // jump to the newest (the healed/last replay) run so the user sees the outcome.
+      if (e.type === 'workflow_heal' && e.workflowId === workflowId) {
+        if (e.message) setHealMsg(e.message)
+        if (e.status === 'healed' || e.status === 'failed') {
+          setHealing(false)
+          api.listWorkflowRuns(workflowId).then((r) => {
+            setRuns(r)
+            setSel(r[0] ?? null)
+          })
+        }
+      }
     })
     return off
   }, [workflowId])
+
+  const repair = (): void => {
+    // the interactive heal RE-RUNS the whole workflow from the start, so any upstream
+    // side-effecting nodes (E-Mail/Telegram/HTTP-POST/Shell) fire AGAIN. Make that explicit.
+    const ok = window.confirm(
+      'Reparieren lässt den Workflow komplett neu laufen und repariert einen Fehler dabei automatisch.\n\n' +
+        'Achtung: vorgelagerte Schritte (E-Mail, Telegram, HTTP-POST, Shell) werden dabei ERNEUT ausgeführt.\n\nFortfahren?'
+    )
+    if (!ok) return
+    setHealing(true)
+    setHealMsg('Starte Selbstheilung…')
+    api.healWorkflow(workflowId).catch(() => {
+      setHealing(false)
+      setHealMsg('Reparatur konnte nicht gestartet werden.')
+    })
+  }
 
   return (
     <div className="wf-runs">
@@ -89,6 +122,14 @@ export function RunHistory({ workflowId, onClose }: { workflowId: string; onClos
               <div className="wf-run-meta">
                 {STATUS_ICON[sel.status]} <b>{sel.status}</b> · {when(sel.startedAt)}
                 {sel.error && <div className="wf-field-err">⚠ {sel.error}</div>}
+                {sel.status === 'failed' && (
+                  <div className="wf-heal-row">
+                    <button className="wf-heal-btn" onClick={repair} disabled={healing} title="Der In-Process-Coder repariert den fehlgeschlagenen Knoten und lässt den Workflow erneut laufen">
+                      {healing ? '🩹 Repariere…' : '🩹 Reparieren'}
+                    </button>
+                    {healMsg && <span className="wf-heal-msg">{healMsg}</span>}
+                  </div>
+                )}
               </div>
               {sel.nodes.map((n) => (
                 <div key={n.nodeId} className="wf-run-node">

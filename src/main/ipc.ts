@@ -52,6 +52,7 @@ import { kvStore } from './workflows/kv-store'
 import { runUserCode } from './workflows/code-node'
 import { sendEmail } from './workflows/email'
 import { WorkflowWatchManager } from './workflows/watch-trigger'
+import { healRun } from './workflows/heal'
 import { WorkflowScheduler } from './workflows/scheduler'
 import { KNOWN_NODE_TYPES } from '@shared/workflows'
 import { listSecretNames, setSecret, deleteSecret, loadSecretsResolved, buildMaskList, maskWith } from './workflows/secrets'
@@ -283,7 +284,9 @@ export function registerIpc(win: BrowserWindow): void {
             }
           }
           try {
-            const run = await runWorkflow(def, deps, { vars: { input, last: input }, runId })
+            let run = await runWorkflow(def, deps, { vars: { input, last: input }, runId })
+            // opt-in self-healing: the in-process coder repairs a failed node + replays
+            run = await maybeAutoHeal(def, run, deps, wfCwd, ac.signal)
             // Prefer an explicit result var (so a workflow ending in notify/delay still surfaces a
             // meaningful value) and fall back to the executor's running `last`.
             const v = run.vars ?? {}
@@ -747,6 +750,37 @@ export function registerIpc(win: BrowserWindow): void {
     }
   }
 
+  // Self-healing: after an unattended run, if it failed AND the workflow opted in (def.autoHeal),
+  // let the in-process coder repair the failed node + replay. `force` (interactive "Reparieren")
+  // heals regardless of the flag. Bounded by maxHealAttempts (1–3) and the daily spend cap.
+  const healingWorkflows = new Set<string>() // serialize heal/save per workflow id (cron+chat+interactive)
+  const maybeAutoHeal = async (
+    def: WorkflowDef,
+    run: WorkflowRun,
+    deps: WorkflowDeps,
+    cwd: string,
+    signal: AbortSignal,
+    force = false
+  ): Promise<WorkflowRun> => {
+    if (run.status !== 'failed' || !run.healSeed) return run
+    if (!force && !def.autoHeal) return run
+    if (overDailyCap(settings.maxCostPerDay)) return run
+    // never run two heal loops for the SAME workflow at once — both would saveWorkflow the
+    // patched def and last-writer-wins could clobber the other's patch on disk.
+    if (healingWorkflows.has(def.id)) return run
+    healingWorkflows.add(def.id)
+    try {
+      return await healRun(def, run, deps, {
+        maxAttempts: Math.max(1, Math.min(Number(def.maxHealAttempts) || 1, 3)),
+        overCap: () => overDailyCap(settings.maxCostPerDay),
+        makeReplayDeps: (rid) => makeWfDeps(cwd, signal, 0, undefined, new Set([def.id])),
+        newRunId: () => randomUUID()
+      })
+    } finally {
+      healingWorkflows.delete(def.id)
+    }
+  }
+
   ipcMain.handle(IPC.listWorkflows, () => listWorkflows())
   ipcMain.handle(IPC.getWorkflow, (_e, id: string) => getWorkflow(id))
   ipcMain.handle(IPC.saveWorkflow, (_e, def: WorkflowDef) => saveWorkflow(def))
@@ -862,6 +896,33 @@ export function registerIpc(win: BrowserWindow): void {
       })
     return runId
   })
+  // interactive "Reparieren": a FRESH run that self-heals on failure (force=true, regardless of
+  // the autoHeal flag). Heal needs the LIVE unmasked vars of THIS run, so we re-run rather than
+  // heal the old masked persisted run. beginAgentOp suppresses fs_change toasts for its writes.
+  ipcMain.handle(IPC.healWorkflow, (_e, id: string, clientRunId?: string) => {
+    const def = getWorkflow(id)
+    if (!def) throw new Error('Workflow not found')
+    const runId = typeof clientRunId === 'string' && /^[A-Za-z0-9_-]+$/.test(clientRunId) ? clientRunId : randomUUID()
+    const ac = new AbortController()
+    wfAborters.set(runId, ac)
+    const stopDeadline = armDeadline(ac)
+    const cwd = validDir(settings.defaultCwd) || homedir()
+    beginAgentOp()
+    ;(async () => {
+      const deps = makeWfDeps(cwd, ac.signal, 0, undefined, new Set([def.id]))
+      const run = await runWorkflow(def, deps, { runId })
+      await maybeAutoHeal(def, run, deps, cwd, ac.signal, true)
+    })()
+      .catch((e: unknown) =>
+        emit({ type: 'workflow_run', runId, workflowId: id, status: 'error', message: (e as Error)?.message ?? String(e) })
+      )
+      .finally(() => {
+        endAgentOp()
+        stopDeadline()
+        wfAborters.delete(runId)
+      })
+    return runId
+  })
 
   // ---- automations ----
   ipcMain.handle(IPC.listAutomations, () => loadAutomations())
@@ -931,11 +992,11 @@ export function registerIpc(win: BrowserWindow): void {
   // the same guarded deps as a manual run (dangerous-command screen, MCP/claude_code gate).
   // shared by the cron scheduler AND the file-watch manager: one guarded, unattended run.
   // `input` (the changed file list) is injected as {{input}}/{{last}} by the file-watch trigger.
-  const runTriggeredWorkflow = (def: WorkflowDef, input?: string): Promise<void> => {
+  const runTriggeredWorkflow = async (def: WorkflowDef, input?: string): Promise<void> => {
     // daily spend cap: skip a scheduled (unattended) workflow run once today's budget is used up.
     if (overDailyCap(settings.maxCostPerDay)) {
       console.info(`[budget] Triggered workflow "${def.name}" skipped — daily cap $${settings.maxCostPerDay} reached.`)
-      return Promise.resolve()
+      return
     }
     const runId = randomUUID()
     const ac = new AbortController()
@@ -945,17 +1006,18 @@ export function registerIpc(win: BrowserWindow): void {
     const vars = input ? { input, last: input } : undefined
     // suppress file-watcher "externally changed" toasts for files this background run touches
     beginAgentOp()
-    // return the promise so the scheduler's in-flight guard knows when this run finishes
-    return runWorkflow(def, makeWfDeps(cwd, ac.signal, 0, undefined, new Set([def.id])), { runId, vars })
-      .catch((e: unknown) =>
-        emit({ type: 'workflow_run', runId, workflowId: def.id, status: 'error', message: (e as Error)?.message ?? String(e) })
-      )
-      .finally(() => {
-        endAgentOp()
-        stopDeadline()
-        wfAborters.delete(runId)
-      })
-      .then(() => undefined)
+    try {
+      const deps = makeWfDeps(cwd, ac.signal, 0, undefined, new Set([def.id]))
+      const run = await runWorkflow(def, deps, { runId, vars })
+      // opt-in self-healing: repair a failed node + replay (bounded), unattended-gated
+      await maybeAutoHeal(def, run, deps, cwd, ac.signal)
+    } catch (e: unknown) {
+      emit({ type: 'workflow_run', runId, workflowId: def.id, status: 'error', message: (e as Error)?.message ?? String(e) })
+    } finally {
+      endAgentOp()
+      stopDeadline()
+      wfAborters.delete(runId)
+    }
   }
   const wfScheduler = new WorkflowScheduler(runTriggeredWorkflow)
   wfScheduler.start()

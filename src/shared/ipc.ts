@@ -84,6 +84,7 @@ export const IPC = {
   deleteWorkflow: 'workflows:delete',
   runWorkflow: 'workflows:run',
   cancelWorkflow: 'workflows:cancel',
+  healWorkflow: 'workflows:heal',
   listWorkflowRuns: 'workflows:runs',
   getWorkflowRun: 'workflows:getRun',
   listTraces: 'traces:list',

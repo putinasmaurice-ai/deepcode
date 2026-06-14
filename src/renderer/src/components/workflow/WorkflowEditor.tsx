@@ -333,6 +333,9 @@ export function WorkflowEditor({
   const [selId, setSelId] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
   const [saved, setSaved] = useState(true)
+  // opt-in self-healing for unattended runs (cron/file-watch/chat) — local state since `workflow`
+  // is an immutable prop; folded back into the def by toDef().
+  const [autoHeal, setAutoHeal] = useState(!!workflow.autoHeal)
   const [jsonErr, setJsonErr] = useState<Record<string, string>>({})
   // terminal run result/error shown as a banner — so a run's outcome is actually visible
   const [runBanner, setRunBanner] = useState<{ kind: 'done' | 'error' | 'cancelled'; text?: string } | null>(null)
@@ -496,6 +499,7 @@ export function WorkflowEditor({
   function toDef(): WorkflowDef {
     return {
       ...workflow,
+      autoHeal,
       nodes: nodes.map((n) => ({ ...n.data.node, x: n.position.x, y: n.position.y })),
       edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle ?? undefined }))
     }
@@ -573,6 +577,9 @@ export function WorkflowEditor({
         </span>
         <span className="spacer" />
         {!saved && <span className="wf-dirty" title="Ungespeicherte Änderungen">●</span>}
+        <label className="wf-autoheal" title="Bei einem Knoten-Fehler repariert der In-Process-Coder den Workflow automatisch (Knoten-Config oder Projektdatei) und lässt ihn ab dem Knoten erneut laufen — nur für unbeaufsichtigte Läufe (Cron/Datei-Watch/Chat).">
+          <input type="checkbox" checked={autoHeal} onChange={(e) => { setAutoHeal(e.target.checked); setSaved(false) }} /> 🩹 Auto-Heilung
+        </label>
         <button className="btn ghost sm" onClick={() => { const i = validate(); setRunBanner(hasBlockingErrors(i) ? { kind: 'error', text: `${i.filter((x) => x.severity === 'error').length} Problem(e) gefunden.` } : { kind: 'done', text: i.length ? `${i.length} Hinweis(e).` : 'Alles gut.' }) }}>✓ Prüfen</button>
         <button
           className={'btn ghost sm' + (showRuns ? ' on' : '')}

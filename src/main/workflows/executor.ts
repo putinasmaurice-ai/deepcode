@@ -97,6 +97,7 @@ async function runPool<T>(tasks: Array<() => Promise<T>>, concurrency: number, s
 function maskRunForPersist(run: WorkflowRun, mask: (s: string) => string): WorkflowRun {
   return {
     ...run,
+    healSeed: undefined, // in-memory only — never write the unmasked replay snapshot to disk
     error: run.error ? mask(run.error) : run.error,
     vars: run.vars ? Object.fromEntries(Object.entries(run.vars).map(([k, v]) => [k, mask(String(v))])) : run.vars,
     nodes: run.nodes.map((n) => ({ ...n, output: n.output ? mask(n.output) : n.output, error: n.error ? mask(n.error) : n.error }))
@@ -684,7 +685,7 @@ async function runNode(
 export async function runWorkflow(
   def: WorkflowDef,
   deps: WorkflowDeps,
-  opts?: { fromNodeId?: string; vars?: Record<string, string>; runId?: string }
+  opts?: { fromNodeId?: string; vars?: Record<string, string>; runId?: string; seedOutputs?: Record<string, string> }
 ): Promise<WorkflowRun> {
   // normalize a possibly hand-edited/corrupt def so a missing array can't crash
   // before we even emit a start event / persist the run
@@ -724,12 +725,29 @@ export async function runWorkflow(
   let current: WorkflowNode | undefined = opts?.fromNodeId
     ? byId.get(opts.fromNodeId)
     : wfNodes.find((n) => n.type === 'trigger') ?? wfNodes[0]
+  // fail fast if a replay/resume targets a node that no longer exists — otherwise the walk
+  // never enters and the run flips to a false 'done' having executed ZERO nodes (which every
+  // caller, incl. self-heal, would read as success). Also hardens the public runWorkflow IPC.
+  if (opts?.fromNodeId && !current) {
+    run.status = 'failed'
+    run.error = `Resume-Knoten „${opts.fromNodeId}" existiert nicht mehr.`
+    run.endedAt = Date.now()
+    try {
+      persist(run)
+    } catch {
+      /* ignore */
+    }
+    deps.emit({ type: 'workflow_run', runId: run.id, workflowId: def.id, status: 'error', message: run.error })
+    return run
+  }
   // bounded loops: a node may be re-entered (poll/retry patterns) up to MAX_VISITS
   // times — better than silently dropping a loop-back edge — but always bounded.
   const visits = new Map<string, number>()
   // per-node outputs (in-memory only, never persisted) so {{node.<id>}} / {{<id>.path}}
-  // can reference an upstream node's result.
-  const nodeOutputs = new Map<string, string>()
+  // can reference an upstream node's result. On a self-heal REPLAY (fromNodeId set) it's
+  // seeded from the failed run's upstream outputs, so a mid-graph resume still resolves
+  // {{node.<earlier-id>}} instead of silently getting ''.
+  const nodeOutputs = new Map<string, string>(Object.entries(opts?.seedOutputs ?? {}))
   let steps = 0
 
   try {
@@ -789,6 +807,9 @@ export async function runWorkflow(
         lastBeat = now
         deps.emit({ type: 'workflow_node', runId: run.id, nodeId: nid, status: 'running', output: out })
       }
+      // snapshot the vars the node SEES as input (before it runs / poisons {{last}} with an
+      // error) — a self-heal replay resumes from here with this exact unmasked input state.
+      const inputSnapshot = { ...run.vars }
       for (;;) {
         try {
           const res = await runNode(current, run.vars!, deps, nodeOutputs, onProgress)
@@ -851,6 +872,15 @@ export async function runWorkflow(
       // so the next node sees the real error text). A hardStop (budget) always stops.
       if (nodeFailed && (!continueOnError || hardStop)) {
         run.status = 'failed'
+        // a genuine node failure (not a time/budget hardStop) is repairable — leave the
+        // in-memory seed a self-heal needs to resume from exactly this node + input state.
+        if (!hardStop) {
+          run.healSeed = {
+            fromNodeId: current.id,
+            vars: inputSnapshot,
+            seedOutputs: Object.fromEntries(nodeOutputs)
+          }
+        }
         break
       }
       persist(run)

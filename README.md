@@ -69,6 +69,13 @@ item, sequential or bounded-parallel), **Parallel** (run N branch workflows at o
 Connections are visible and animated; each node shows live ⏳/✅/❌ status **and the data/error it
 produced** while the run streams; results flow between nodes via `{{variables}}` (click a variable chip to insert one).
 - **Cron triggers** — set a trigger node to a schedule and the workflow runs unattended (`0 9 * * *`).
+- **🩹 Self-healing** — when a node fails, the in-process coder gets the node's config + error +
+  (secret-masked) input, diagnoses with grep/read/edit on the actual project, patches the node
+  config **or** fixes a referenced file, then **replays from the failed node** with the exact input
+  it saw (no upstream re-run) — the same agent that would write the automation fixes it. One click
+  "Reparieren" in the run history, or opt-in **Auto-Heilung** for unattended cron/file-watch/chat
+  runs (bounded by attempts + the daily spend cap; the repair agent stays unattended-gated, so
+  MCP/claude_code/git-push remain blocked). Something no standalone n8n/Zapier can do.
 - **File-watch triggers** — set the trigger to `filewatch` with a path/glob (e.g. `src` + `*.ts`) and
   the workflow fires whenever a matching file under the project changes (debounced, throttled, and
   suppressed while the agent itself is writing — no self-trigger loops). Event-driven automation, not

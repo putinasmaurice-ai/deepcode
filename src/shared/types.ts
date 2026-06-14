@@ -342,6 +342,15 @@ export type AgentEvent =
   // visual workflow runs: per-run and per-node status so the editor can trace live
   | { type: 'workflow_run'; runId: string; workflowId: string; status: 'start' | 'done' | 'error' | 'cancelled'; message?: string }
   | { type: 'workflow_node'; runId: string; nodeId: string; status: WorkflowNodeStatus; output?: string; error?: string }
+  // self-healing progress (the coder repairing a failed workflow node, then replaying)
+  | {
+      type: 'workflow_heal'
+      workflowId: string
+      runId: string
+      status: 'start' | 'agent' | 'patched' | 'replay' | 'healed' | 'failed'
+      nodeId?: string
+      message?: string
+    }
 
 // ---- Feature system descriptors (Skills / Hooks / Commands / Subagents / MCP / Plugins / Automations) ----
 
@@ -486,6 +495,12 @@ export interface WorkflowDef {
   edges: WorkflowEdge[]
   createdAt: number
   updatedAt: number
+  // self-healing: when a node fails on an UNATTENDED run (cron/file-watch/chat), let the
+  // in-process coder diagnose + patch the node config or a referenced file, then replay from
+  // the failed node. Bounded by maxHealAttempts (default 1). Interactive "Reparieren" works
+  // regardless of this flag.
+  autoHeal?: boolean
+  maxHealAttempts?: number
 }
 
 export type WorkflowNodeStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'cancelled'
@@ -508,6 +523,13 @@ export interface WorkflowRun {
   startedAt: number
   endedAt?: number
   error?: string // why the run failed (node error / loop or step limit) — surfaced terminally
+  // In-memory ONLY (never persisted — maskRunForPersist drops it): everything a self-heal
+  // replay needs to resume from the failed node with the EXACT live/unmasked input state.
+  healSeed?: {
+    fromNodeId: string
+    vars: Record<string, string> // the live vars as the failed node SAW them (pre-node snapshot)
+    seedOutputs: Record<string, string> // upstream node outputs so {{node.<id>}} still resolves
+  }
 }
 
 // ---- Agent run trace (observability) ----

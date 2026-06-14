@@ -158,6 +158,7 @@ export interface DeepCodeApi {
   deleteWorkflow(id: string): Promise<boolean>
   runWorkflow(id: string, runId: string, vars?: Record<string, string>, fromNodeId?: string): Promise<string>
   cancelWorkflow(runId: string): Promise<boolean>
+  healWorkflow(id: string, runId?: string): Promise<string>
   listWorkflowRuns(workflowId?: string): Promise<WorkflowRun[]>
   getWorkflowRun(runId: string): Promise<WorkflowRun | null>
   listTraces(sessionId?: string): Promise<Trace[]>

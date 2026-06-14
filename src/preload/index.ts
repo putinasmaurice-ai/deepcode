@@ -107,6 +107,7 @@ const api: DeepCodeApi = {
   runWorkflow: (id: string, runId: string, vars?: Record<string, string>, fromNodeId?: string) =>
     ipcRenderer.invoke(IPC.runWorkflow, id, runId, vars, fromNodeId),
   cancelWorkflow: (runId: string) => ipcRenderer.invoke(IPC.cancelWorkflow, runId),
+  healWorkflow: (id: string, runId?: string) => ipcRenderer.invoke(IPC.healWorkflow, id, runId),
   listWorkflowRuns: (workflowId?: string) => ipcRenderer.invoke(IPC.listWorkflowRuns, workflowId),
   getWorkflowRun: (runId: string) => ipcRenderer.invoke(IPC.getWorkflowRun, runId),
   listTraces: (sessionId?: string) => ipcRenderer.invoke(IPC.listTraces, sessionId),
