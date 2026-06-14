@@ -122,6 +122,9 @@ const api: DeepCodeApi = {
   secretSet: (name: string, value: string) => ipcRenderer.invoke(IPC.secretSet, name, value),
   secretDelete: (name: string) => ipcRenderer.invoke(IPC.secretDelete, name),
 
+  exportBackup: () => ipcRenderer.invoke(IPC.exportBackup),
+  importBackup: () => ipcRenderer.invoke(IPC.importBackup),
+
   // automations
   listAutomations: () => ipcRenderer.invoke(IPC.listAutomations),
   saveAutomation: (a: unknown) => ipcRenderer.invoke(IPC.saveAutomation, a),

@@ -99,6 +99,10 @@ export const IPC = {
   secretSet: 'workflows:secretSet',
   secretDelete: 'workflows:secretDelete',
 
+  // backup / restore (portable JSON export of the user's config)
+  exportBackup: 'backup:export',
+  importBackup: 'backup:import',
+
   // automations
   listAutomations: 'automations:list',
   saveAutomation: 'automations:save',

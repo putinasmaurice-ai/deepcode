@@ -207,6 +207,40 @@ export function saveSession(session: Session): void {
   ensureSessionCache().set(session.id, { ...session, messages: [] })
 }
 
+// Debounced session persistence. The engine calls this on EVERY step (~100x/turn); coalescing
+// those writes into at most one per window kills the O(n^2) bytes+CPU amplification on long
+// sessions. The metadata cache is updated IMMEDIATELY (so listSessions/sidebar stay current);
+// only the disk write is deferred. flushSession forces any pending write out NOW — runTurn's
+// finally calls it, so a COMPLETED turn is always on disk synchronously. Intra-turn disk state
+// may lag <=600ms, which is fine: the live turn works from the in-memory session object.
+const pendingSaves = new Map<string, ReturnType<typeof setTimeout>>()
+const SAVE_DEBOUNCE_MS = 600
+
+export function saveSessionSoon(session: Session): void {
+  if (tombstoned.has(session.id)) return // deleted mid-turn — don't resurrect it
+  session.updatedAt = Date.now()
+  ensureSessionCache().set(session.id, { ...session, messages: [] }) // list stays current immediately
+  const id = session.id
+  const existing = pendingSaves.get(id)
+  if (existing) clearTimeout(existing)
+  pendingSaves.set(
+    id,
+    setTimeout(() => {
+      pendingSaves.delete(id)
+      saveSession(session)
+    }, SAVE_DEBOUNCE_MS)
+  )
+}
+
+export function flushSession(session: Session): void {
+  const t = pendingSaves.get(session.id)
+  if (t) {
+    clearTimeout(t)
+    pendingSaves.delete(session.id)
+  }
+  saveSession(session)
+}
+
 export function deleteSession(id: string): void {
   let p: string
   try {
@@ -215,6 +249,11 @@ export function deleteSession(id: string): void {
     return // invalid/traversal id — nothing to delete, and must never reach checkpoints rmSync
   }
   tombstoned.add(id)
+  const pending = pendingSaves.get(id) // cancel a queued debounced write so it can't resurrect the file
+  if (pending) {
+    clearTimeout(pending)
+    pendingSaves.delete(id)
+  }
   if (existsSync(p)) unlinkSync(p)
   sessionCache?.delete(id)
   deleteSessionCheckpoints(id) // don't leave orphaned snapshot dirs behind

@@ -26,7 +26,7 @@ import { recordErrorSolution } from '../systems/memory'
 import { buildMemoryContext } from '../systems/memory-search'
 import { recordSnapshot, getTurnFiles, getTurnSnapshots } from '../checkpoints'
 import { getProject } from '../projects'
-import { saveSession } from '../store'
+import { saveSessionSoon, flushSession } from '../store'
 import { recordUsage, overDailyCap } from '../ledger'
 import { recordTurnSample } from '../samples'
 import { TraceRecorder } from './trace'
@@ -423,7 +423,7 @@ export class AgentEngine {
         createdAt: Date.now(),
         images: images?.length ? images : undefined
       })
-      saveSession(session)
+      saveSessionSoon(session)
       // let the renderer reconcile its optimistic 'local-' id with the real one,
       // so Regenerate/Edit work on a freshly-sent message (not just after reopen).
       emit({ type: 'user_message', sessionId: session.id, id: userMsgId })
@@ -451,7 +451,7 @@ export class AgentEngine {
         const msg = session.messages.find((m) => m.id === userMsgId)
         if (msg) {
           msg.imageDescription = desc ?? '[Bild konnte nicht analysiert werden — bitte beschreibe es kurz im Text.]'
-          saveSession(session)
+          saveSessionSoon(session)
         }
       }
 
@@ -503,7 +503,7 @@ export class AgentEngine {
         snapshot: (absPath) => recordSnapshot(session.id, turnTag, absPath),
         emitTodos: (todos) => {
           session.todos = todos
-          saveSession(session)
+          saveSessionSoon(session)
           emit({ type: 'todos', sessionId: session.id, todos })
         },
         trace: tr,
@@ -584,7 +584,7 @@ export class AgentEngine {
         tr.end(roundSpan, { status: 'ok' })
         if (!feedback) break
         session.messages.push({ id: randomUUID(), role: 'user', content: feedback, createdAt: Date.now() })
-        saveSession(session)
+        saveSessionSoon(session)
       }
 
       // record this turn's outcome so the Crystal Ball can forecast future turns
@@ -614,7 +614,7 @@ export class AgentEngine {
       trace?.finish(turnStatus)
       this.aborters.delete(session.id)
       this.liveSessions.delete(session.id)
-      saveSession(session)
+      flushSession(session) // guaranteed end-of-turn persist (drains any debounced intra-turn writes)
     }
   }
 
@@ -762,7 +762,7 @@ export class AgentEngine {
       })
       session.messages.push(assistantMsg)
       emit({ type: 'message_done', message: assistantMsg })
-      saveSession(session)
+      saveSessionSoon(session)
 
       // Per-turn budget guard: stop spending once the cap is hit (pause, don't churn).
       if (cap > 0 && budget && budget.usd >= cap) {
@@ -799,7 +799,7 @@ export class AgentEngine {
         session.messages.push(toolResultMessage(call.id, call.name, res))
       }
       // one write per round instead of per tool result (sessions get big)
-      saveSession(session)
+      saveSessionSoon(session)
     }
     // Exhausted the step budget without a tool-free answer — say so instead of
     // ending silently, so the user knows to continue (the agent isn't "stuck").

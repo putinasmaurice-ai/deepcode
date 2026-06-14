@@ -50,6 +50,8 @@ import {
 } from './workflows/store'
 import { runWorkflow, WorkflowDeps, RunContext, RUN_MAX_MS } from './workflows/executor'
 import { kvStore } from './workflows/kv-store'
+import { createBackup, restoreBackup } from './backup'
+import { atomicWriteJson } from './atomic'
 import { runUserCode } from './workflows/code-node'
 import { sendEmail } from './workflows/email'
 import { WorkflowWatchManager } from './workflows/watch-trigger'
@@ -853,6 +855,37 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.swarmMerge, (_e, branch: string) => swarmMerge(swarmCwd(), branch, swarmAc().signal))
   ipcMain.handle(IPC.swarmDeleteBranch, (_e, branch: string) => swarmDeleteBranch(swarmCwd(), branch, swarmAc().signal))
   // export a workflow to a .json file the user picks (share / back up / move between machines)
+  // ---- backup / restore (portable JSON export of the user's config) ----
+  ipcMain.handle(IPC.exportBackup, async () => {
+    const res = await dialog.showSaveDialog(currentWin ?? win, {
+      title: 'Backup speichern',
+      defaultPath: 'deepcode-backup.json',
+      filters: [{ name: 'DeepCode Backup', extensions: ['json'] }]
+    })
+    if (res.canceled || !res.filePath) return { ok: false }
+    atomicWriteJson(res.filePath, createBackup(app.getVersion(), Date.now()))
+    return { ok: true, path: res.filePath }
+  })
+  ipcMain.handle(IPC.importBackup, async () => {
+    const res = await dialog.showOpenDialog(currentWin ?? win, {
+      title: 'Backup wiederherstellen',
+      properties: ['openFile'],
+      filters: [{ name: 'DeepCode Backup', extensions: ['json'] }]
+    })
+    if (res.canceled || !res.filePaths?.[0]) return { ok: false }
+    try {
+      const bundle = JSON.parse(readFileSync(res.filePaths[0], 'utf8'))
+      const { restored } = restoreBackup(bundle)
+      // reload settings into the live object + engine so non-secret config takes effect without a
+      // restart (projects/memory/workflows/automations are read fresh from disk on next use).
+      settings = loadSettings()
+      engine.updateSettings(settings)
+      return { ok: true, restored }
+    } catch (e) {
+      return { ok: false, message: (e as Error).message }
+    }
+  })
+
   ipcMain.handle(IPC.exportWorkflow, async (_e, id: string) => {
     const def = getWorkflow(id)
     if (!def) throw new Error('Workflow not found')

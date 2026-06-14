@@ -69,6 +69,66 @@ function SecretsCard(): JSX.Element {
   )
 }
 
+function BackupCard(): JSX.Element {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  async function doExport(): Promise<void> {
+    setBusy(true)
+    setMsg('')
+    try {
+      const r = await api.exportBackup()
+      setMsg(r.ok && r.path ? `✅ Gespeichert: ${r.path}` : 'Abgebrochen.')
+    } catch (e) {
+      setMsg(`⚠ ${String((e as Error).message ?? e)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function doImport(): Promise<void> {
+    if (
+      !window.confirm(
+        'Backup wiederherstellen? Bestehende Konfiguration (Einstellungen, Projekte, Memory, Automationen, Workflows) wird überschrieben.'
+      )
+    )
+      return
+    setBusy(true)
+    setMsg('')
+    try {
+      const r = await api.importBackup()
+      if (r.ok)
+        setMsg(
+          `✅ ${r.restored?.length ?? 0} Einträge wiederhergestellt. API-Keys müssen neu eingegeben werden; App-Neustart empfohlen.`
+        )
+      else setMsg(r.message ? `⚠ ${r.message}` : 'Abgebrochen.')
+    } catch (e) {
+      setMsg(`⚠ ${String((e as Error).message ?? e)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="card">
+      <h3>💾 Backup / Wiederherstellen</h3>
+      <p>
+        Exportiert Einstellungen, Projekte, Memory, Automationen, Workflows und MCP-Server als eine portable
+        JSON-Datei. <b>API-Keys/Secrets werden NICHT exportiert</b> (gerätegebunden) — nach dem Wiederherstellen
+        neu eintragen.
+      </p>
+      <div className="row" style={{ marginTop: 12, gap: 10 }}>
+        <button className="btn ghost sm" disabled={busy} onClick={doExport}>
+          ⬇ Backup exportieren
+        </button>
+        <button className="btn ghost sm" disabled={busy} onClick={doImport}>
+          ⬆ Wiederherstellen…
+        </button>
+      </div>
+      {msg && (
+        <span style={{ display: 'block', marginTop: 8, color: 'var(--text-faint)', fontSize: 12 }}>{msg}</span>
+      )}
+    </div>
+  )
+}
+
 function Switch({ on, onClick }: { on: boolean; onClick: () => void }): JSX.Element {
   // a real role="switch" button → focusable + keyboard-operable (Space/Enter) for free, unlike
   // a bare <span> which keyboard / screen-reader users could never toggle.
@@ -476,6 +536,8 @@ export function SettingsPanel({
       </div>
 
       <SecretsCard />
+
+      <BackupCard />
 
       <div className="card">
         <h3>Permissions (auto-approve)</h3>

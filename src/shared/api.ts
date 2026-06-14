@@ -174,6 +174,10 @@ export interface DeepCodeApi {
   secretSet(name: string, value: string): Promise<boolean>
   secretDelete(name: string): Promise<boolean>
 
+  // backup / restore
+  exportBackup(): Promise<{ ok: boolean; path?: string }>
+  importBackup(): Promise<{ ok: boolean; restored?: string[]; message?: string }>
+
   // automations
   listAutomations(): Promise<AutomationDef[]>
   saveAutomation(a: AutomationDef): Promise<AutomationDef[]>
