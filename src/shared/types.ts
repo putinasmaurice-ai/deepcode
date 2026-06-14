@@ -543,6 +543,13 @@ export interface WorkflowRun {
   }
 }
 
+// A swarm/* branch produced by a swarm run — surfaced in the merge-gate panel.
+export interface SwarmBranch {
+  branch: string
+  subject: string // commit subject ("swarm: <label>")
+  stat: string // git diff --stat HEAD...branch
+}
+
 // ---- Agent run trace (observability) ----
 // A correlated, persisted tree of what one chat TURN actually did: quality rounds,
 // each LLM call (with cost), each tool call (with duration / ok-error), nested

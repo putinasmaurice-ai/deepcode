@@ -16,7 +16,8 @@ import type {
   UsageSummary,
   WorkflowDef,
   WorkflowRun,
-  Trace
+  Trace,
+  SwarmBranch
 } from './types'
 
 // Approval mode the renderer can request for a turn (mirrors the engine's ApprovalPolicy).
@@ -163,6 +164,10 @@ export interface DeepCodeApi {
   getWorkflowRun(runId: string): Promise<WorkflowRun | null>
   listTraces(sessionId?: string): Promise<Trace[]>
   getTrace(id: string): Promise<Trace | null>
+  swarmBranches(): Promise<SwarmBranch[]>
+  swarmDiff(branch: string): Promise<string>
+  swarmMerge(branch: string): Promise<{ ok: boolean; output: string }>
+  swarmDeleteBranch(branch: string): Promise<{ ok: boolean; output: string }>
   exportWorkflow(id: string): Promise<boolean>
   importWorkflow(): Promise<WorkflowDef | null>
   secretsList(): Promise<string[]>

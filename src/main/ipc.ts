@@ -66,6 +66,7 @@ import { loadProjects, getProject, upsertProject, deleteProject as removeProject
 import { computeUsageSummary } from './usage'
 import { listAudit, searchSessions } from './history'
 import { listTraces, getTrace } from './trace-store'
+import { listSwarmBranches, swarmBranchDiff, swarmMerge, swarmDeleteBranch } from './swarm-branches'
 import { getNightShift, saveNightShift, runNightShift, requestStop } from './nightshift'
 import { overDailyCap } from './ledger'
 import { startWatch, stopWatch, beginAgentOp, endAgentOp } from './watcher'
@@ -812,6 +813,13 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.getWorkflowRun, (_e, runId: string) => getWorkflowRun(runId))
   ipcMain.handle(IPC.listTraces, (_e, sessionId?: string) => listTraces(sessionId))
   ipcMain.handle(IPC.getTrace, (_e, id: string) => getTrace(id))
+  // swarm merge-gate: list/diff/merge/delete the swarm/* branches in the project repo
+  const swarmCwd = (): string => validDir(settings.defaultCwd) || homedir()
+  const swarmAc = (): AbortController => new AbortController()
+  ipcMain.handle(IPC.swarmBranches, () => listSwarmBranches(swarmCwd(), swarmAc().signal))
+  ipcMain.handle(IPC.swarmDiff, (_e, branch: string) => swarmBranchDiff(swarmCwd(), branch, swarmAc().signal))
+  ipcMain.handle(IPC.swarmMerge, (_e, branch: string) => swarmMerge(swarmCwd(), branch, swarmAc().signal))
+  ipcMain.handle(IPC.swarmDeleteBranch, (_e, branch: string) => swarmDeleteBranch(swarmCwd(), branch, swarmAc().signal))
   // export a workflow to a .json file the user picks (share / back up / move between machines)
   ipcMain.handle(IPC.exportWorkflow, async (_e, id: string) => {
     const def = getWorkflow(id)
