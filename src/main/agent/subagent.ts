@@ -25,7 +25,8 @@ export async function runSubagent(
   cwd: string,
   emit: Emit,
   signal: AbortSignal,
-  onUsage?: (u: TokenUsage) => void // trace/cost bubbling: called per billed round
+  onUsage?: (u: TokenUsage) => void, // trace/cost bubbling: called per billed round
+  allowOverride?: string[] // restrict the worker's toolset (swarm workers = pure editors)
 ): Promise<string> {
   const agent = getSubagent(agentName, cwd) ?? pluginSubagents().find((a) => a.name === agentName)
   const systemBase = buildSystemPrompt({
@@ -41,7 +42,8 @@ export async function runSubagent(
 
   const tools = buildTools(deps.settings, cwd, {
     includeTask: false,
-    allow: agent?.tools ?? ['*']
+    // an explicit override (swarm workers) wins over the agent def / the default ['*']
+    allow: allowOverride ?? agent?.tools ?? ['*']
   })
   // deepseek-reasoner does not support function calling — run it tool-less.
   const reasonerOnly = !!agent?.model && /reason/i.test(agent.model)

@@ -41,6 +41,9 @@ const MAX_STEPS = 60
 const MAX_QUALITY_ROUNDS = 4 // initial pass + self-review + 2 verify fixes
 const SWARM_MAX_WORKERS = 6 // parallel swarm workers (runPool caps in-flight at 8 regardless)
 const SWARM_MAX_MS = 30 * 60_000 // absolute wall-clock ceiling for a whole swarm run
+// swarm workers are pure code-editors in an isolated worktree (no deps installed, orchestrator
+// commits) → only read/edit/search tools; NO shell/git/jobs/web/task/preview/mcp.
+const SWARM_WORKER_TOOLS = ['read_file', 'write_file', 'edit_file', 'apply_patch', 'list_dir', 'glob', 'grep', 'semantic_search']
 
 // Vision pre-extraction prompt: turn an image into precise text the (blind) coding model
 // can act on. Emphasises verbatim text/code/errors over interpretation.
@@ -628,8 +631,19 @@ export class AgentEngine {
     try {
       const { workers } = await runSwarm(shards, session.cwd, session.id, {
         runWorker: (prompt, cwd, onUsage) =>
-          runSubagent(this.deps(), (p) => this.autoApproved(p), 'general-purpose', prompt, cwd, emit, swarmAc.signal, (u) =>
-            onUsage({ cost: u.cost, totalTokens: u.totalTokens })
+          runSubagent(
+            this.deps(),
+            (p) => this.autoApproved(p),
+            'general-purpose',
+            prompt,
+            cwd,
+            emit,
+            swarmAc.signal,
+            (u) => onUsage({ cost: u.cost, totalTokens: u.totalTokens }),
+            // worktrees have no node_modules and the orchestrator commits — workers are PURE
+            // EDITORS: restrict to read/edit/search tools (no shell/git/build/network/etc), so a
+            // worker can't run tests/git in a depless worktree or race siblings on the .git lock.
+            SWARM_WORKER_TOOLS
           ),
         emit,
         signal: swarmAc.signal,
@@ -941,6 +955,13 @@ export class AgentEngine {
         trace?.end(sp, { status: 'error', error: (e as Error).message })
         // a restore failure is data-safety-critical — surface it LOUDLY, not as a quiet status
         emit({ type: 'error', message: `Beweis-Schritt: ${(e as Error).message}` })
+        return null
+      }
+      if (res.incomplete) {
+        // a changed file couldn't be reverted (>5MB/binary) → can't prove red-first; accept the
+        // test without a false "non-discriminating" rejection.
+        trace?.end(sp, { status: 'ok', detail: 'Beweis übersprungen (große/binäre Änderung)' })
+        emit({ type: 'status', message: '🧪 Beweis übersprungen — eine große/binäre Datei wurde geändert und ließ sich nicht zuverlässig zurücksetzen.' })
         return null
       }
       if (!res.discriminates) {

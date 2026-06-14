@@ -52,6 +52,7 @@ export interface RedFirstResult {
   discriminates: boolean // the test FAILED against the reverted (old) code → it actually checks the change
   green: boolean // the test PASSES against the current code
   output: string // the relevant runner output (red phase if non-discriminating, else green phase)
+  incomplete?: boolean // a changed source couldn't be reverted (>5MB/binary marker) → can't prove
 }
 
 // True only if `p` resolves INSIDE `cwd` — proveRedFirst must never write a snapshot path that
@@ -99,6 +100,9 @@ export async function proveRedFirst(
   confine = true
 ): Promise<RedFirstResult> {
   const sources = snapshots.filter((s) => s.path !== testFile && (!confine || insideCwd(s.path, cwd)))
+  // ABSTAIN if any changed source has no captured pre-image (snapshotter skipped a >5MB/locked
+  // file): we cannot faithfully revert it, so a red/green verdict would be wrong. Touch nothing.
+  if (sources.some((s) => s.skipped)) return { discriminates: false, green: false, output: 'incomplete', incomplete: true }
   const backupDir = join(PATHS.root, 'tmp', `synth-${randomUUID()}`)
   // CAPTURE first — abort entirely if any existing source is unreadable
   const captured: { path: string; existed: boolean; content: string }[] = []

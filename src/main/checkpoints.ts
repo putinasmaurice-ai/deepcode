@@ -14,6 +14,10 @@ export interface Snapshot {
   path: string
   existed: boolean
   content: string
+  // a file the snapshotter could NOT capture (unreadable/locked or >5MB) — recorded as a marker
+  // (never as real content) so consumers know the pre-image is missing. rewind NEVER writes these
+  // (would zero a large/binary file); proveRedFirst abstains when a source is skipped.
+  skipped?: boolean
 }
 
 function dir(sessionId: string): string {
@@ -43,15 +47,19 @@ export function recordSnapshot(sessionId: string, turnTag: string, absPath: stri
     if (snaps.some((s) => s.path === absPath)) return // keep the earliest state
     const existed = existsSync(absPath)
     let content = ''
+    let skipped = false
     if (existed) {
       try {
         content = readFileSync(absPath, 'utf8')
       } catch {
-        return // unreadable (binary/locked) — skip rather than corrupt
+        skipped = true // unreadable (locked) — record a marker, never corrupt with empty content
       }
-      if (content.length > 5_000_000) return
+      if (!skipped && content.length > 5_000_000) {
+        skipped = true
+        content = ''
+      }
     }
-    snaps.push({ path: absPath, existed, content })
+    snaps.push(skipped ? { path: absPath, existed, content: '', skipped: true } : { path: absPath, existed, content })
     mkdirSync(dir(sessionId), { recursive: true })
     // atomic write (tmp + rename) so a crash mid-write can't corrupt an undo point
     const target = file(sessionId, turnTag)
@@ -116,6 +124,7 @@ export function rewindLastTurn(sessionId: string): string[] {
   const snaps = load(sessionId, tag)
   const restored: string[] = []
   for (const s of snaps) {
+    if (s.skipped) continue // no pre-image captured — must NOT overwrite the (large/binary) file
     try {
       if (s.existed) {
         mkdirSync(dirname(s.path), { recursive: true })

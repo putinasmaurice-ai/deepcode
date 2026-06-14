@@ -61,8 +61,9 @@ File changes are checkpointed — `/rewind` undoes the last turn. Dangerous comm
 **🐝 Swarm mode** — `/swarm <task>` plans the task into independent sub-tasks and runs them **in
 parallel, each in its own isolated git worktree + branch**, so their edits can't collide — then
 reports the branches for you to review and merge. A first-class orchestrator (not the `task` tool):
-workers are unattended-gated, the wall-clock + daily/per-worker cost caps bound the run, and every
-worktree is torn down even on Stop/timeout (a worker whose commit fails is preserved, not discarded).
+workers are unattended-gated and **sandboxed to file edits only** (read/edit/grep/glob — no
+shell/git/network), the wall-clock + daily/per-worker cost caps bound the run, and every worktree
+is torn down even on Stop/timeout (a worker whose commit fails is preserved, not discarded).
 Great for "migrate all N modules" — parallel instead of a serial grind. A **🐝 Schwarm** panel
 then lists the resulting `swarm/*` branches: review each diff and **merge** it into your current
 branch with one click (a dirty tree is refused and a conflicting merge is safely aborted so the
