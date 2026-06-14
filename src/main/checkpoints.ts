@@ -10,7 +10,7 @@ const MAX_TURN_TAGS = 100
 // snapshotted under ~/.deepcode/checkpoints/<sessionId>/<turnTag>.json.
 // /rewind restores the most recent turn's snapshots (undo the last turn).
 
-interface Snapshot {
+export interface Snapshot {
   path: string
   existed: boolean
   content: string
@@ -90,6 +90,13 @@ export function deleteSessionCheckpoints(sessionId: string): void {
 // Which files were touched in a given turn (for changelog generation).
 export function getTurnFiles(sessionId: string, turnTag: string): string[] {
   return load(sessionId, turnTag).map((s) => s.path)
+}
+
+// Full pre-change snapshots (path + existed + pre-image content) for a turn — used by the
+// red-first prover to temporarily revert the turn's changes and confirm a synthesized test
+// actually FAILS against the old code (so it discriminates the new behaviour).
+export function getTurnSnapshots(sessionId: string, turnTag: string): Snapshot[] {
+  return load(sessionId, turnTag)
 }
 
 export function listTurnTags(sessionId: string): string[] {

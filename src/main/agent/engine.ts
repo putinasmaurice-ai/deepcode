@@ -12,7 +12,6 @@ import { toApiMessages, toolResultMessage } from './api-messages'
 import { costOf, estimateTokens } from './pricing'
 import { collectSkills, buildTools } from './toolset'
 import { newAssistantMessage, streamCallbacksFor } from './streaming'
-import { runVerify } from './verify'
 import { EngineDeps, Emit } from './deps'
 import { runSecondOpinion, runArena } from './variants'
 import { compactSession } from './compact'
@@ -25,12 +24,15 @@ import { loadHooks, runHooks } from '../systems/hooks'
 import { pluginHooks } from '../systems/plugins'
 import { recordErrorSolution } from '../systems/memory'
 import { buildMemoryContext } from '../systems/memory-search'
-import { recordSnapshot, getTurnFiles } from '../checkpoints'
+import { recordSnapshot, getTurnFiles, getTurnSnapshots } from '../checkpoints'
 import { getProject } from '../projects'
 import { saveSession } from '../store'
-import { recordUsage } from '../ledger'
+import { recordUsage, overDailyCap } from '../ledger'
 import { recordTurnSample } from '../samples'
 import { TraceRecorder } from './trace'
+import { runStructuredVerify } from './verify-report'
+import { focusFeedback } from '@shared/test-report'
+import { detectTestFramework, proveRedFirst, isTestFile } from './verify-synth'
 
 export type { ApprovalPolicy } from './policy'
 
@@ -519,6 +521,7 @@ export class AgentEngine {
       // command with auto-fix feedback. Hard-capped at MAX_QUALITY_ROUNDS.
       let reviewDone = false
       let verifyAttempts = 0
+      const synthState = { requested: false, attempts: 0 } // "Beweisbare Änderungen" per-turn state
       const budget = { usd: 0, tokens: 0 } // accumulates across all quality rounds of this turn
       const turnStart = Date.now()
       const cap = this.settings.maxCostPerTurn
@@ -547,7 +550,8 @@ export class AgentEngine {
           // returns the attempt number (1-based) or null when exhausted
           () => (verifyAttempts < 2 ? ++verifyAttempts : null),
           tr,
-          roundSpan
+          roundSpan,
+          synthState
         )
         tr.end(roundSpan, { status: 'ok' })
         if (!feedback) break
@@ -810,7 +814,8 @@ export class AgentEngine {
     takeReview: () => 'review' | null,
     takeVerifyAttempt: () => number | null,
     trace?: TraceRecorder,
-    roundSpanId?: string
+    roundSpanId?: string,
+    synth?: { requested: boolean; attempts: number }
   ): Promise<string | null> {
     const changed = getTurnFiles(session.id, turnTag)
     if (!changed.length || policy === 'plan') return null
@@ -827,26 +832,77 @@ export class AgentEngine {
     if (project?.verifyCommand) {
       emit({ type: 'status', message: `⚙ Verify: ${project.verifyCommand}` })
       const vs = trace?.begin('verify', `Verify: ${project.verifyCommand}`, roundSpanId)
-      const v = await runVerify(project.verifyCommand, session.cwd, signal)
-      trace?.end(vs, { status: v.ok ? 'ok' : 'error', error: v.ok ? undefined : 'Verify-Befehl fehlgeschlagen' })
+      const v = await runStructuredVerify(project.verifyCommand, session.cwd, signal)
+      trace?.end(vs, {
+        status: v.ok ? 'ok' : 'error',
+        detail: v.report ? `${v.report.passed}/${v.report.total} grün` : undefined,
+        error: v.ok ? undefined : v.report ? `${v.report.failures.length} Test(s) rot` : 'Verify-Befehl fehlgeschlagen'
+      })
       if (v.ok) {
         emit({ type: 'status', message: '✅ Verify bestanden.' })
         return null
       }
       const attempt = takeVerifyAttempt()
       if (attempt === null) {
-        // final check after the last fix still fails — tell the user honestly
-        emit({
-          type: 'status',
-          message: '❌ Verify weiterhin fehlgeschlagen (2 Fix-Versuche aufgebraucht) — bitte manuell prüfen.'
-        })
+        emit({ type: 'status', message: '❌ Verify weiterhin fehlgeschlagen (2 Fix-Versuche aufgebraucht) — bitte manuell prüfen.' })
         return null
       }
-      emit({
-        type: 'status',
-        message: `❌ Verify fehlgeschlagen — automatischer Fix (Versuch ${attempt}/2)…`
-      })
-      return `Der Verify-Befehl \`${project.verifyCommand}\` ist nach deinen Änderungen fehlgeschlagen:\n\n\`\`\`\n${v.output.slice(-5000)}\n\`\`\`\n\nAnalysiere die Ursache und behebe sie.`
+      // focused per-test feedback when a JSON report parsed; else the raw tail (backward compatible)
+      const detail =
+        v.report && v.report.failures.length ? focusFeedback(v.report) : `\`\`\`\n${v.output.slice(-5000)}\n\`\`\``
+      emit({ type: 'status', message: `❌ Verify fehlgeschlagen — automatischer Fix (Versuch ${attempt}/2)…` })
+      return `Der Verify-Befehl \`${project.verifyCommand}\` ist fehlgeschlagen:\n\n${detail}\n\nAnalysiere die Ursache und behebe sie.`
+    }
+
+    // No verifyCommand: optional "Beweisbare Änderungen" — synthesize a test and prove it
+    // red-first (fails on the reverted code, passes on the new). Bounded; opt-in.
+    if (this.settings.proveChanges && synth) {
+      // an unattended run (workflow agent / cron / night shift) must respect the daily cap here
+      // too — proveChanges adds an LLM round + test runs that the in-runTurn loop wouldn't catch.
+      if (overDailyCap(this.settings.maxCostPerDay)) return null
+      const fw = detectTestFramework(session.cwd)
+      if (!fw) return null // unknown framework → can't synthesize
+      const snaps = getTurnSnapshots(session.id, turnTag)
+      // prefer a test the turn CREATED (snapshot.existed===false) over a pre-existing edited test,
+      // so the proof targets the synthesized test, not an unrelated one.
+      const testFile =
+        snaps.find((s) => !s.existed && isTestFile(s.path))?.path ?? changed.find(isTestFile)
+      if (!testFile) {
+        if (synth.requested) return null // already asked once and no test appeared → give up
+        synth.requested = true
+        emit({ type: 'status', message: `🧪 Beweis: schreibe einen Test (${fw.name})…` })
+        return (
+          `Beweise deine Änderung mit einem Test (Framework: ${fw.name}). Schreibe einen FOKUSSIERTEN Test ` +
+          `${fw.testGlobHint}, der GENAU das neue/geänderte Verhalten prüft (kein trivialer Test). ` +
+          `Schreibe nur den Test — ich führe ihn danach automatisch aus.`
+        )
+      }
+      if (synth.attempts >= 2) return null // bounded
+      synth.attempts++
+      const sp = trace?.begin('verify', `Beweis (${fw.name})`, roundSpanId)
+      emit({ type: 'status', message: '🧪 Prüfe Test rot→grün…' })
+      let res: Awaited<ReturnType<typeof proveRedFirst>>
+      try {
+        res = await proveRedFirst(testFile, snaps, fw.runFile(testFile), session.cwd, signal, this.settings.confineToCwd)
+      } catch (e) {
+        trace?.end(sp, { status: 'error', error: (e as Error).message })
+        // a restore failure is data-safety-critical — surface it LOUDLY, not as a quiet status
+        emit({ type: 'error', message: `Beweis-Schritt: ${(e as Error).message}` })
+        return null
+      }
+      if (!res.discriminates) {
+        trace?.end(sp, { status: 'error', error: 'Test nicht aussagekräftig (grün gegen alten Code)' })
+        emit({ type: 'status', message: '🧪 Test bestand auch gegen den alten Code — nicht aussagekräftig.' })
+        return `Dein Test \`${testFile}\` besteht AUCH gegen den alten Code — er prüft die Änderung also nicht. Schreibe ihn so um, dass er das KONKRETE neue Verhalten prüft (gegen den alten Code fehlschlagen würde).`
+      }
+      if (!res.green) {
+        trace?.end(sp, { status: 'error', error: 'Test rot gegen aktuellen Code' })
+        emit({ type: 'status', message: '🧪 Test schlägt fehl — behebe den Code…' })
+        return `Dein Test \`${testFile}\` schlägt gegen den aktuellen Code fehl:\n\n\`\`\`\n${res.output.slice(-2000)}\n\`\`\`\n\nBehebe die Ursache, bis der Test grün ist.`
+      }
+      trace?.end(sp, { status: 'ok' })
+      emit({ type: 'status', message: '✅ Bewiesen: Test schlägt gegen alten Code fehl und besteht gegen neuen.' })
+      return null
     }
     return null
   }

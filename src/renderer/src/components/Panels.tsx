@@ -512,6 +512,10 @@ export function SettingsPanel({
             🔍 Selbst-Review — nach jeder Änderung prüft der Agent seinen eigenen Code (≈ doppelte Tokens, deutlich weniger Bugs)
           </label>
           <label className="toggle">
+            <Switch on={s.proveChanges} onClick={() => update({ proveChanges: !s.proveChanges })} />
+            🧪 Beweisbare Änderungen — hat das Projekt keinen Verify-Befehl, schreibt der Agent einen fokussierten Test und beweist ihn rot→grün (schlägt gegen den alten Code fehl, besteht gegen den neuen). Opt-in; kostet eine zusätzliche Runde + ein paar Testläufe.
+          </label>
+          <label className="toggle">
             <Switch on={s.autoRouteModels} onClick={() => update({ autoRouteModels: !s.autoRouteModels })} />
             💸 Auto-Modell-Routing — wenn du den Reasoner als Session-Modell wählst, läuft die Agenten-Schleife auf dem günstigen Chat-Modell (der Reasoner kann keine Tools aufrufen): spart Kosten und macht Tool-Nutzung überhaupt erst möglich
           </label>

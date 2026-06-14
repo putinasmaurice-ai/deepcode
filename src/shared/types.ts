@@ -214,6 +214,10 @@ export interface AppSettings {
   watcherEnabled: boolean
   // after a turn that changed files, run one extra self-review pass (≈2x tokens)
   selfReview: boolean
+  // "Beweisbare Änderungen": when a turn changed files and the project has NO verifyCommand,
+  // synthesize a focused test and prove it RED-FIRST (fails on old code, passes on new). Opt-in;
+  // costs an extra LLM round + a couple of test runs per turn.
+  proveChanges: boolean
   // automatically distil durable facts into memory at each compaction (opt-in; /remember
   // does it on demand regardless). Costs one extra cheap LLM call per compaction.
   autoMemory: boolean
@@ -288,6 +292,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   visionMode: 'online', // default to Gemini; falls back to local if no Google key is set
   watcherEnabled: false,
   selfReview: false,
+  proveChanges: false,
   autoMemory: false,
   autoRouteModels: true,
   maxCostPerTurn: 0,

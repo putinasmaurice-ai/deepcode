@@ -47,6 +47,14 @@ The agent runs a streaming tool-calling loop with these built-in tools:
 - `claude_code` — *optional* helper: delegate a sub-task to the Claude Code CLI (read-only by default). DeepSeek stays the orchestrator; Claude costs bill to your Anthropic account. Enable in Settings.
 - any tools exposed by connected MCP connectors
 
+**🧪 Provable changes** — the quality loop now reads your test runner's *structured* output
+(vitest/jest/pytest/mocha JSON) and feeds the agent the **one failing test** (name + message),
+not a 5000-char wall — far higher-signal auto-fixes. And when a project has **no** verify command,
+opt-in "Beweisbare Änderungen" makes the agent synthesize a focused test and **prove it red-first**:
+the test must FAIL against the reverted (old) code and PASS against the new — proof, not a claim.
+(The revert is an in-memory swap with disk backups + a guaranteed, retried restore, so your work is
+never left reverted; on a persistent restore failure it stops loudly and keeps the backups.)
+
 Modes: **Interaktiv** (asks before changes), **Plan** (read-only, proposes a plan), **Auto** (approves everything).
 File changes are checkpointed — `/rewind` undoes the last turn. Dangerous commands always require approval.
 
