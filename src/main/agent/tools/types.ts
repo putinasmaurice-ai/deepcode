@@ -29,6 +29,12 @@ export interface ToolContext {
   // Lets the chat agent execute a workflow it authored, read what each node did, then fix it.
   // Absent in subagent runs and tests that don't wire a runner.
   runWorkflow?: (idOrName: string, input?: string) => Promise<WorkflowRunResult>
+  // Securely capture a missing secret from the present user. The VALUE travels renderer→IPC→
+  // setSecret only — it is NEVER returned here, emitted in an event, or logged. Resolves
+  // { set: true } when stored, { set: false } when cancelled, or { set: false, error } when the
+  // value was REJECTED (error is a static constraint message — min length / no encryption — with
+  // NO value in it). Absent when the turn is unattended (a secret prompt needs a present user).
+  requestSecret?: (name: string, reason?: string) => Promise<{ set: boolean; error?: string }>
 }
 
 export interface Tool {

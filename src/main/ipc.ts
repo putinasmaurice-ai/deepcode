@@ -578,6 +578,11 @@ export function registerIpc(win: BrowserWindow): void {
     engine.approve(callId, approved, remember)
     return true
   })
+  // Secure secret entry: the submitted VALUE flows renderer→main→setSecret ONLY (inside
+  // engine.submitSecret). It is never echoed back to the renderer/LLM or logged. Returns only the
+  // store OUTCOME ({ set, error? }) so the renderer can warn on a rejected value — error is a
+  // static constraint message (min length / no encryption), never the value itself.
+  ipcMain.handle(IPC.submitSecret, (_e, callId: string, value: string | null) => engine.submitSecret(callId, value))
 
   // ---- persistent approval allowlist ----
   ipcMain.handle(IPC.listApprovedCommands, () => listApprovedCommands())

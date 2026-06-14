@@ -1,5 +1,10 @@
 // Shared type definitions used by both the Electron main process and the renderer.
 
+// Minimum length for a stored secret. Shared so the renderer's secret prompt can guard the
+// value BEFORE submitting and the main-side setSecret can enforce the same rule (values shorter
+// than this cannot be reliably masked out of logs/runs — see workflows/secrets.ts).
+export const MIN_SECRET_LEN = 8
+
 export type Role = 'system' | 'user' | 'assistant' | 'tool'
 
 export interface ToolCall {
@@ -347,6 +352,10 @@ export type AgentEvent =
   | { type: 'content_delta'; sessionId?: string; messageId: string; delta: string }
   | { type: 'tool_call'; sessionId?: string; messageId: string; toolCall: ToolCall }
   | { type: 'tool_pending'; sessionId?: string; callId: string; name: string; args: string }
+  // the agent asks the user to securely enter a secret (e.g. SMTP_PASS). Session-less like the
+  // other UI prompts; the VALUE is NEVER sent back through an event — it travels renderer→IPC
+  // submitSecret→setSecret only, so it can't enter the transcript / LLM / trace / logs.
+  | { type: 'secret_request'; sessionId?: string; callId: string; name: string; reason?: string }
   | { type: 'tool_result'; sessionId?: string; callId: string; name: string; result: ToolResult }
   | { type: 'message_done'; sessionId?: string; message: ChatMessage }
   | { type: 'usage'; sessionId?: string; messageId: string; usage: TokenUsage }

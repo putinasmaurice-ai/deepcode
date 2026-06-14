@@ -39,6 +39,7 @@ export const IPC = {
   sendMessage: 'agent:send',
   cancelTurn: 'agent:cancel',
   approveTool: 'agent:approveTool',
+  submitSecret: 'agent:submitSecret',
   agentEvent: 'agent:event', // main -> renderer push channel
   compactSession: 'agent:compact',
   forecastTurn: 'agent:forecast',

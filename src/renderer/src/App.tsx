@@ -8,6 +8,7 @@ import type {
   TodoItem,
   ToolResult
 } from '../../shared/types'
+import { MIN_SECRET_LEN } from '../../shared/types'
 
 export type AgentMode = 'interactive' | 'plan' | 'full'
 import { Composer } from './components/Composer'
@@ -109,6 +110,10 @@ export function App(): JSX.Element {
   const busy = !!session && running.has(session.id)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
+  // 🔐 Secure secret prompt: a single open request. The typed value lives ONLY in
+  // the inline prompt's local state and goes straight to api.submitSecret — it is
+  // never put into `messages`, logged, or echoed back through the LLM/transcript.
+  const [pendingSecret, setPendingSecret] = useState<{ callId: string; name: string; reason?: string } | null>(null)
   const [view, setView] = useState<View>('chat')
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [findOpen, setFindOpen] = useState(false)
@@ -503,6 +508,17 @@ export function App(): JSX.Element {
         }))
         scrollDown()
         break
+      case 'secret_request':
+        // Open the secure prompt. If one is already open, auto-cancel it (submit null)
+        // before replacing, so the previous waiting promise settles.
+        setPendingSecret((prev) => {
+          if (prev && prev.callId !== e.callId) {
+            api.submitSecret(prev.callId, null).catch(() => {})
+          }
+          return { callId: e.callId, name: e.name, reason: e.reason }
+        })
+        scrollDown()
+        break
       case 'usage':
         setSessionUsage((u) => ({
           tokens: u.tokens + e.usage.totalTokens,
@@ -535,6 +551,13 @@ export function App(): JSX.Element {
       case 'turn_done':
         endRun(sid ?? sessionIdRef.current ?? undefined)
         setStatus('')
+        // Tear down any open secret prompt — its backing turn just ended, so the main-side
+        // promise is already dead and a late Save would be a silent no-op. Settle main
+        // deterministically (submit null) before dropping it so nothing leaks.
+        setPendingSecret((prev) => {
+          if (prev) api.submitSecret(prev.callId, null).catch(() => {})
+          return null
+        })
         refreshSessions()
         // notify when the user is in another window/app
         if (document.hidden) {
@@ -600,6 +623,12 @@ export function App(): JSX.Element {
     const s = (await api.getSession(id)) as Session | null
     if (!s) return
     setDeferred(null) // a pending off-peak send belongs to the session it was queued in
+    // a secret prompt belongs to the session that opened it — drop it (and settle main) on
+    // switch so session A's prompt can't render under session B's composer (cross-session bleed).
+    setPendingSecret((prev) => {
+      if (prev) api.submitSecret(prev.callId, null).catch(() => {})
+      return null
+    })
     setSession(s)
     setMessages(s.messages.filter((m) => m.role !== 'tool'))
     setToolState(deriveToolState(s.messages))
@@ -623,6 +652,11 @@ export function App(): JSX.Element {
     const created = await api.createSession(cwd || undefined, pid || undefined)
     setSessions((list) => [created, ...list])
     setDeferred(null) // drop any pending off-peak send from the previous chat
+    // drop (and settle main on) any secret prompt from the previous chat — it belongs there
+    setPendingSecret((prev) => {
+      if (prev) api.submitSecret(prev.callId, null).catch(() => {})
+      return null
+    })
     setSession(created)
     setMessages([])
     setToolState({})
@@ -843,6 +877,31 @@ export function App(): JSX.Element {
     api.approveTool(callId, approved, remember).catch((e) => addToast(String(e), 'error'))
     setToolState((t) => ({ ...t, [callId]: { ...t[callId], pending: false } }))
   }, [])
+
+  // 🔐 Resolve the open secret prompt. The value (or null on cancel) goes ONLY to
+  // api.submitSecret → main → setSecret; it is never stored in messages or logged.
+  const resolveSecret = useCallback((callId: string, value: string | null): void => {
+    // Cancel (null) always closes immediately. A submitted value waits for the store outcome:
+    // if main REJECTS it (too short / no OS encryption — error is a static constraint message,
+    // never the value), keep the prompt open and surface why so the user can correct it instead
+    // of silently believing it was saved.
+    if (value === null) {
+      api.submitSecret(callId, null).catch(() => {})
+      setPendingSecret((p) => (p && p.callId === callId ? null : p))
+      return
+    }
+    api
+      .submitSecret(callId, value)
+      .then((r) => {
+        if (r?.set) {
+          setPendingSecret((p) => (p && p.callId === callId ? null : p))
+        } else {
+          addToast(r?.error || 'Secret konnte nicht gespeichert werden.', 'error')
+          // leave the prompt open so the user can fix the value (or cancel)
+        }
+      })
+      .catch((e) => addToast(String(e), 'error'))
+  }, [addToast])
 
   function stop(): void {
     if (session) {
@@ -1264,6 +1323,15 @@ export function App(): JSX.Element {
                 </span>
               </div>
             )}
+            {pendingSecret && (
+              <SecretPrompt
+                key={pendingSecret.callId}
+                name={pendingSecret.name}
+                reason={pendingSecret.reason}
+                onSave={(value) => resolveSecret(pendingSecret.callId, value)}
+                onCancel={() => resolveSecret(pendingSecret.callId, null)}
+              />
+            )}
             <CrystalBall
               sessionId={session?.id ?? null}
               busy={busy}
@@ -1393,4 +1461,95 @@ function Panel({
     default:
       return <div className="panel" />
   }
+}
+
+// 🔐 Secure inline secret prompt. The typed value lives ONLY in this component's
+// local state and is handed straight to onSave (→ api.submitSecret → main →
+// setSecret). It is never logged, added to messages, or echoed to the LLM.
+function SecretPrompt({
+  name,
+  reason,
+  onSave,
+  onCancel
+}: {
+  name: string
+  reason?: string
+  onSave: (value: string) => void
+  onCancel: () => void
+}): JSX.Element {
+  const [value, setValue] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [])
+  // mirror the main-side minimum so a too-short value can't even be submitted (a shorter secret
+  // can't be reliably masked out of logs/runs, so setSecret would reject it server-side anyway).
+  const tooShort = value.length < MIN_SECRET_LEN
+  const save = (): void => {
+    if (tooShort) return
+    onSave(value)
+    // NOTE: don't clear `value` here — a successful save unmounts this component (which discards
+    // its state), and on a server-side rejection the prompt stays open so the user keeps the value.
+  }
+  return (
+    <div
+      className="secret-prompt"
+      role="dialog"
+      aria-label={`Secret ${name} eingeben`}
+      style={{
+        borderTop: '1px solid var(--border)',
+        background: 'var(--bg-2)',
+        padding: '10px 24px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6
+      }}
+    >
+      <div style={{ fontSize: 13 }}>
+        🔐 <b>{name}</b> sicher eingeben
+      </div>
+      {reason && <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>{reason}</div>}
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <input
+          ref={inputRef}
+          type="password"
+          value={value}
+          autoComplete="off"
+          spellCheck={false}
+          placeholder={`Wert für ${name}…`}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              save()
+            } else if (e.key === 'Escape') {
+              e.preventDefault()
+              onCancel()
+            }
+          }}
+          style={{
+            flex: 1,
+            fontFamily: 'inherit',
+            fontSize: 13,
+            padding: '7px 10px',
+            borderRadius: 8,
+            border: '1px solid var(--border)',
+            background: 'var(--bg)',
+            color: 'var(--text)'
+          }}
+        />
+        <button className="btn sm" disabled={tooShort} onClick={save}>
+          Speichern
+        </button>
+        <button className="btn ghost sm" onClick={onCancel}>
+          Abbrechen
+        </button>
+      </div>
+      <div style={{ fontSize: 11, color: tooShort && value.length > 0 ? 'var(--yellow)' : 'var(--text-faint)' }}>
+        {tooShort && value.length > 0
+          ? `Mindestens ${MIN_SECRET_LEN} Zeichen.`
+          : `Mind. ${MIN_SECRET_LEN} Zeichen. Wird verschlüsselt gespeichert und nie an das Modell oder den Chatverlauf gesendet.`}
+      </div>
+    </div>
+  )
 }

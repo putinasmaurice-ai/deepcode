@@ -115,6 +115,11 @@ export interface DeepCodeApi {
   ): Promise<boolean>
   cancelTurn(sessionId: string): Promise<boolean>
   approveTool(callId: string, approved: boolean, remember?: boolean): Promise<boolean>
+  // securely submit a value the agent requested via a secret_request event. The value goes
+  // renderer→main→setSecret only — it is never re-emitted to the renderer/LLM. Resolves with the
+  // store OUTCOME ({ set, error? }) so the UI can warn on a rejected value (error is a static
+  // constraint message — min length / no OS encryption — never the value itself).
+  submitSecret(callId: string, value: string | null): Promise<{ set: boolean; error?: string }>
   compactSession(sessionId: string): Promise<Session>
   forecastTurn(sessionId: string): Promise<TurnForecast>
   secondOpinion(sessionId: string): Promise<boolean>

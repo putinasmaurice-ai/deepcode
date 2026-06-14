@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 
 import { randomUUID } from 'crypto'
 import { safeStorage } from 'electron'
 import { PATHS, ensureConfigDirs } from '../paths'
+import { MIN_SECRET_LEN } from '@shared/types'
 
 // Encrypted secret store for {{secret.NAME}} used in workflow tool/shell/http arguments.
 // Values are OS-encrypted via safeStorage. Unlike the API-key fallback in store.ts, this
@@ -56,10 +57,10 @@ function save(f: SecretsFile): void {
   }
 }
 
-// Minimum secret length. buildMaskList intentionally skips values shorter than this (masking
-// a 3-char value would corrupt unrelated output), so a shorter secret could never be redacted
-// from logs/events/persisted runs. Refuse to store one rather than silently fail to mask it.
-const MIN_SECRET_LEN = 8
+// Minimum secret length (shared with the renderer prompt via @shared/types). buildMaskList
+// intentionally skips values shorter than this (masking a 3-char value would corrupt unrelated
+// output), so a shorter secret could never be redacted from logs/events/persisted runs. Refuse
+// to store one rather than silently fail to mask it.
 
 export function isSecretNameValid(name: string): boolean {
   return NAME_RE.test(name)
@@ -105,11 +106,12 @@ export function loadSecretsResolved(): Record<string, string> {
 }
 
 // Build a longest-first mask list from secret values: the raw value plus its common encoded
-// forms (URI / base64). Short values (<8) are excluded so we don't corrupt unrelated output.
+// forms (URI / base64). Short values (< MIN_SECRET_LEN) are excluded so we don't corrupt
+// unrelated output.
 export function buildMaskList(secrets: Record<string, string>): string[] {
   const out: string[] = []
   for (const v of Object.values(secrets)) {
-    if (typeof v !== 'string' || v.length < 8) continue
+    if (typeof v !== 'string' || v.length < MIN_SECRET_LEN) continue
     out.push(v)
     try {
       out.push(encodeURIComponent(v))

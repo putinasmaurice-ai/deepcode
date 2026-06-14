@@ -34,6 +34,7 @@ import { runStructuredVerify } from './verify-report'
 import { focusFeedback } from '@shared/test-report'
 import { detectTestFramework, proveRedFirst, isTestFile } from './verify-synth'
 import { runSwarm, buildPlanPrompt, parseShards, formatSwarmReport, isGitRepo } from './swarm'
+import { setSecret, isSecretNameValid } from '../workflows/secrets'
 
 export type { ApprovalPolicy } from './policy'
 
@@ -64,6 +65,11 @@ export class AgentEngine {
   // command + cwd behind each pending run_command approval, so "always allow" can
   // persist it scoped to the directory it was approved in
   private pendingCommand = new Map<string, { command: string; cwd: string }>()
+  // open secure secret-entry prompts, keyed by callId. The settled VALUE goes straight to
+  // setSecret in main — it is never carried in an event/tool-arg/transcript (see submitSecret).
+  // settle() returns the OUTCOME ({ set, error? }) so the renderer's submitSecret IPC can learn
+  // whether the store succeeded (the error text is a static constraint message — never the value).
+  private pendingSecretRequests = new Map<string, (value: string | null) => { set: boolean; error?: string }>()
   private aborters = new Map<string, AbortController>()
   // cancels that arrived BEFORE a turn registered its aborter (e.g. a workflow cancelled
   // at the instant an agent node starts). acquireSession honours these so the race can't
@@ -136,6 +142,61 @@ export class AgentEngine {
     const settle = this.pendingApprovals.get(callId)
     if (settle) settle(approved) // settle() removes the abort listener + clears both maps
     else this.pendingCommand.delete(callId)
+  }
+
+  // --- secure secret entry ----------------------------------------------
+  // Ask the user to enter a secret directly (renderer prompt). Mirrors requestApproval's
+  // settle-once / abort→settle(null) structure. The submitted VALUE only ever travels
+  // renderer→IPC submitSecret→setSecret here — it is NEVER emitted, returned to the LLM,
+  // put in a tool arg, or logged. Resolves { set: true } only when a valid value was stored.
+  // On a rejected (not cancelled) value it resolves { set: false, error } — the error is the
+  // STATIC constraint message from setSecret (min length / no OS encryption), never the value —
+  // so the agent can re-prompt with the real reason instead of treating it as a cancel.
+  requestSecretInput(name: string, reason: string | undefined, signal: AbortSignal, emit: Emit): Promise<{ set: boolean; error?: string }> {
+    const callId = randomUUID()
+    // session-less prompt (like tool_pending / preview_error) — the renderer shows a secure
+    // input field. No value is ever attached to this (or any) event.
+    emit({ type: 'secret_request', callId, name, reason })
+    return new Promise<{ set: boolean; error?: string }>((resolve) => {
+      const onAbort = (): void => {
+        settle(null)
+      }
+      // single settle path: detach the abort listener, drop the entry, and only setSecret
+      // a non-null value for a valid name (else the prompt was cancelled / refused). Returns the
+      // outcome so submitSecret can relay it to the renderer (NOT to the LLM via this resolve).
+      const settle = (value: string | null): { set: boolean; error?: string } => {
+        signal.removeEventListener('abort', onAbort)
+        this.pendingSecretRequests.delete(callId)
+        let result: { set: boolean; error?: string }
+        if (value != null && isSecretNameValid(name)) {
+          try {
+            setSecret(name, value) // value goes ONLY to the encrypted store; never re-emitted
+            result = { set: true }
+          } catch (e) {
+            // setSecret can reject (too short / encryption unavailable). The message is a static
+            // constraint string with NO secret value, so it is safe to surface — but the VALUE
+            // itself is never returned. Report it wasn't stored (and why) so the await can't hang.
+            result = { set: false, error: (e as Error).message }
+          }
+        } else {
+          result = { set: false } // genuine cancel/abort — no error reason
+        }
+        resolve(result)
+        return result
+      }
+      if (signal.aborted) return void settle(null)
+      signal.addEventListener('abort', onAbort, { once: true })
+      this.pendingSecretRequests.set(callId, settle)
+    })
+  }
+
+  // Renderer's response to a secret_request. The value lands here and is forwarded by the
+  // stored settle() straight into setSecret — it must never leave main again. Returns the store
+  // OUTCOME ({ set, error? }) to the renderer so it can show a failure (error is a static
+  // constraint message, never the value); a stale/unknown callId (turn already ended) → set:false.
+  submitSecret(callId: string, value: string | null): { set: boolean; error?: string } {
+    const settle = this.pendingSecretRequests.get(callId)
+    return settle ? settle(value) : { set: false }
   }
 
   // recordIfPending: only the workflow agent path (fresh per-node uuid sessions, never
@@ -528,6 +589,12 @@ export class AgentEngine {
         // preview_probe turns a screenshot (data URI) into text via the same vision pipeline;
         // pass budget so its vision spend counts toward the per-turn cap (can't bypass it).
         describeImage: (dataUri) => this.describeImages([dataUri], signal, emit, budget),
+        // secure secret entry: a SECRET prompt needs a present user, so it's wired only when
+        // NOT unattended (cron / workflow agent node have nobody to type the value) and NOT in
+        // plan mode (read-only — must not write a secret to disk). The value never returns through
+        // this path — only { set } does.
+        requestSecret:
+          !unattended && policy !== 'plan' ? (name, reason) => this.requestSecretInput(name, reason, signal, emit) : undefined,
         spawnSubagent: async (agentName, prompt) => {
           // nest the subagent under the tool span that spawned it (the 'task' tool);
           // bubble its summed cost/tokens onto the span via onUsage.
