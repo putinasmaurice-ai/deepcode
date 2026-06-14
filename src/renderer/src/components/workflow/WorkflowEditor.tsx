@@ -18,6 +18,8 @@ import {
 import type { WorkflowDef, WorkflowNode, WorkflowNodeType, WorkflowNodeStatus, AgentEvent } from '../../../../shared/types'
 import { validateWorkflow, hasBlockingErrors, type WorkflowIssue } from '../../../../shared/workflows'
 import { RunHistory } from './RunHistory'
+import { NeonEdge } from './NeonEdge'
+import { RunFx } from './RunFx'
 
 const api = window.deepcode
 
@@ -243,8 +245,17 @@ const FALLBACK_DEF = { icon: '⬚', label: 'Unbekannt', fields: [] }
 function WfNodeView({ data, selected }: NodeProps): JSX.Element {
   const d = data as WfData
   const def = NODE_DEFS[d.node.type] ?? FALLBACK_DEF
+  // executor emits 'failed'; the locked CSS contract styles .st-error → add it so the
+  // red shake fires while keeping the original .st-failed for any existing selectors.
+  const statusCls = d.status ? ' st-' + d.status + (d.status === 'failed' ? ' st-error' : '') : ''
   return (
-    <div className={'wf-node' + (selected ? ' sel' : '') + (d.invalid ? ' invalid' : '') + (d.status ? ' st-' + d.status : '')}>
+    <div
+      className={'wf-node' + (selected ? ' sel' : '') + (d.invalid ? ' invalid' : '') + statusCls}
+      data-kind={d.node.type}
+    >
+      {/* satisfying particle burst the instant a node finishes — keyed on status so it
+          fires once per transition; RunFx self-cleans + honors prefers-reduced-motion */}
+      {d.status === 'done' && <RunFx kind="burst" trigger={'done'} />}
       {d.node.type !== 'trigger' && <Handle type="target" position={Position.Top} />}
       <div className="wf-node-head">
         <span className="wf-ic">{def.icon}</span>
@@ -316,6 +327,7 @@ export function WorkflowEditor({
   onSaved: () => void
 }): JSX.Element {
   const nodeTypes = useMemo(() => ({ wf: WfNodeView }), [])
+  const edgeTypes = useMemo(() => ({ neon: NeonEdge }), [])
   // normalize a possibly hand-edited/corrupt def so .map can't crash the canvas on mount
   const initNodes = Array.isArray(workflow.nodes) ? workflow.nodes : []
   const initEdges = Array.isArray(workflow.edges) ? workflow.edges : []
@@ -328,7 +340,7 @@ export function WorkflowEditor({
     }))
   )
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(
-    initEdges.map((e) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle, animated: true }))
+    initEdges.map((e) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle, type: 'neon', data: {} }))
   )
   const [selId, setSelId] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
@@ -340,6 +352,12 @@ export function WorkflowEditor({
   // terminal run result/error shown as a banner — so a run's outcome is actually visible
   const [runBanner, setRunBanner] = useState<{ kind: 'done' | 'error' | 'cancelled'; text?: string } | null>(null)
   const [issues, setIssues] = useState<WorkflowIssue[]>([])
+  // live run-HUD: how many nodes finished / the currently executing node's name, for the
+  // "Knoten X/Y · '<name>' läuft" overlay + progress fill. derived only during a run.
+  const [hud, setHud] = useState<{ done: number; total: number; current: string | null } | null>(null)
+  // a celebratory confetti burst near the output node when the whole run succeeds; the
+  // changing trigger (run id) makes RunFx fire exactly once per successful run.
+  const [celebrate, setCelebrate] = useState<string | null>(null)
   const [showRuns, setShowRuns] = useState(false)
   const [secretNames, setSecretNames] = useState<string[]>([])
   const [wfList, setWfList] = useState<{ id: string; name: string }[]>([])
@@ -353,9 +371,13 @@ export function WorkflowEditor({
   // against runIdRef.current. Re-subscribing on every runId change (the old approach)
   // risked dropping the first events of a run during the React re-render gap.
   const runIdRef = useRef<string | null>(null)
+  // live-sync guards: mirror state the (subscribe-once) event handler needs, so a chat-built
+  // edit can be reloaded without re-subscribing or pulling stale closure values.
+  const syncStateRef = useRef({ nodes, edges, saved: true, running: false })
+  syncStateRef.current = { nodes, edges, saved, running }
 
   const onConnect = useCallback((c: Connection) => {
-    setEdges((eds) => addEdge({ ...c, animated: true }, eds))
+    setEdges((eds) => addEdge({ ...c, type: 'neon', data: {} }, eds))
     setSaved(false)
   }, [setEdges])
 
@@ -369,35 +391,98 @@ export function WorkflowEditor({
       .catch(() => setWfList([]))
   }, [])
 
+  // re-fetch the persisted workflow and, if its graph differs from the canvas, reload it —
+  // so a chat agent that built/edited THIS workflow shows up live. Never clobbers a run in
+  // progress or unsaved manual edits. Stable identity (refs hold the live state it reads).
+  const syncFromDisk = useCallback(() => {
+    const s = syncStateRef.current
+    if (s.running || !s.saved) return // don't overwrite a live run or pending hand edits
+    api
+      .getWorkflow(workflow.id)
+      .then((def) => {
+        if (!def) return
+        const sig = (
+          ns: { id: string; type?: string; label?: string; config?: unknown }[],
+          es: { source: string; target: string; sourceHandle?: string | null }[]
+        ): string =>
+          JSON.stringify([
+            ns.map((n) => [n.id, n.type, n.label ?? '', JSON.stringify(n.config ?? {})]).sort(),
+            es.map((e) => [e.source, e.target, e.sourceHandle ?? '']).sort()
+          ])
+        const diskSig = sig(def.nodes ?? [], def.edges ?? [])
+        const liveSig = sig(
+          s.nodes.map((n) => ({ id: n.id, type: n.data.node.type, label: n.data.node.label, config: n.data.node.config })),
+          s.edges.map((e) => ({ source: e.source, target: e.target, sourceHandle: e.sourceHandle }))
+        )
+        if (diskSig === liveSig) return // nothing changed — leave the canvas untouched
+        const dn = Array.isArray(def.nodes) ? def.nodes : []
+        const de = Array.isArray(def.edges) ? def.edges : []
+        setNodes(dn.map((n, i) => ({ id: n.id, type: 'wf', position: { x: n.x ?? 250, y: n.y ?? 80 + i * 120 }, data: { node: n } })))
+        setEdges(de.map((e) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle, type: 'neon', data: {} })))
+        setSaved(true)
+      })
+      .catch(() => {})
+  }, [workflow.id, setNodes, setEdges])
+
   // live per-node status + output/error from the executor's workflow_* events (subscribe once)
   useEffect(() => {
     const off = api.onAgentEvent((e: AgentEvent) => {
       if (e.type === 'workflow_node' && e.runId === runIdRef.current) {
+        let curName: string | null = null
         setNodes((ns) =>
-          ns.map((n) =>
-            n.id === e.nodeId
-              ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    status: e.status,
-                    // carry the actual data flowing out / the failure reason onto the node
-                    ...(e.output !== undefined ? { output: e.output } : {}),
-                    ...(e.error !== undefined ? { error: e.error } : {})
-                  }
-                }
-              : n
-          )
+          ns.map((n) => {
+            if (n.id !== e.nodeId) return n
+            if (e.status === 'running') curName = n.data.node.label || NODE_DEFS[n.data.node.type]?.label || 'Knoten'
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                status: e.status,
+                // carry the actual data flowing out / the failure reason onto the node
+                ...(e.output !== undefined ? { output: e.output } : {}),
+                ...(e.error !== undefined ? { error: e.error } : {})
+              }
+            }
+          })
         )
+        // light up the active path: the node's INCOMING edges glow with its status, so the
+        // neon flow + traveling packet visibly travel into the node that's executing.
+        setEdges((es) => es.map((ed) => (ed.target === e.nodeId ? { ...ed, data: { ...ed.data, status: e.status } } : ed)))
+        // drive the run-HUD (done count + currently running node) — terminal statuses advance it
+        setHud((h) => {
+          const total = h?.total ?? syncStateRef.current.nodes.length
+          const advanced = e.status === 'done' || e.status === 'failed' || e.status === 'skipped'
+          return {
+            total,
+            done: Math.min(total, (h?.done ?? 0) + (advanced ? 1 : 0)),
+            current: e.status === 'running' ? curName : (h?.current ?? null)
+          }
+        })
       } else if (e.type === 'workflow_run' && e.runId === runIdRef.current && e.status !== 'start') {
         setRunning(false)
+        setHud(null)
         if (e.status === 'error') setRunBanner({ kind: 'error', text: e.message })
         else if (e.status === 'cancelled') setRunBanner({ kind: 'cancelled' })
-        else setRunBanner({ kind: 'done' })
+        else {
+          setRunBanner({ kind: 'done' })
+          setCelebrate(e.runId) // celebratory confetti near the output node
+        }
+      } else if (e.type === 'turn_done') {
+        // a chat agent may have created/edited THIS workflow mid-conversation — re-fetch and,
+        // if the persisted graph differs from the canvas, reload it so the change appears live.
+        syncFromDisk()
       }
     })
     return off
-  }, [setNodes])
+  }, [setNodes, setEdges, syncFromDisk])
+
+  // auto-retire the celebration layer once the confetti has played (RunFx self-cleans its
+  // particles; this clears the wrapper so it can't linger or re-trigger). cancel on unmount.
+  useEffect(() => {
+    if (!celebrate) return
+    const t = setTimeout(() => setCelebrate(null), 1600)
+    return () => clearTimeout(t)
+  }, [celebrate])
 
   // a clicked variable chip must never insert into a field from a PREVIOUS node — drop the
   // captured field whenever the selected node changes (re-set on the next field focus).
@@ -540,8 +625,12 @@ export function WorkflowEditor({
     const id = crypto.randomUUID()
     runIdRef.current = id
     setRunBanner(null)
+    setCelebrate(null)
     setIssues([])
     setNodes((ns) => ns.map((n) => ({ ...n, data: { ...n.data, status: undefined, output: undefined, error: undefined, invalid: false, invalidMsg: undefined } })))
+    // clear any leftover edge glow from a previous run so only the live path lights up
+    setEdges((es) => es.map((e) => ({ ...e, data: { ...e.data, status: undefined } })))
+    setHud({ done: 0, total: nodes.length, current: null })
     setRunning(true)
     try {
       await api.runWorkflow(workflow.id, id)
@@ -553,6 +642,7 @@ export function WorkflowEditor({
   async function cancel(): Promise<void> {
     if (runIdRef.current) await api.cancelWorkflow(runIdRef.current)
     setRunning(false)
+    setHud(null)
   }
 
   const selected = nodes.find((n) => n.id === selId)?.data.node
@@ -615,6 +705,7 @@ export function WorkflowEditor({
           onNodeClick={(_e, n) => { setSelId(n.id); setShowRuns(false) }}
           onPaneClick={() => setSelId(null)}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           colorMode={colorMode}
           fitView
           proOptions={{ hideAttribution: true }}
@@ -623,6 +714,33 @@ export function WorkflowEditor({
           <Controls />
           <MiniMap pannable />
         </ReactFlow>
+        {/* inviting empty-state: a workflow with just the trigger (≤1 node) gets a hero
+            instead of a blank canvas, nudging the user to describe it or drag a node */}
+        {nodes.length <= 1 && !showRuns && (
+          <div className="wf-empty-hero" role="note">
+            <div className="wf-empty-orb">✨</div>
+            <h3>Beschreibe deinen Workflow</h3>
+            <p>oder zieh dir Knoten aus der Palette oben zusammen — verbinde sie und drück ▶ Ausführen.</p>
+          </div>
+        )}
+        {/* live run-HUD: which node is running + how far we are through the graph */}
+        {hud && (
+          <div className="wf-runhud" role="status" aria-live="polite">
+            <div className="wf-runhud-text">
+              Knoten {Math.min(hud.done + (hud.current ? 1 : 0), hud.total)}/{hud.total}
+              {hud.current ? <> · „{hud.current}" läuft…</> : ' · startet…'}
+            </div>
+            <div className="wf-runhud-track">
+              <div className="wf-runhud-fill" style={{ width: `${hud.total ? (hud.done / hud.total) * 100 : 0}%` }} />
+            </div>
+          </div>
+        )}
+        {/* celebratory confetti near the output/last node when the whole run succeeds */}
+        {celebrate && (
+          <div className="wf-celebrate-layer" aria-hidden>
+            <RunFx kind="confetti" trigger={celebrate} />
+          </div>
+        )}
         {runBanner && (
           <div className={'wf-runbanner ' + runBanner.kind} role="status">
             <span>

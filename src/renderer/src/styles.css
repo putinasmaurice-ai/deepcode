@@ -2645,3 +2645,728 @@ kbd {
 .crystal .btn.sm {
   padding: 2px 8px;
 }
+
+/* ============================================================
+   ✨ WORLD-CLASS WORKFLOW CANVAS — neon edges, living nodes,
+   particle bursts, run HUD, dashboard cards & hero empty-state.
+   Deep-ocean theme (--accent #4da3ff, --accent-3 #39e5f0).
+   Animates ONLY transform/opacity/filter — GPU friendly.
+   ============================================================ */
+
+/* ---- NEON EDGES -------------------------------------------- */
+/* base = dim neon line; glow = bright animated energy flow. */
+.wf-edge-base {
+  fill: none;
+  stroke: var(--border-2);
+  stroke-width: 2;
+  stroke-linecap: round;
+  opacity: 0.7;
+}
+.wf-edge-glow {
+  fill: none;
+  stroke: var(--accent-3);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-dasharray: 7 12;
+  opacity: 0.55;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent-3) 70%, transparent));
+  /* NO base flow animation: an idle/large graph must do zero per-frame paint work.
+     The dash flow only runs on the active path during a run (.is-running below). */
+}
+@keyframes wf-flow {
+  to {
+    stroke-dashoffset: -38;
+  }
+}
+/* a glowing data packet that rides the edge into the live node */
+.wf-edge-packet {
+  r: 3.4;
+  fill: var(--accent-3);
+  opacity: 0;
+  filter: drop-shadow(0 0 5px var(--accent-3)) drop-shadow(0 0 9px color-mix(in srgb, var(--accent-3) 60%, transparent));
+}
+
+/* state modifiers live on the edge <g> group (class: .wf-edge-group is-*) */
+/* the dash flow is GATED to the running edge only — bounded cost during a run,
+   zero per-frame paint on idle/finished edges (see .wf-edge-glow base rule). */
+.wf-edge-group.is-running .wf-edge-glow {
+  stroke: var(--accent);
+  stroke-width: 3;
+  opacity: 1;
+  animation: wf-flow 0.6s linear infinite;
+  filter: drop-shadow(0 0 5px var(--accent)) drop-shadow(0 0 12px color-mix(in srgb, var(--accent) 55%, transparent));
+}
+.wf-edge-group.is-running .wf-edge-base {
+  stroke: color-mix(in srgb, var(--accent) 45%, var(--border-2));
+  opacity: 1;
+}
+.wf-edge-group.is-running .wf-edge-packet {
+  opacity: 1;
+}
+.wf-edge-group.is-done .wf-edge-glow {
+  stroke: var(--green);
+  opacity: 0.85;
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--green) 70%, transparent));
+}
+.wf-edge-group.is-done .wf-edge-base {
+  stroke: color-mix(in srgb, var(--green) 38%, var(--border-2));
+  opacity: 0.9;
+}
+.wf-edge-group.is-error .wf-edge-glow {
+  stroke: var(--red);
+  opacity: 0.9;
+  animation: wf-flow 0.45s linear infinite;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--red) 75%, transparent));
+}
+.wf-edge-group.is-error .wf-edge-base {
+  stroke: color-mix(in srgb, var(--red) 42%, var(--border-2));
+}
+
+/* ---- LIVING NODE CARD -------------------------------------- */
+/* richer neon card built on the existing .wf-node base rule.    */
+.wf-node {
+  position: relative;
+  overflow: visible;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-elev) 70%, transparent), var(--bg-3));
+  backdrop-filter: blur(2px);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.25s ease,
+    transform 0.15s ease;
+}
+.wf-node:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border-2));
+  box-shadow:
+    var(--shadow-card),
+    0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent),
+    0 0 18px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+/* kind accent: a colored left bar + faint tint, distinct per type */
+.wf-node::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--wf-kind, var(--accent));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--wf-kind, var(--accent)) 60%, transparent);
+  opacity: 0.9;
+}
+.wf-node .wf-ic {
+  color: var(--wf-kind, var(--accent));
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--wf-kind, var(--accent)) 45%, transparent));
+}
+/* per-kind accent color (tasteful, distinct hues) */
+.wf-node[data-kind='trigger'] {
+  --wf-kind: var(--accent-3);
+}
+.wf-node[data-kind='agent'] {
+  --wf-kind: var(--accent-2);
+}
+.wf-node[data-kind='http'] {
+  --wf-kind: #4da3ff;
+}
+.wf-node[data-kind='shell'] {
+  --wf-kind: #8be9a0;
+}
+.wf-node[data-kind='email'] {
+  --wf-kind: #f0a64d;
+}
+.wf-node[data-kind='channel'] {
+  --wf-kind: #4dd6ff;
+}
+.wf-node[data-kind='notify'] {
+  --wf-kind: #ffb454;
+}
+.wf-node[data-kind='condition'] {
+  --wf-kind: var(--yellow);
+}
+.wf-node[data-kind='switch'] {
+  --wf-kind: #e3b341;
+}
+.wf-node[data-kind='transform'] {
+  --wf-kind: #c08bff;
+}
+.wf-node[data-kind='parse'] {
+  --wf-kind: #b08bff;
+}
+.wf-node[data-kind='code'] {
+  --wf-kind: #5cffd6;
+}
+.wf-node[data-kind='loop'] {
+  --wf-kind: #ff8bc8;
+}
+.wf-node[data-kind='parallel'] {
+  --wf-kind: #ff7aa8;
+}
+.wf-node[data-kind='delay'] {
+  --wf-kind: #9fadc4;
+}
+.wf-node[data-kind='store'] {
+  --wf-kind: #6cc8ff;
+}
+.wf-node[data-kind='subworkflow'] {
+  --wf-kind: #a78bff;
+}
+.wf-node[data-kind='output'] {
+  --wf-kind: var(--green);
+}
+
+/* status: running = pulsing neon ring */
+.wf-node.st-running {
+  border-color: var(--accent);
+  animation: wf-pulse 1.3s ease-in-out infinite;
+}
+@keyframes wf-pulse {
+  0%,
+  100% {
+    box-shadow:
+      var(--shadow-card),
+      0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent),
+      0 0 10px color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  50% {
+    box-shadow:
+      var(--shadow-card),
+      0 0 0 2px var(--accent),
+      0 0 26px color-mix(in srgb, var(--accent) 60%, transparent);
+  }
+}
+/* status: done = green flash + a quick pop */
+.wf-node.st-done {
+  border-color: var(--green);
+  box-shadow:
+    var(--shadow-card),
+    0 0 0 1px color-mix(in srgb, var(--green) 55%, transparent),
+    0 0 16px color-mix(in srgb, var(--green) 28%, transparent);
+  animation: wf-pop 0.5s ease-out;
+}
+@keyframes wf-pop {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.06);
+  }
+  70% {
+    transform: scale(0.985);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+/* status: error = red shake (.st-error contract + existing .st-failed) */
+.wf-node.st-error,
+.wf-node.st-failed {
+  border-color: var(--red);
+  box-shadow:
+    var(--shadow-card),
+    0 0 0 1px color-mix(in srgb, var(--red) 55%, transparent),
+    0 0 16px color-mix(in srgb, var(--red) 30%, transparent);
+  animation: wf-shake 0.4s ease-in-out;
+}
+@keyframes wf-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-4px);
+  }
+  40% {
+    transform: translateX(4px);
+  }
+  60% {
+    transform: translateX(-3px);
+  }
+  80% {
+    transform: translateX(2px);
+  }
+}
+
+/* ---- PARTICLE BURST --------------------------------------- */
+/* container is positioned over a node; particles fly out + fade. */
+.wf-burst {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 7;
+}
+.wf-particle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: var(--wf-spark, var(--accent-3));
+  box-shadow: 0 0 6px var(--wf-spark, var(--accent-3));
+  opacity: 0;
+  transform: translate(0, 0) scale(1);
+  animation: wf-burst-fly 0.62s ease-out forwards;
+}
+@keyframes wf-burst-fly {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--wf-dx, 0), var(--wf-dy, 0)) scale(0.3);
+  }
+}
+/* celebratory confetti for a fully successful run (output node) */
+.wf-confetti {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 7px;
+  height: 10px;
+  margin: -5px 0 0 -3px;
+  border-radius: 2px;
+  background: var(--wf-spark, var(--accent));
+  opacity: 0;
+  transform: translate(0, 0) rotate(0deg);
+  animation: wf-confetti-fall 1.05s cubic-bezier(0.2, 0.6, 0.3, 1) forwards;
+}
+@keyframes wf-confetti-fall {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--wf-dx, 0), var(--wf-dy, 120px)) rotate(var(--wf-rot, 360deg));
+  }
+}
+
+/* full-canvas overlay so the success confetti is positioned OVER the graph (not in flow);
+   its child .wf-burst centers via left/top 50% — nudged up so the pieces fall down the canvas */
+.wf-celebrate-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 8;
+}
+.wf-celebrate-layer .wf-burst {
+  top: 32%;
+}
+
+/* ---- RUN HUD (floating progress bar, top-center) ----------- */
+.wf-runhud-text {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-runhud {
+  position: absolute;
+  left: 50%;
+  top: 14px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 280px;
+  max-width: 72%;
+  padding: 10px 14px 11px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--bg-2) 86%, transparent);
+  backdrop-filter: blur(10px);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  box-shadow:
+    var(--shadow-pop),
+    0 0 22px color-mix(in srgb, var(--accent) 18%, transparent);
+  z-index: 8;
+  font-size: 12.5px;
+  color: var(--text);
+  animation: wf-hud-in 0.3s ease-out;
+}
+@keyframes wf-hud-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+.wf-runhud-track {
+  position: relative;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--bg-elev);
+  overflow: hidden;
+}
+.wf-runhud-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0%;
+  border-radius: 3px;
+  background: var(--grad);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 55%, transparent);
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.wf-runhud-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, #fff 55%, transparent),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: wf-hud-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes wf-hud-shimmer {
+  to {
+    transform: translateX(220%);
+  }
+}
+
+/* ---- DASHBOARD: hero generator + attractive cards ---------- */
+.wf-hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 30px 28px;
+  margin-bottom: 22px;
+  border-radius: 16px;
+  overflow: hidden;
+  background:
+    radial-gradient(620px 240px at 12% -30%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%),
+    radial-gradient(560px 260px at 100% 130%, color-mix(in srgb, var(--accent-2) 20%, transparent), transparent 70%),
+    var(--bg-2);
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border));
+  box-shadow: var(--shadow-card);
+}
+.wf-hero h2 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  background: var(--grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.wf-hero p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+  max-width: 60ch;
+}
+.wf-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.wf-hero-input {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 6px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-3) 70%, transparent);
+  border: 1px solid var(--border-2);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.wf-hero-input:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.wf-hero-input input,
+.wf-hero-input textarea {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-size: 14px;
+  padding: 8px 10px;
+  resize: none;
+}
+.wf-hero-input input::placeholder,
+.wf-hero-input textarea::placeholder {
+  color: var(--text-faint);
+}
+
+.wf-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(248px, 1fr));
+  gap: 14px;
+}
+.wf-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 13px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-elev) 55%, transparent), var(--bg-2));
+  border: 1px solid var(--border-2);
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
+  overflow: hidden;
+  transition:
+    transform 0.18s ease,
+    border-color 0.2s ease,
+    box-shadow 0.25s ease;
+}
+.wf-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    300px 120px at 50% -20%,
+    color-mix(in srgb, var(--accent) 16%, transparent),
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+.wf-card:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border-2));
+  box-shadow:
+    var(--shadow-pop),
+    0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent),
+    0 0 26px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+.wf-card:hover::after {
+  opacity: 1;
+}
+.wf-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  font-size: 20px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-3));
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border-2));
+  color: var(--accent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.wf-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+}
+.wf-card-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+/* dashboard card internals (clickable body + action row) */
+.wf-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wf-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.wf-card-head strong {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-card-head .wf-card-badge {
+  flex: none;
+}
+.wf-card-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.wf-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: auto;
+}
+.wf-card-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-3);
+  background: color-mix(in srgb, var(--accent-3) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-3) 35%, transparent);
+}
+.wf-card-badge.ok {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+  border-color: color-mix(in srgb, var(--green) 35%, transparent);
+}
+.wf-card-badge.err {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+  border-color: color-mix(in srgb, var(--red) 35%, transparent);
+}
+.wf-card-badge.muted {
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--text-dim) 12%, transparent);
+  border-color: var(--border-2);
+}
+
+/* template starter card (smaller, dashed-invite feel) */
+.wf-tpl-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-3) 60%, transparent);
+  border: 1px dashed var(--border-2);
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    transform 0.15s ease;
+}
+.wf-tpl-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+  border-style: solid;
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-3));
+}
+.wf-tpl-card .wf-tpl-ico {
+  font-size: 18px;
+}
+.wf-tpl-card .wf-tpl-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.wf-tpl-card .wf-tpl-desc {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  line-height: 1.45;
+}
+
+/* ---- EDITOR EMPTY-STATE HERO ------------------------------- */
+.wf-empty-hero {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: center;
+  padding: 24px;
+  pointer-events: none;
+  z-index: 2;
+}
+.wf-empty-hero > * {
+  pointer-events: auto;
+}
+.wf-empty-hero .wf-empty-orb {
+  font-size: 46px;
+  filter: drop-shadow(0 0 18px color-mix(in srgb, var(--accent) 55%, transparent));
+  animation: wf-orb-float 3.4s ease-in-out infinite;
+}
+@keyframes wf-orb-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+.wf-empty-hero h3 {
+  margin: 0;
+  font-size: 19px;
+  background: var(--grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.wf-empty-hero p {
+  margin: 0;
+  max-width: 44ch;
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.55;
+}
+.wf-empty-hero .wf-hero-input {
+  width: min(520px, 80%);
+}
+
+/* ---- REDUCED MOTION: keep it elegant, drop the heavy motion - */
+@media (prefers-reduced-motion: reduce) {
+  .wf-edge-glow,
+  .wf-edge-group.is-running .wf-edge-glow,
+  .wf-edge-group.is-error .wf-edge-glow,
+  .wf-runhud-fill::after,
+  .wf-empty-hero .wf-empty-orb {
+    animation: none !important;
+  }
+  .wf-edge-glow {
+    stroke-dasharray: none;
+    opacity: 0.7;
+  }
+  .wf-node.st-running {
+    animation: none !important;
+    box-shadow:
+      var(--shadow-card),
+      0 0 0 2px var(--accent),
+      0 0 16px color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+  .wf-node.st-done,
+  .wf-node.st-error,
+  .wf-node.st-failed {
+    animation: none !important;
+  }
+  .wf-particle,
+  .wf-confetti {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+  .wf-runhud {
+    animation: none !important;
+  }
+  .wf-runhud-fill {
+    transition: none;
+  }
+}
