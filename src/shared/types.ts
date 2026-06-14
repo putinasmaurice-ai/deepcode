@@ -344,6 +344,9 @@ export type AgentEvent =
   // a runtime error from the live preview webview (console error / failed load) — drives a
   // one-click "Fix this" affordance in the preview pane. Session-less, like fs_change.
   | { type: 'preview_error'; message: string; url?: string }
+  // swarm mode: N parallel agents in isolated git worktrees — run-level + per-worker progress
+  | { type: 'swarm_run'; sessionId?: string; runId: string; status: 'start' | 'done' | 'error'; total?: number; message?: string }
+  | { type: 'swarm_worker'; sessionId?: string; runId: string; branch: string; status: 'running' | 'done' | 'failed'; message?: string }
   | { type: 'turn_done'; sessionId: string }
   | { type: 'status'; sessionId?: string; message: string }
   | { type: 'error'; message: string }

@@ -6,6 +6,12 @@ import { auditLog } from '../../audit'
 // path instead of blindly shelling out via run_command. Args are passed as argv
 // (no shell), and file paths go after `--` to prevent option injection.
 
+// thin git runner reused by the swarm orchestrator (worktree add/remove, diff --stat, merge).
+// argv-spawn, no shell — same safe path the git tool uses.
+export function runGit(args: string[], cwd: string, signal: AbortSignal): Promise<{ code: number | null; out: string }> {
+  return runProc('git', args, cwd, signal)
+}
+
 function runProc(
   cmd: string,
   args: string[],
@@ -94,7 +100,7 @@ export const gitStatusTool: Tool = {
   }
 }
 
-type GitAction = 'diff' | 'stage' | 'unstage' | 'commit' | 'branch' | 'checkout' | 'push' | 'pr'
+type GitAction = 'diff' | 'stage' | 'unstage' | 'commit' | 'branch' | 'checkout' | 'push' | 'pr' | 'worktree' | 'merge'
 
 // Mutating SCM actions — gated like shell commands (permission 'bash').
 export const gitTool: Tool = {
@@ -109,10 +115,11 @@ export const gitTool: Tool = {
   parameters: {
     type: 'object',
     properties: {
-      action: { type: 'string', enum: ['diff', 'stage', 'unstage', 'commit', 'branch', 'checkout', 'push', 'pr'] },
+      action: { type: 'string', enum: ['diff', 'stage', 'unstage', 'commit', 'branch', 'checkout', 'push', 'pr', 'worktree', 'merge'] },
       paths: { type: 'array', items: { type: 'string' }, description: 'Files for stage/unstage/diff (omit = all).' },
       message: { type: 'string', description: 'Commit message (for commit).' },
-      name: { type: 'string', description: 'Branch name (for branch/checkout).' },
+      name: { type: 'string', description: 'Branch name (branch/checkout/merge), or worktree dir (worktree add/remove).' },
+      mode: { type: 'string', description: 'For worktree: add | remove | prune.' },
       title: { type: 'string', description: 'PR title (for pr).' },
       body: { type: 'string', description: 'PR body (for pr).' }
     },
@@ -159,6 +166,19 @@ export const gitTool: Tool = {
         if (!args.title) return fail('pr needs a "title".')
         const a = ['pr', 'create', '--title', String(args.title), '--body', String(args.body ?? '')]
         return run('gh', a)
+      }
+      case 'merge':
+        if (!args.name) return fail('merge needs a "name" (branch to merge).')
+        if (String(args.name).startsWith('-')) return fail('Branch name must not start with "-".')
+        return run('git', ['merge', '--no-edit', String(args.name)])
+      case 'worktree': {
+        const mode = String(args.mode || '')
+        if (mode === 'prune') return run('git', ['worktree', 'prune'])
+        const dir = String(args.name || '')
+        if (!dir || dir.startsWith('-')) return fail('worktree add/remove needs a "name" (dir) that does not start with "-".')
+        if (mode === 'add') return run('git', ['worktree', 'add', '--detach', dir])
+        if (mode === 'remove') return run('git', ['worktree', 'remove', '--force', dir])
+        return fail('worktree needs mode: add | remove | prune.')
       }
       default:
         return fail(`Unknown git action: ${action}`)

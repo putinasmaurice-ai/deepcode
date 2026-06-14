@@ -4,7 +4,7 @@ import { EngineDeps, Emit } from './deps'
 import { buildSystemPrompt } from './prompt'
 import { toApiMessages, toolResultMessage } from './api-messages'
 import { costOf } from './pricing'
-import { recordUsage } from '../ledger'
+import { recordUsage, overDailyCap } from '../ledger'
 import { buildTools, collectSkills } from './toolset'
 import { toApiTools } from './tools'
 import { ToolContext } from './tools/types'
@@ -62,8 +62,20 @@ export async function runSubagent(
   ]
 
   let finalText = ''
+  let spentUsd = 0 // per-worker spend — bounds a subagent to maxCostPerTurn like the main loop
+  const perCap = deps.settings.maxCostPerTurn
   for (let step = 0; step < MAX_STEPS; step++) {
     if (signal.aborted) break
+    // cost guards (matter most for swarm: N workers run in parallel). Stop this worker once it
+    // hits the per-turn cap, and stop ALL work once the daily cap is reached.
+    if (perCap > 0 && spentUsd >= perCap) {
+      emit({ type: 'status', message: `[${agentName}] Budget-Limit ($${perCap.toFixed(2)}) erreicht — gestoppt.` })
+      break
+    }
+    if (overDailyCap(deps.settings.maxCostPerDay)) {
+      emit({ type: 'status', message: `[${agentName}] Tagesbudget erreicht — gestoppt.` })
+      break
+    }
     const result = await deps.client.streamChat(
       toApiMessages(system, messages),
       apiTools,
@@ -86,6 +98,7 @@ export async function runSubagent(
     if (result.usage) {
       assistantMsg.usage = costOf(deps.settings.provider, result.usage, agent?.model)
       recordUsage(assistantMsg.usage)
+      spentUsd += assistantMsg.usage.cost
       onUsage?.(assistantMsg.usage)
     }
     messages.push(assistantMsg)

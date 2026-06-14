@@ -58,7 +58,14 @@ never left reverted; on a persistent restore failure it stops loudly and keeps t
 Modes: **Interaktiv** (asks before changes), **Plan** (read-only, proposes a plan), **Auto** (approves everything).
 File changes are checkpointed — `/rewind` undoes the last turn. Dangerous commands always require approval.
 
-Built-in slash commands: `/help /init /goal /cost /model /compact /rewind /jobs /learn /remember /wf /skill-test /blueprint` + file-based custom commands.
+**🐝 Swarm mode** — `/swarm <task>` plans the task into independent sub-tasks and runs them **in
+parallel, each in its own isolated git worktree + branch**, so their edits can't collide — then
+reports the branches for you to review and merge. A first-class orchestrator (not the `task` tool):
+workers are unattended-gated, the wall-clock + daily/per-worker cost caps bound the run, and every
+worktree is torn down even on Stop/timeout (a worker whose commit fails is preserved, not discarded).
+Great for "migrate all N modules" — parallel instead of a serial grind.
+
+Built-in slash commands: `/help /init /goal /cost /model /compact /rewind /jobs /learn /remember /wf /swarm /skill-test /blueprint` + file-based custom commands.
 
 **📋 Project blueprint** — a `PROJECT.md` in the project root (set with `/blueprint <plan>`, or
 `/blueprint generate` to have the agent write one) is a plan-first source of truth that is injected

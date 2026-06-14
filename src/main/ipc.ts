@@ -306,6 +306,20 @@ export function registerIpc(win: BrowserWindow): void {
             // don't delete the newer run's aborter (keeps Stop/Escape working for it).
             if (chatWfAborters.get(session.id) === ac) chatWfAborters.delete(session.id)
           }
+        },
+        // /swarm — parallel agents in isolated worktrees; cancellable via Stop/Escape (chatWfAborters)
+        runSwarmFromChat: async (task) => {
+          const ac = new AbortController()
+          chatWfAborters.set(session.id, ac)
+          const stopDeadline = armDeadline(ac)
+          beginAgentOp() // suppress fs_change toasts for the workers' writes
+          try {
+            return await engine.runSwarm(session, task, emit, ac.signal)
+          } finally {
+            endAgentOp()
+            stopDeadline()
+            if (chatWfAborters.get(session.id) === ac) chatWfAborters.delete(session.id)
+          }
         }
       })
       if (builtin === 'handled') {

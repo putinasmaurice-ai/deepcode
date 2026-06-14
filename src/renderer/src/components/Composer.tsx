@@ -22,6 +22,7 @@ const BUILTIN: SlashCommandDef[] = [
   b('learn', 'Aus diesem Chat einen wiederverwendbaren Skill destillieren'),
   b('remember', 'Bleibende Fakten aus diesem Chat ins Memory aufnehmen'),
   b('wf', 'Workflow auflisten/starten — /wf <Name> [Eingabe]'),
+  b('swarm', 'Aufgabe parallel in isolierten git-Worktrees bearbeiten — /swarm <Aufgabe>'),
   b('skill-test', 'Einen Skill gegen seine tests.json prüfen — /skill-test <name>'),
   b('blueprint', 'PROJECT.md-Plan setzen/erzeugen (fließt in Subagents & Workflows)')
 ]

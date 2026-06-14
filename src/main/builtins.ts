@@ -36,6 +36,9 @@ export interface BuiltinCtx {
   // Run a saved workflow unattended and return its (masked) final output. Provided by the IPC
   // layer, which holds the workflow-run machinery (makeWfDeps); absent in contexts that can't run.
   runWorkflowFromChat?: (def: WorkflowDef, input: string) => Promise<ChatWorkflowResult>
+  // Swarm mode: plan a task into independent shards and run them in parallel isolated git
+  // worktrees; returns a chat-ready report. Provided by the IPC layer.
+  runSwarmFromChat?: (task: string) => Promise<string>
 }
 
 type BuiltinHandler = (ctx: BuiltinCtx) => Promise<string | void> | string | void
@@ -71,6 +74,7 @@ builtins.set('help', ({ emit, session }) => {
   lines.push('- `/learn [Fokus]` — aus diesem Chat einen wiederverwendbaren Skill destillieren')
   lines.push('- `/remember` — bleibende Fakten aus diesem Chat ins Memory aufnehmen')
   lines.push('- `/wf [Name] [Eingabe]` — gespeicherten Workflow auflisten/aus dem Chat starten')
+  lines.push('- `/swarm <Aufgabe>` — Aufgabe parallel von mehreren Agenten in isolierten git-Worktrees bearbeiten (je ein Branch)')
   lines.push('- `/skill-test <name>` — einen Skill gegen seine tests.json prüfen (offline mit `mock`)')
   lines.push('- `/blueprint [Plan|generate]` — PROJECT.md-Plan setzen/erzeugen (wird in Subagents & Workflows injiziert)')
   if (cmds.length) {
@@ -337,6 +341,27 @@ builtins.set('wf', async ({ args, emit, runWorkflowFromChat }) => {
     }
   } catch (e) {
     emitInfo(emit, `❌ Workflow „${def.name}" konnte nicht ausgeführt werden: ${(e as Error).message}`)
+  }
+})
+
+// /swarm <task> — parallel agents in isolated git worktrees, one branch each.
+builtins.set('swarm', async ({ args, emit, runSwarmFromChat }) => {
+  const task = args.trim()
+  if (!task) {
+    emitInfo(
+      emit,
+      '🐝 **Schwarm-Modus** — `/swarm <Aufgabe>` zerlegt die Aufgabe in unabhängige Teilaufgaben und bearbeitet sie PARALLEL, jede in einem isolierten git-Worktree als eigener Branch (kein Kollidieren). Danach kannst du die Branches prüfen/mergen.\n\nBeispiel: `/swarm migriere alle Module von moment.js auf date-fns`. Braucht ein git-Repository.'
+    )
+    return
+  }
+  if (!runSwarmFromChat) {
+    emitInfo(emit, 'Schwarm-Modus steht in diesem Kontext nicht zur Verfügung.')
+    return
+  }
+  try {
+    emitInfo(emit, await runSwarmFromChat(task))
+  } catch (e) {
+    emitInfo(emit, `🐝 Schwarm-Fehler: ${(e as Error).message}`)
   }
 })
 

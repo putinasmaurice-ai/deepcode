@@ -2,7 +2,7 @@ import { app, shell, dialog, BrowserWindow, Menu, clipboard } from 'electron'
 import { join } from 'path'
 import { fileURLToPath } from 'url'
 import { dirname } from 'path'
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, rmSync } from 'fs'
 import { ensureConfigDirs, PATHS } from './paths'
 import { seedStarterContent } from './seed'
 import { registerIpc, bootstrapMcp } from './ipc'
@@ -170,6 +170,14 @@ app
     // required for HTML5 Notification toasts on Windows
     app.setAppUserModelId('com.maurice.deepcode')
     ensureConfigDirs()
+    // clear orphan swarm worktree checkouts left by a hard crash/power-loss mid-run (normal
+    // teardown removes them; this only catches the crash case). Safe: no swarm runs at startup.
+    // Stale .git/worktrees registrations in the affected repo are reaped by the next swarm's prune.
+    try {
+      rmSync(PATHS.swarm, { recursive: true, force: true })
+    } catch {
+      /* best effort */
+    }
     // headless smoke-test mode (DEEPCODE_E2E_PROMPT) — runs one turn and quits
     if (await maybeRunE2E()) return
     seedStarterContent()

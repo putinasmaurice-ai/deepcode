@@ -33,11 +33,14 @@ import { TraceRecorder } from './trace'
 import { runStructuredVerify } from './verify-report'
 import { focusFeedback } from '@shared/test-report'
 import { detectTestFramework, proveRedFirst, isTestFile } from './verify-synth'
+import { runSwarm, buildPlanPrompt, parseShards, formatSwarmReport, isGitRepo } from './swarm'
 
 export type { ApprovalPolicy } from './policy'
 
 const MAX_STEPS = 60
 const MAX_QUALITY_ROUNDS = 4 // initial pass + self-review + 2 verify fixes
+const SWARM_MAX_WORKERS = 6 // parallel swarm workers (runPool caps in-flight at 8 regardless)
+const SWARM_MAX_MS = 30 * 60_000 // absolute wall-clock ceiling for a whole swarm run
 
 // Vision pre-extraction prompt: turn an image into precise text the (blind) coding model
 // can act on. Emphasises verbatim text/code/errors over interpretation.
@@ -587,6 +590,56 @@ export class AgentEngine {
       this.aborters.delete(session.id)
       this.liveSessions.delete(session.id)
       saveSession(session)
+    }
+  }
+
+  // Swarm mode: plan the task into independent shards, then run N subagents IN PARALLEL, each in
+  // its own isolated git worktree+branch (edits can't collide), and report the branches. A
+  // first-class path — NOT the unattended-blocked `task` tool. Returns a chat-ready report.
+  async runSwarm(session: Session, task: string, rawEmit: Emit, signal: AbortSignal): Promise<string> {
+    const emit = this.scoped(session.id, rawEmit)
+    if (overDailyCap(this.settings.maxCostPerDay)) return '🐝 Tagesbudget erreicht — Schwarm übersprungen.'
+    if (!(await isGitRepo(session.cwd, signal))) return '🐝 Schwarm-Modus braucht ein git-Repository (führe `git init` aus oder öffne ein Repo).'
+    emit({ type: 'status', message: '🐝 Plane parallele Teilaufgaben…' })
+    let shards
+    try {
+      const res = await this.client.streamChat(
+        [{ role: 'user', content: buildPlanPrompt(task, SWARM_MAX_WORKERS) }],
+        [],
+        {},
+        signal,
+        this.settings.provider.model
+      )
+      if (res.usage) recordUsage(costOf(this.settings.provider, res.usage, this.settings.provider.model))
+      shards = parseShards(res.content, SWARM_MAX_WORKERS)
+    } catch (e) {
+      if (signal.aborted) return '🐝 Abgebrochen.'
+      return `🐝 Planung fehlgeschlagen: ${(e as Error).message}`
+    }
+    if (!shards.length) return '🐝 Konnte die Aufgabe nicht in parallele Teilaufgaben zerlegen — bitte konkreter formulieren.'
+    emit({ type: 'status', message: `🐝 ${shards.length} Worker starten (parallel, isolierte git-Worktrees)…` })
+    // swarm-local abort: fires on the parent signal (Stop/Escape) OR the 30-min ceiling — so the
+    // ceiling ACTUALLY stops in-flight workers (runPool's deadline alone wouldn't abort them).
+    const swarmAc = new AbortController()
+    const onParentAbort = (): void => swarmAc.abort()
+    signal.addEventListener('abort', onParentAbort, { once: true })
+    if (signal.aborted) swarmAc.abort()
+    const ceiling = setTimeout(() => swarmAc.abort(), SWARM_MAX_MS)
+    try {
+      const { workers } = await runSwarm(shards, session.cwd, session.id, {
+        runWorker: (prompt, cwd, onUsage) =>
+          runSubagent(this.deps(), (p) => this.autoApproved(p), 'general-purpose', prompt, cwd, emit, swarmAc.signal, (u) =>
+            onUsage({ cost: u.cost, totalTokens: u.totalTokens })
+          ),
+        emit,
+        signal: swarmAc.signal,
+        deadline: Date.now() + SWARM_MAX_MS,
+        concurrency: SWARM_MAX_WORKERS
+      })
+      return formatSwarmReport(workers)
+    } finally {
+      clearTimeout(ceiling)
+      signal.removeEventListener('abort', onParentAbort)
     }
   }
 

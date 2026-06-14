@@ -22,7 +22,8 @@ export const PATHS = {
   workflows: join(CONFIG_DIR, 'workflows'),
   workflowRuns: join(CONFIG_DIR, 'workflows', 'runs'),
   secrets: join(CONFIG_DIR, 'workflows', 'secrets.json'),
-  traces: join(CONFIG_DIR, 'traces')
+  traces: join(CONFIG_DIR, 'traces'),
+  swarm: join(CONFIG_DIR, 'swarm') // isolated git worktrees for parallel swarm workers
 }
 
 // Per-project config dir (.deepcode inside the opened workspace)
