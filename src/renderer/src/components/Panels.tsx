@@ -919,6 +919,14 @@ export function HooksPanel({ cwd }: { cwd?: string }): JSX.Element {
 }
 
 // ---- Memory ----
+// Friendly German labels for the memory types (the stored value stays user/feedback/reference).
+const MEM_TYPE_LABEL: Record<string, string> = {
+  user: 'Rollen/Vorlieben',
+  feedback: 'Anweisung',
+  reference: 'Fakten',
+  project: 'Projekt'
+}
+
 export function MemoryPanel(): JSX.Element {
   const [items, setItems] = useState<MemoryEntry[]>([])
   const [name, setName] = useState('')
@@ -960,9 +968,9 @@ export function MemoryPanel(): JSX.Element {
           <div className="field">
             <label>Type</label>
             <select value={type} onChange={(e) => setType(e.target.value as MemoryEntry['type'])}>
-              <option value="user">user</option>
-              <option value="feedback">feedback</option>
-              <option value="reference">reference</option>
+              <option value="user">{MEM_TYPE_LABEL.user}</option>
+              <option value="feedback">{MEM_TYPE_LABEL.feedback}</option>
+              <option value="reference">{MEM_TYPE_LABEL.reference}</option>
             </select>
             {/* 'project' intentionally omitted: this global panel has no project context, so a
                 project-scoped memory can't get a projectId. Use /remember inside a project session. */}
@@ -987,7 +995,7 @@ export function MemoryPanel(): JSX.Element {
           <div className="flex-between">
             <h3>
               {m.name}
-              <span className="badge">{m.type}</span>
+              <span className="badge">{MEM_TYPE_LABEL[m.type] ?? m.type}</span>
             </h3>
             <button
               className="btn danger sm"

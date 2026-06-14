@@ -61,7 +61,8 @@ import { WorkflowScheduler } from './workflows/scheduler'
 import { KNOWN_NODE_TYPES } from '@shared/workflows'
 import { listSecretNames, setSecret, deleteSecret, loadSecretsResolved, buildMaskList, maskWith } from './workflows/secrets'
 import { screenUnattendedCall } from './agent/policy'
-import { WorkflowDef, WorkflowRun } from '@shared/types'
+import { WorkflowDef, WorkflowRun, WorkflowRunResult } from '@shared/types'
+import { resolveWorkflow } from './workflows/wf-name-match'
 import { runBuiltin } from './builtins'
 import { execFile } from 'child_process'
 import type { ApprovalPolicy } from './agent/engine'
@@ -801,6 +802,47 @@ export function registerIpc(win: BrowserWindow): void {
       return r
     }
   }
+
+  // Let the chat agent build/run/iterate workflows: resolve a saved workflow by id-or-name, run it
+  // UNATTENDED with the same guarded deps as a manual run, and hand back a structured per-node
+  // result (MASKED like runWorkflowFromChat, so a workflow that touched a secret can't leak it
+  // into the agent's tool-result transcript). Cancellable via the shared wfAborters + deadline.
+  engine.setWorkflowRunner(async (idOrName, input, cwd): Promise<WorkflowRunResult> => {
+    const { def } = resolveWorkflow(listWorkflows(), String(idOrName ?? ''))
+    if (!def) return { ok: false, status: 'error', error: 'Workflow nicht gefunden', nodes: [] }
+    const runId = randomUUID()
+    const ac = new AbortController()
+    wfAborters.set(runId, ac)
+    const stopDeadline = armDeadline(ac)
+    const wfCwd = validDir(cwd) || validDir(settings.defaultCwd) || homedir()
+    const deps = makeWfDeps(wfCwd, ac.signal, 0, undefined, new Set([def.id]))
+    const mask = deps.mask ?? ((s: string) => s)
+    const labelOf = new Map(def.nodes.map((n) => [n.id, (n.label || n.type) as string]))
+    beginAgentOp() // suppress fs_change toasts for the workflow's own writes
+    try {
+      const inp = input ?? ''
+      const run = await runWorkflow(def, deps, { vars: { input: inp, last: inp }, runId })
+      const v = run.vars ?? {}
+      const result = v.output ?? v.result ?? v.last ?? ''
+      return {
+        ok: run.status === 'done',
+        status: run.status,
+        output: mask(String(result)),
+        error: run.error ? mask(run.error) : undefined,
+        nodes: run.nodes.map((n) => ({
+          id: n.nodeId,
+          label: labelOf.get(n.nodeId),
+          status: n.status,
+          output: n.output ? mask(n.output) : undefined,
+          error: n.error ? mask(n.error) : undefined
+        }))
+      }
+    } finally {
+      endAgentOp()
+      stopDeadline()
+      wfAborters.delete(runId)
+    }
+  })
 
   // Self-healing: after an unattended run, if it failed AND the workflow opted in (def.autoHeal),
   // let the in-process coder repair the failed node + replay. `force` (interactive "Reparieren")

@@ -31,8 +31,13 @@ export function parseWorkflowJson(text: string): RawWorkflow | null {
 
 // Assign canvas positions: BFS depth from the entry node → column; order within a column → row.
 // Unreached nodes are parked in a trailing column so they're still visible/editable.
+// Nodes that ALREADY carry finite x/y (the user's hand-arranged layout, or model-supplied
+// coordinates) are left untouched — only nodes MISSING a position are placed, so an update_workflow
+// can't silently scramble a canvas the user arranged by hand.
 export function autoLayout(nodes: WorkflowNode[], edges: WorkflowEdge[]): void {
   if (!nodes.length) return
+  const hasPos = (n: WorkflowNode): boolean => Number.isFinite(n.x) && Number.isFinite(n.y)
+  if (nodes.every(hasPos)) return // every node already positioned — nothing to lay out
   const adj = new Map<string, string[]>()
   for (const e of edges) (adj.get(e.source) ?? adj.set(e.source, []).get(e.source)!).push(e.target)
   const start = nodes.find((n) => n.type === 'trigger') ?? nodes[0]
@@ -45,8 +50,16 @@ export function autoLayout(nodes: WorkflowNode[], edges: WorkflowEdge[]): void {
   }
   let maxD = 0
   for (const d of depth.values()) maxD = Math.max(maxD, d)
+  // seed each column's row counter from the positioned nodes so newly-placed nodes don't
+  // overlap the ones the user already arranged in that column.
   const rowOf = new Map<number, number>()
   for (const n of nodes) {
+    if (!hasPos(n)) continue
+    const d = depth.get(n.id) ?? maxD + 1
+    rowOf.set(d, (rowOf.get(d) ?? 0) + 1)
+  }
+  for (const n of nodes) {
+    if (hasPos(n)) continue // keep the user's / model's existing coordinates
     const d = depth.get(n.id) ?? maxD + 1
     const row = rowOf.get(d) ?? 0
     rowOf.set(d, row + 1)
@@ -76,7 +89,11 @@ export function coerceWorkflow(raw: RawWorkflow, id: string, now: number): Workf
       id: nid,
       type: type as WorkflowNode['type'],
       label: typeof o.label === 'string' ? o.label : undefined,
-      config: o.config && typeof o.config === 'object' ? (o.config as Record<string, unknown>) : {}
+      config: o.config && typeof o.config === 'object' ? (o.config as Record<string, unknown>) : {},
+      // preserve an existing hand-arranged / model-supplied position so autoLayout leaves it
+      // alone; only nodes without finite coordinates get auto-placed.
+      x: typeof o.x === 'number' && Number.isFinite(o.x) ? o.x : undefined,
+      y: typeof o.y === 'number' && Number.isFinite(o.y) ? o.y : undefined
     })
   }
   // force every generated trigger to MANUAL: a cron trigger would be auto-armed by the scheduler

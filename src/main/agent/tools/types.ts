@@ -1,5 +1,7 @@
 import { ToolResult } from '@shared/types'
+import type { WorkflowRunResult } from '@shared/types'
 import type { TraceRecorder } from '../trace'
+// (WorkflowRunResult is type-only; runWorkflow is the chat agent's run-a-workflow capability)
 
 export interface ToolContext {
   cwd: string
@@ -23,6 +25,10 @@ export interface ToolContext {
   snapshot?: (absPath: string) => void
   // Todo-list hook: the todo_write tool reports the agent's plan/progress here.
   emitTodos?: (todos: { text: string; status: 'open' | 'doing' | 'done' }[]) => void
+  // Run a saved workflow by id-or-name and return its per-node results (secrets masked).
+  // Lets the chat agent execute a workflow it authored, read what each node did, then fix it.
+  // Absent in subagent runs and tests that don't wire a runner.
+  runWorkflow?: (idOrName: string, input?: string) => Promise<WorkflowRunResult>
 }
 
 export interface Tool {

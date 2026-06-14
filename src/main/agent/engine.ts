@@ -74,9 +74,17 @@ export class AgentEngine {
   // model) mutate the SAME object the turn will save — otherwise the turn's saveSession
   // overwrites the edit (last-writer-wins).
   private liveSessions = new Map<string, Session>()
+  // Lets the chat agent run a saved workflow by id-or-name and read back per-node results.
+  // Wired by the IPC layer (which owns workflow store + executor deps); absent → the
+  // run_workflow tool is simply not exposed to the agent.
+  private workflowRunner?: (idOrName: string, input: string | undefined, cwd: string) => Promise<import('@shared/types').WorkflowRunResult>
 
   constructor(private settings: AppSettings) {
     this.client = new DeepSeekClient(settings.provider)
+  }
+
+  setWorkflowRunner(fn: (idOrName: string, input: string | undefined, cwd: string) => Promise<import('@shared/types').WorkflowRunResult>): void {
+    this.workflowRunner = fn
   }
 
   updateSettings(settings: AppSettings): void {
@@ -504,6 +512,13 @@ export class AgentEngine {
         unattended,
         emitStatus: (m) => emit({ type: 'status', message: m }),
         snapshot: (absPath) => recordSnapshot(session.id, turnTag, absPath),
+        // let the FOREGROUND chat agent build/run/iterate saved workflows: run one by id-or-name
+        // and read back per-node results. Bound to this session's cwd; absent when no runner is
+        // wired. NEVER wired under `unattended` (a workflow agent node / cron run): the IPC
+        // workflowRunner always starts a FRESH top-level run (depth 0, new ancestors, new fan-out
+        // counter), so exposing it there would let an agent node re-enter the executor and recurse
+        // without bound, bypassing every guardedSub cycle/depth/child-run cap.
+        runWorkflow: !unattended && this.workflowRunner ? (id, input) => this.workflowRunner!(id, input, session.cwd) : undefined,
         emitTodos: (todos) => {
           session.todos = todos
           saveSessionSoon(session)

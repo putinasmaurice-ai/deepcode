@@ -40,6 +40,10 @@ describe('screenUnattendedCall', () => {
     expect(screenUnattendedCall('task', {})).toMatch(/Blocked/)
     expect(screenUnattendedCall('preview_probe', { action: 'screenshot' })).toMatch(/Blocked/)
   })
+  it('blocks run_workflow (recursion bypass — fresh top-level run skips every guard)', () => {
+    expect(screenUnattendedCall('run_workflow', { id_or_name: 'x' })).toMatch(/run_workflow/)
+    expect(screenUnattendedCall('run_workflow', { id_or_name: 'x' })).toMatch(/Blocked/)
+  })
   it('blocks structured git push/pr', () => {
     expect(screenUnattendedCall('git', { action: 'push' })).toMatch(/push\/pr/)
     expect(screenUnattendedCall('git', { action: 'pr' })).toMatch(/push\/pr/)

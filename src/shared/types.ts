@@ -557,6 +557,16 @@ export interface WorkflowRun {
   }
 }
 
+// Flat, agent-facing result of running a workflow end-to-end (used by the chat agent's
+// runWorkflow tool capability). Secrets are masked in every output/error before it is returned.
+export interface WorkflowRunResult {
+  ok: boolean
+  status: string
+  output?: string
+  error?: string
+  nodes: { id: string; label?: string; status: string; output?: string; error?: string }[]
+}
+
 // A swarm/* branch produced by a swarm run — surfaced in the merge-gate panel.
 export interface SwarmBranch {
   branch: string

@@ -678,8 +678,18 @@ export async function runWorkflow(
     startedAt: Date.now()
   }
   const byId = new Map(wfNodes.map((n) => [n.id, n]))
-  // persist a SECRET-MASKED copy; the live `run` keeps real values for downstream templating
-  const persist = (r: WorkflowRun): void => saveRun(deps.mask ? maskRunForPersist(r, deps.mask) : r)
+  // persist a SECRET-MASKED copy; the live `run` keeps real values for downstream templating.
+  // Persistence is a best-effort side-effect for replay/UI — NEVER part of the run's control
+  // flow. A transient write failure (e.g. a Windows EPERM when an AV/indexer briefly locks the
+  // tmp→rename of the same run file across rapid node checkpoints) must not abort the walk nor
+  // get caught by the outer try and overwrite the run's real terminal status/error.
+  const persist = (r: WorkflowRun): void => {
+    try {
+      saveRun(deps.mask ? maskRunForPersist(r, deps.mask) : r)
+    } catch {
+      /* best-effort snapshot — the terminal persist in `finally` is the authoritative one */
+    }
+  }
   deps.emit({ type: 'workflow_run', runId: run.id, workflowId: def.id, status: 'start' })
   persist(run)
 

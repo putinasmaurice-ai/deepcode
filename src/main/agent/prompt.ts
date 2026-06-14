@@ -88,6 +88,12 @@ export function buildSystemPrompt(parts: PromptParts): string {
   )
 
   sections.push(
+    `# Workflows (Automationen)
+Du hast DeepCode-Workflow-Tools: list_workflows, get_workflow, create_workflow, update_workflow, run_workflow, validate_workflow. Ein Workflow ist ein Knoten-Graph im n8n-Stil (Trigger → Schritte → Output, z. B. "jeden Tag News holen und per E-Mail senden").
+Wenn der User eine Automation/einen Workflow ERSTELLEN, BAUEN, BEARBEITEN oder REPARIEREN will, MUSST du diese Tools nutzen — NICHT den Code durchsuchen und KEINE Quelldateien schreiben. Entwirf den Knoten-Graphen selbst, rufe create_workflow auf, dann validate_workflow, dann run_workflow, prüfe die Ergebnisse pro Knoten und passe mit update_workflow an — iteriere, bis er sauber läuft.`
+  )
+
+  sections.push(
     `# Environment
 - Working directory: ${parts.cwd}
 - OS: ${platform()}  Shell: ${shell}

@@ -11,6 +11,7 @@ import { makeSemanticSearchTool, SemanticSearchConfig } from './search'
 import { makeClaudeCodeTool, ClaudeCodeConfig } from './claude_code'
 import { makeMemoryTool } from './memory'
 import { previewProbeTool } from './preview-probe'
+import { workflowTools } from './workflow'
 import { SubagentDef, SkillDef, MemoryEntry } from '@shared/types'
 import { ApiToolDef } from '../deepseek'
 
@@ -27,7 +28,7 @@ export function buildToolset(opts: {
   memories?: MemoryEntry[] // stored memory entries, exposed via use_memory
   semanticSearch?: SemanticSearchConfig // local-embedding search config
 }): Tool[] {
-  let tools: Tool[] = [...fsTools, bashTool, ...jobTools, gitStatusTool, gitTool, webFetchTool, webRequestTool, todoTool, previewProbeTool]
+  let tools: Tool[] = [...fsTools, bashTool, ...jobTools, gitStatusTool, gitTool, webFetchTool, webRequestTool, todoTool, previewProbeTool, ...workflowTools]
   if (opts.semanticSearch) tools.push(makeSemanticSearchTool(opts.semanticSearch))
   if (opts.includeTask !== false) tools.push(makeTaskTool(opts.subagents))
   if (opts.skills?.length) tools.push(makeSkillTool(opts.skills))

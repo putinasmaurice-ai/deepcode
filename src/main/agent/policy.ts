@@ -59,6 +59,14 @@ export function screenUnattendedCall(name: string, parsedArgs: unknown): string 
   if (name === 'web_request') {
     return 'Blocked: „web_request" darf unbeaufsichtigt nicht ohne Freigabe laufen.'
   }
+  // run_workflow re-enters the workflow engine as a FRESH top-level run (depth 0, new ancestors,
+  // new fan-out counter), so an unattended workflow agent node calling it would bypass every
+  // recursion guard (cycle/depth/child-run cap) and recurse without bound. The capability is also
+  // gated off in engine.ts, but block it here too so the invariant holds at the shared gate used
+  // by the engine, the subagent loop AND the workflow tool-node runner — and can't drift.
+  if (name === 'run_workflow') {
+    return 'Blocked: „run_workflow" darf unbeaufsichtigt nicht laufen.'
+  }
   if (name === 'git' && /^(push|pr)$/i.test(String(a.action ?? ''))) {
     return 'Blocked: git push/pr ist unbeaufsichtigt nicht erlaubt.'
   }

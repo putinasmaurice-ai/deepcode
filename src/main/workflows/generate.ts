@@ -4,29 +4,19 @@ import { costOf } from '../agent/pricing'
 import { recordUsage } from '../ledger'
 import { validateWorkflow, hasBlockingErrors } from '@shared/workflows'
 import { parseWorkflowJson, coerceWorkflow } from '@shared/workflow-gen'
+import { NODE_CATALOG } from '@shared/workflow-nodes'
 
 // The node catalogue + rules handed to the model. Deliberately steers toward SELF-CONTAINED
 // flows (no loop/parallel/subworkflow, which need a separate saved workflow id) so the result
-// runs immediately. Variable conventions match the executor's resolve().
+// runs immediately. Variable conventions match the executor's resolve(). The node-type/config
+// section comes from NODE_CATALOG (single source of truth, shared with the chat agent's tools).
 const SYSTEM = `You design an automation WORKFLOW as a directed graph for a desktop coding assistant.
 Output STRICT JSON only — no prose, no code fences — of this exact shape:
 {"name": string, "description": string,
  "nodes": [{"id": string, "type": string, "label": string, "config": object}],
  "edges": [{"source": nodeId, "target": nodeId, "sourceHandle"?: string}]}
 
-Node types and their config:
-- trigger  {"mode":"manual"} or {"mode":"cron","cron":"min hour dom mon dow"} — REQUIRED as the first node, exactly one.
-- agent    {"prompt": string} — a full AI step WITH tools (read/write files, run commands). Use for anything needing reasoning or file/codebase work.
-- shell    {"command": string, "continueOnError"?: true} — run one shell command. Set continueOnError when the command commonly exits non-zero (npm test, npm outdated, linters).
-- http     {"url": string, "continueOnError"?: true} — fetch a URL (http/https only).
-- transform{"mode":"template","template": string} | {"mode":"set","value": string} | {"mode":"extract","pattern": regex} — string templating / set a var / regex-extract.
-- condition{"expression": string} — branch; its outgoing edges MUST use "sourceHandle":"true" and "sourceHandle":"false".
-- switch   {"cases":"a,b,c"} — multi-branch; outgoing edges use "sourceHandle" per case plus one "sourceHandle":"default".
-- delay    {"seconds": number}
-- notify   {"title"?: string, "message"?: string} — desktop notification.
-- output   {"template"?: string} — emit the final result (defaults to {{last}}).
-
-Variables (in any string config): {{input}} = the text the user passes when running it; {{last}} = previous node's output; {{name}} = a variable a transform set via its config "outputVar". Put the user-facing result in the LAST node.
+${NODE_CATALOG}
 
 Rules: first node is a trigger. Prefer a simple linear chain; only branch with condition/switch when the request needs it. Do NOT use loop/parallel/merge/subworkflow. Keep it self-contained and runnable. Never put {{secret.*}} in an agent prompt. Keep it to 3-6 nodes unless more are truly needed.`
 

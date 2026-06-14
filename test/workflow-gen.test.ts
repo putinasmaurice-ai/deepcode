@@ -106,4 +106,41 @@ describe('autoLayout', () => {
     expect(nodes[0].x!).toBeLessThan(nodes[1].x!)
     expect(nodes[1].x!).toBeLessThan(nodes[2].x!)
   })
+
+  it('leaves nodes that already have finite x/y untouched (preserves a hand-arranged canvas)', () => {
+    const nodes = [
+      { id: 't', type: 'trigger' as const, config: {}, x: 999, y: 888 },
+      { id: 'a', type: 'agent' as const, config: {}, x: 777, y: 666 }
+    ]
+    autoLayout(nodes, [{ id: 'e1', source: 't', target: 'a' }])
+    expect(nodes[0]).toMatchObject({ x: 999, y: 888 })
+    expect(nodes[1]).toMatchObject({ x: 777, y: 666 })
+  })
+
+  it('positions only the nodes missing coordinates, keeping the placed ones', () => {
+    const nodes = [
+      { id: 't', type: 'trigger' as const, config: {}, x: 50, y: 50 },
+      { id: 'a', type: 'agent' as const, config: {} } // no position → must be placed
+    ]
+    autoLayout(nodes, [{ id: 'e1', source: 't', target: 'a' }])
+    expect(nodes[0]).toMatchObject({ x: 50, y: 50 }) // unchanged
+    expect(Number.isFinite(nodes[1].x)).toBe(true)
+    expect(Number.isFinite(nodes[1].y)).toBe(true)
+  })
+})
+
+describe('coerceWorkflow position preservation', () => {
+  it('carries through model-supplied x/y instead of re-laying them out', () => {
+    const raw = {
+      name: 'Positioned',
+      nodes: [
+        { id: 't', type: 'trigger', config: { mode: 'manual' }, x: 10, y: 20 },
+        { id: 'o', type: 'output', config: {}, x: 300, y: 400 }
+      ],
+      edges: [{ source: 't', target: 'o' }]
+    }
+    const def = coerceWorkflow(raw, 'wf_pos', 1)
+    expect(def.nodes.find((n) => n.id === 't')).toMatchObject({ x: 10, y: 20 })
+    expect(def.nodes.find((n) => n.id === 'o')).toMatchObject({ x: 300, y: 400 })
+  })
 })
