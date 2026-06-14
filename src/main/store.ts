@@ -61,6 +61,14 @@ export function loadSettings(): AppSettings {
           /* leave whatever plaintext key may exist */
         }
       }
+      // Together AI key — same treatment.
+      if (raw._togetherKeyEnc && encryptionOk()) {
+        try {
+          merged.provider.togetherApiKey = safeStorage.decryptString(Buffer.from(raw._togetherKeyEnc, 'base64'))
+        } catch {
+          /* leave whatever plaintext key may exist */
+        }
+      }
       // Dev/test hook only: lets automated launches (Playwright/CI) supply a key when
       // safeStorage can't decrypt outside the interactive user session. Never set in
       // normal use.
@@ -82,10 +90,11 @@ export function saveSettings(settings: AppSettings): void {
   const gkey = settings.provider.googleApiKey ?? ''
   const dikey = settings.provider.deepinfraApiKey ?? ''
   const oakey = settings.provider.openaiApiKey ?? ''
+  const tkey = settings.provider.togetherApiKey ?? ''
   // Persist keys encrypted; never write them in plaintext when encryption works.
   const onDisk: any = {
     ...settings,
-    provider: { ...settings.provider, apiKey: '', googleApiKey: '', deepinfraApiKey: '', openaiApiKey: '' }
+    provider: { ...settings.provider, apiKey: '', googleApiKey: '', deepinfraApiKey: '', openaiApiKey: '', togetherApiKey: '' }
   }
   // clamp maxTokens: a cleared field persists 0/NaN which the API rejects — coerce back to default.
   const mt = Number(onDisk.provider.maxTokens)
@@ -125,6 +134,15 @@ export function saveSettings(settings: AppSettings): void {
     }
   } else if (oakey) {
     onDisk.provider.openaiApiKey = oakey
+  }
+  if (tkey && encryptionOk()) {
+    try {
+      onDisk._togetherKeyEnc = safeStorage.encryptString(tkey).toString('base64')
+    } catch {
+      onDisk.provider.togetherApiKey = tkey
+    }
+  } else if (tkey) {
+    onDisk.provider.togetherApiKey = tkey
   }
   // atomic write (tmp + rename) so a crash/power-loss mid-write can't truncate settings.json
   // and silently wipe the three encrypted API keys (loadSettings would then overwrite with

@@ -1082,7 +1082,9 @@ export function App(): JSX.Element {
                       ? '💻 ' + m.slice('local:'.length)
                       : m.startsWith('deepinfra:')
                         ? '☁️ ' + m.slice('deepinfra:'.length)
-                        : m}
+                        : m.startsWith('together:')
+                          ? '🧩 ' + m.slice('together:'.length)
+                          : m}
                   </option>
                 ))}
               </select>

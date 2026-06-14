@@ -535,6 +535,53 @@ export function SettingsPanel({
         </div>
       </div>
 
+      <div className="card">
+        <h3>🧩 Together AI (zusätzliche Modelle)</h3>
+        <p>
+          OpenAI-kompatibel. Modelle mit Präfix <code>together:</code> (z.B.{' '}
+          <code>together:meta-llama/Llama-3.3-70B-Instruct-Turbo</code>) werden hierhin geroutet. Hinweis:
+          Llama-4-Modelle (Scout/Maverick) brauchen ein <b>dediziertes Together-Endpoint</b>; viele andere
+          (z.B. Llama-3.3-70B-Turbo) laufen serverless sofort.
+        </p>
+        <div className="field" style={{ marginTop: 12 }}>
+          <label>Together-API-Key — verschlüsselt gespeichert</label>
+          <input
+            type="password"
+            value={p.togetherApiKey ?? ''}
+            placeholder="tgp_…"
+            onChange={(e) => updateProvider({ togetherApiKey: e.target.value })}
+          />
+        </div>
+        <div className="field">
+          <label>Together Base URL (OpenAI-kompatibel)</label>
+          <input
+            value={p.togetherBaseUrl ?? 'https://api.together.xyz/v1'}
+            onChange={(e) => updateProvider({ togetherBaseUrl: e.target.value })}
+            placeholder="https://api.together.xyz/v1"
+          />
+        </div>
+        <div className="row">
+          <div className="field">
+            <label>Together Preis Input ($/1M Tokens)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={p.togetherPricePerMillionInput ?? 0.18}
+              onChange={(e) => updateProvider({ togetherPricePerMillionInput: Number(e.target.value) })}
+            />
+          </div>
+          <div className="field">
+            <label>Together Preis Output ($/1M Tokens)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={p.togetherPricePerMillionOutput ?? 0.59}
+              onChange={(e) => updateProvider({ togetherPricePerMillionOutput: Number(e.target.value) })}
+            />
+          </div>
+        </div>
+      </div>
+
       <SecretsCard />
 
       <BackupCard />

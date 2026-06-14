@@ -185,6 +185,11 @@ export interface ProviderSettings {
   googlePricePerMillionOutput?: number
   openaiPricePerMillionInput?: number
   openaiPricePerMillionOutput?: number
+  // ---- Together AI (OpenAI-compatible) — models prefixed "together:" route here ----
+  togetherApiKey: string
+  togetherBaseUrl: string
+  togetherPricePerMillionInput?: number
+  togetherPricePerMillionOutput?: number
 }
 
 export interface AppSettings {
@@ -266,7 +271,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     extraModels: [
       'deepinfra:deepseek-ai/DeepSeek-V4-Flash', // cheaper DeepSeek via DeepInfra
       'deepinfra:openai/gpt-oss-120b',
-      'deepinfra:Qwen/Qwen3-VL-235B-A22B-Instruct' // vision-language
+      'deepinfra:Qwen/Qwen3-VL-235B-A22B-Instruct', // vision-language
+      'together:meta-llama/Llama-4-Scout-17B-16E-Instruct', // Vision + 10M Kontext (braucht ein dediziertes Together-Endpoint)
+      'together:meta-llama/Llama-3.3-70B-Instruct-Turbo' // serverless auf Together sofort nutzbar
     ],
     openaiApiKey: '',
     openaiBaseUrl: 'https://api.openai.com/v1',
@@ -276,7 +283,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
     googlePricePerMillionInput: 0.1, // ~Gemini Flash-Lite
     googlePricePerMillionOutput: 0.4,
     openaiPricePerMillionInput: 0.5, // editable; varies widely by OpenAI model
-    openaiPricePerMillionOutput: 1.5
+    openaiPricePerMillionOutput: 1.5,
+    togetherApiKey: '',
+    togetherBaseUrl: 'https://api.together.xyz/v1',
+    togetherPricePerMillionInput: 0.18, // Llama-4-Scout (editierbar; je Modell unterschiedlich)
+    togetherPricePerMillionOutput: 0.59
   },
   autoApprove: {
     read: true,
