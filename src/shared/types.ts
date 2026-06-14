@@ -340,6 +340,9 @@ export type AgentEvent =
   | { type: 'message_done'; sessionId?: string; message: ChatMessage }
   | { type: 'usage'; sessionId?: string; messageId: string; usage: TokenUsage }
   | { type: 'todos'; sessionId: string; todos: TodoItem[] }
+  // live run-trace: emitted on every span begin/end and on turn finish, carrying the FULL
+  // current Trace; the renderer upserts it by trace.id (Trace is defined later — forward ref).
+  | { type: 'trace'; sessionId?: string; trace: Trace }
   | { type: 'fs_change'; files: string[] }
   // a runtime error from the live preview webview (console error / failed load) — drives a
   // one-click "Fix this" affordance in the preview pane. Session-less, like fs_change.

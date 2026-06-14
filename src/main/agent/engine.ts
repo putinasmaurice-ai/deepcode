@@ -429,13 +429,16 @@ export class AgentEngine {
       emit({ type: 'user_message', sessionId: session.id, id: userMsgId })
 
       // open the run-trace now so a running turn shows up in the Trace panel immediately
-      const tr = new TraceRecorder({
-        sessionId: session.id,
-        title: userText,
-        cwd: session.cwd,
-        model: session.model || this.settings.provider.model,
-        unattended
-      })
+      const tr = new TraceRecorder(
+        {
+          sessionId: session.id,
+          title: userText,
+          cwd: session.cwd,
+          model: session.model || this.settings.provider.model,
+          unattended
+        },
+        { onUpdate: (t) => emit({ type: 'trace', sessionId: session.id, trace: t }) }
+      )
       trace = tr
 
       // budget accumulates across this whole turn (all quality rounds + vision describes) so the

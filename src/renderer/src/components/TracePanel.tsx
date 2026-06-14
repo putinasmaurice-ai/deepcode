@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { Trace, TraceSpan, AgentEvent } from '../../../shared/types'
+import type { Trace, TraceSpan, TraceStatus, AgentEvent } from '../../../shared/types'
+import { TraceWaterfall } from './TraceWaterfall'
+import { TraceStats } from './TraceStats'
 
 const api = window.deepcode
 
@@ -17,6 +19,14 @@ const KIND_ICON: Record<string, string> = {
   verify: '⚙️',
   compact: '🗜️'
 }
+// status filter chips (null = "Alle")
+const STATUS_FILTERS: { key: TraceStatus | null; label: string }[] = [
+  { key: null, label: 'Alle' },
+  { key: 'ok', label: '✅ ok' },
+  { key: 'error', label: '❌ error' },
+  { key: 'cancelled', label: '🚫 cancelled' },
+  { key: 'running', label: '⏳ running' }
+]
 
 function when(ts: number): string {
   try {
@@ -63,12 +73,25 @@ function flatten(spans: TraceSpan[]): { span: TraceSpan; depth: number }[] {
   return out
 }
 
+// upsert a live trace by id: replace in place if present, else prepend (newest-first).
+function upsert(list: Trace[], t: Trace): Trace[] {
+  const i = list.findIndex((x) => x.id === t.id)
+  if (i < 0) return [t, ...list]
+  const next = list.slice()
+  next[i] = t
+  return next
+}
+
 // Observability: browse past chat turns as a correlated tree — each LLM call (with cost),
 // each tool call (with duration / ok-error), nested subagents, verify + compaction.
 export function TracePanel(): JSX.Element {
   const [traces, setTraces] = useState<Trace[] | null>(null)
   const [selId, setSelId] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
+  const [statusF, setStatusF] = useState<TraceStatus | null>(null)
+  const [onlyUnattended, setOnlyUnattended] = useState(false)
+  const [view, setView] = useState<'tree' | 'wf'>('tree')
+  const [showStats, setShowStats] = useState(false)
 
   useEffect(() => {
     api.listTraces().then((t) => {
@@ -77,10 +100,13 @@ export function TracePanel(): JSX.Element {
     })
   }, [])
 
-  // refresh the list whenever a turn finishes while the panel is open
+  // LIVE updates: upsert every incoming trace event; reconcile the full list on turn_done.
   useEffect(() => {
     const off = api.onAgentEvent((e: AgentEvent) => {
-      if (e.type === 'turn_done') {
+      if (e.type === 'trace') {
+        setTraces((cur) => upsert(cur ?? [], e.trace))
+        setSelId((cur) => cur ?? e.trace.id) // auto-select the first live trace
+      } else if (e.type === 'turn_done') {
         api.listTraces().then((t) => {
           setTraces(t)
           // keep the user's selection IF it still exists in the list; else fall back to newest
@@ -91,17 +117,29 @@ export function TracePanel(): JSX.Element {
     return off
   }, [])
 
-  const shown = useMemo(
-    () =>
-      (traces ?? []).filter(
-        (t) => !filter || t.title.toLowerCase().includes(filter.toLowerCase()) || t.model.toLowerCase().includes(filter.toLowerCase())
-      ),
-    [traces, filter]
-  )
+  const shown = useMemo(() => {
+    const q = filter.toLowerCase()
+    return (traces ?? []).filter((t) => {
+      if (q && !t.title.toLowerCase().includes(q) && !t.model.toLowerCase().includes(q)) return false
+      if (statusF && t.status !== statusF) return false
+      if (onlyUnattended && !t.unattended) return false
+      return true
+    })
+  }, [traces, filter, statusF, onlyUnattended])
   const sel = useMemo(() => (traces ?? []).find((t) => t.id === selId) ?? null, [traces, selId])
   const rows = useMemo(() => (sel ? flatten(sel.spans) : []), [sel])
 
   if (!traces) return <div className="spinner" />
+
+  const seg: React.CSSProperties = { display: 'flex', gap: 0, border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }
+  const segBtn = (on: boolean): React.CSSProperties => ({
+    padding: '3px 10px',
+    fontSize: 12,
+    cursor: 'pointer',
+    border: 'none',
+    background: on ? 'var(--accent)' : 'transparent',
+    color: on ? '#fff' : 'var(--text-faint)'
+  })
 
   return (
     <div className="panel">
@@ -114,9 +152,29 @@ export function TracePanel(): JSX.Element {
         <div className="field">
           <input placeholder="Filtern (Titel / Modell)…" value={filter} onChange={(e) => setFilter(e.target.value)} />
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '6px 0' }}>
+          <div style={seg}>
+            {STATUS_FILTERS.map((f) => (
+              <button key={f.label} style={segBtn(statusF === f.key)} onClick={() => setStatusF(f.key)}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <button className={'btn ghost sm' + (onlyUnattended ? ' sel' : '')} onClick={() => setOnlyUnattended((v) => !v)}>
+            🕒 nur unbeaufsichtigt
+          </button>
+          <button className="btn ghost sm" onClick={() => setShowStats((v) => !v)}>
+            📈 Statistik {showStats ? '▾' : '▸'}
+          </button>
+        </div>
+        {showStats && (
+          <div style={{ margin: '4px 0 8px' }}>
+            <TraceStats traces={shown} />
+          </div>
+        )}
         <div className="trace-body">
           <div className="trace-list">
-            {shown.length === 0 && <div className="empty">Noch keine Traces{filter ? ' für diesen Filter' : ''}.</div>}
+            {shown.length === 0 && <div className="empty">Noch keine Traces{filter || statusF || onlyUnattended ? ' für diesen Filter' : ''}.</div>}
             {shown.map((t) => (
               <button
                 key={t.id}
@@ -140,6 +198,14 @@ export function TracePanel(): JSX.Element {
                   <div className="trace-head-title">
                     {STATUS_ICON[sel.status]} <b>{sel.title}</b>
                   </div>
+                  <div style={seg}>
+                    <button style={segBtn(view === 'tree')} onClick={() => setView('tree')}>
+                      🌳 Baum
+                    </button>
+                    <button style={segBtn(view === 'wf')} onClick={() => setView('wf')}>
+                      📊 Wasserfall
+                    </button>
+                  </div>
                   <div className="trace-head-stats">
                     <span>🧠 {sel.model}</span>
                     <span>⏱ {dur(sel.startedAt, sel.endedAt) || '…'}</span>
@@ -148,28 +214,32 @@ export function TracePanel(): JSX.Element {
                     <span title={when(sel.startedAt)}>{when(sel.startedAt)}</span>
                   </div>
                 </div>
-                <div className="trace-tree">
-                  {rows.length === 0 && <p className="wf-hint">Keine Spans aufgezeichnet.</p>}
-                  {rows.map(({ span, depth }, i) => (
-                    <div key={span.id + ':' + i} className={'trace-span st-' + span.status} style={{ marginLeft: depth * 18 }}>
-                      <div className="trace-span-head">
-                        <span className="trace-span-ic">{KIND_ICON[span.kind] ?? '•'}</span>
-                        <span className="trace-span-name">{span.name}</span>
-                        <span className="trace-span-tail">
-                          {span.costUsd ? <span className="trace-cost">{usd(span.costUsd)}</span> : null}
-                          {span.tokens ? <span className="trace-tok">{span.tokens.toLocaleString()} tok</span> : null}
-                          <span className="trace-dur">{dur(span.startedAt, span.endedAt)}</span>
-                          <span className="trace-span-st">{STATUS_ICON[span.status] ?? ''}</span>
-                        </span>
+                {view === 'wf' ? (
+                  <TraceWaterfall trace={sel} />
+                ) : (
+                  <div className="trace-tree">
+                    {rows.length === 0 && <p className="wf-hint">Keine Spans aufgezeichnet.</p>}
+                    {rows.map(({ span, depth }, i) => (
+                      <div key={span.id + ':' + i} className={'trace-span st-' + span.status} style={{ marginLeft: depth * 18 }}>
+                        <div className="trace-span-head">
+                          <span className="trace-span-ic">{KIND_ICON[span.kind] ?? '•'}</span>
+                          <span className="trace-span-name">{span.name}</span>
+                          <span className="trace-span-tail">
+                            {span.costUsd ? <span className="trace-cost">{usd(span.costUsd)}</span> : null}
+                            {span.tokens ? <span className="trace-tok">{span.tokens.toLocaleString()} tok</span> : null}
+                            <span className="trace-dur">{dur(span.startedAt, span.endedAt)}</span>
+                            <span className="trace-span-st">{STATUS_ICON[span.status] ?? ''}</span>
+                          </span>
+                        </div>
+                        {span.error ? (
+                          <pre className="trace-span-err">{span.error}</pre>
+                        ) : span.detail ? (
+                          <div className="trace-span-detail">{span.detail}</div>
+                        ) : null}
                       </div>
-                      {span.error ? (
-                        <pre className="trace-span-err">{span.error}</pre>
-                      ) : span.detail ? (
-                        <div className="trace-span-detail">{span.detail}</div>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </>
             ) : (
               <p className="wf-hint">Wähle links einen Trace.</p>

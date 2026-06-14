@@ -58,10 +58,17 @@ export class TraceRecorder {
   private lastPersist = 0
   private persistFn: (t: Trace) => void
   private now: () => number
+  // live stream callback — fires the FULL current trace on every span change so the renderer
+  // can show the tree updating in real time (separate from the throttled disk flush below).
+  private onUpdate?: (t: Trace) => void
 
-  constructor(meta: TraceMeta, opts?: { persist?: (t: Trace) => void; now?: () => number }) {
+  constructor(
+    meta: TraceMeta,
+    opts?: { persist?: (t: Trace) => void; now?: () => number; onUpdate?: (t: Trace) => void }
+  ) {
     this.persistFn = opts?.persist ?? saveTrace
     this.now = opts?.now ?? (() => Date.now())
+    this.onUpdate = opts?.onUpdate
     this.trace = {
       id: randomUUID(),
       sessionId: meta.sessionId,
@@ -76,6 +83,7 @@ export class TraceRecorder {
       unattended: meta.unattended
     }
     this.flush(true) // appear in the list immediately as 'running'
+    this.live()
   }
 
   begin(kind: TraceSpanKind, name: string, parentId?: string, detail?: string): string {
@@ -91,6 +99,7 @@ export class TraceRecorder {
     this.trace.spans.push(span)
     this.byId.set(span.id, span)
     this.flush(false)
+    this.live()
     return span.id
   }
 
@@ -114,6 +123,7 @@ export class TraceRecorder {
     if (patch.detail) span.detail = clip(patch.detail, DETAIL_CAP)
     if (patch.error) span.error = clip(patch.error, ERROR_CAP)
     this.flush(false)
+    this.live()
   }
 
   // Close the turn. Any span left open (e.g. on a crash mid-tool) is closed with the
@@ -128,6 +138,17 @@ export class TraceRecorder {
     this.trace.status = status
     this.trace.endedAt = this.now()
     this.flush(true)
+    this.live()
+  }
+
+  // Stream the full current trace to the renderer. Best-effort: a listener throwing must
+  // never break the turn (mirrors flush's swallow-and-continue contract).
+  private live(): void {
+    try {
+      this.onUpdate?.(this.trace)
+    } catch {
+      /* a live listener must never break a turn */
+    }
   }
 
   private flush(force: boolean): void {
