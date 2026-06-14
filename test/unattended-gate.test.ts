@@ -34,10 +34,11 @@ describe('isOutwardScmCommand', () => {
 
 // #1 + #5 — the single screen used by both the engine gate and the subagent loop.
 describe('screenUnattendedCall', () => {
-  it('blocks MCP / claude_code / task', () => {
+  it('blocks MCP / claude_code / task / preview_probe', () => {
     expect(screenUnattendedCall('mcp__supabase__execute_sql', {})).toMatch(/Blocked/)
     expect(screenUnattendedCall('claude_code', {})).toMatch(/Blocked/)
     expect(screenUnattendedCall('task', {})).toMatch(/Blocked/)
+    expect(screenUnattendedCall('preview_probe', { action: 'screenshot' })).toMatch(/Blocked/)
   })
   it('blocks structured git push/pr', () => {
     expect(screenUnattendedCall('git', { action: 'push' })).toMatch(/push\/pr/)

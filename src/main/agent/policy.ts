@@ -49,6 +49,11 @@ export function screenUnattendedCall(name: string, parsedArgs: unknown): string 
   if (name.startsWith('mcp__') || name === 'claude_code' || name === 'task') {
     return `Blocked: „${name}" darf unbeaufsichtigt nicht ohne Freigabe laufen.`
   }
+  // preview_probe drives the live preview webview (screenshot/click/type) — meaningless and
+  // unsafe with no user/preview present (cron/workflow-agent/subagent runs).
+  if (name === 'preview_probe') {
+    return 'Blocked: „preview_probe" braucht die offene Live-Vorschau und läuft nicht unbeaufsichtigt.'
+  }
   if (name === 'git' && /^(push|pr)$/i.test(String(a.action ?? ''))) {
     return 'Blocked: git push/pr ist unbeaufsichtigt nicht erlaubt.'
   }

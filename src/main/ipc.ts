@@ -53,6 +53,7 @@ import { runUserCode } from './workflows/code-node'
 import { sendEmail } from './workflows/email'
 import { WorkflowWatchManager } from './workflows/watch-trigger'
 import { healRun } from './workflows/heal'
+import { setPreviewSink } from './preview-bridge'
 import { WorkflowScheduler } from './workflows/scheduler'
 import { KNOWN_NODE_TYPES } from '@shared/workflows'
 import { listSecretNames, setSecret, deleteSecret, loadSecretsResolved, buildMaskList, maskWith } from './workflows/secrets'
@@ -132,6 +133,8 @@ export function registerIpc(win: BrowserWindow): void {
   registered = true
   settings = loadSettings()
   engine = new AgentEngine(settings)
+  // route preview runtime errors (console error / load fail) to the renderer as a "Fix this" chip
+  setPreviewSink(emit)
 
   // ---- settings ----
   ipcMain.handle(IPC.getSettings, () => settings)

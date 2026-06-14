@@ -9,6 +9,7 @@ import { registerIpc, bootstrapMcp } from './ipc'
 import { shutdownJobs } from './jobs'
 import { maybeRunE2E } from './e2e'
 import { autoCheckOnStartup } from './updater'
+import { attachPreviewGuest } from './preview-bridge'
 
 // Window bounds persistence (~/.deepcode/window.json)
 interface WinState {
@@ -135,6 +136,9 @@ function createWindow(): void {
       openExternalSafe(details.url)
       return { action: 'deny' }
     })
+    // expose the preview guest to the main process so the preview_probe tool can
+    // screenshot/click/read-console, and surface runtime errors as a "Fix this" chip.
+    attachPreviewGuest(guest)
   })
 
   registerIpc(win)

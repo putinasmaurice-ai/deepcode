@@ -118,6 +118,11 @@ It's your KI-coding app and a `/goal` automation tool in one — like n8n, only 
 
 **👁 Live preview pane** — a side panel next to the chat that renders the project you're building
 (static `index.html` or a dev-server URL, auto-detected) in an isolated webview, like Claude Code's preview.
+**Closed-loop:** the agent can `preview_probe` the running app — screenshot (→ vision description),
+read the console, click and type — so it catches **runtime** errors the compiler can't see, fixes
+them, and re-checks, all without you copy-pasting a stack trace. A runtime error in the preview
+also surfaces a one-click **"Fix this"** chip that hands the stack to the agent. (Probes run in an
+isolated world, are time-bounded, and are blocked in unattended runs.)
 
 **🛒 Marketplace** — a curated, one-click **MCP-connector catalog (30+, searchable, by category)**:
 code-intelligence (Serena, ast-grep, Repomix), RAG/vector (Chroma, local-RAG, Qdrant), web/search

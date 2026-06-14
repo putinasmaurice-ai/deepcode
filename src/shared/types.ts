@@ -336,6 +336,9 @@ export type AgentEvent =
   | { type: 'usage'; sessionId?: string; messageId: string; usage: TokenUsage }
   | { type: 'todos'; sessionId: string; todos: TodoItem[] }
   | { type: 'fs_change'; files: string[] }
+  // a runtime error from the live preview webview (console error / failed load) — drives a
+  // one-click "Fix this" affordance in the preview pane. Session-less, like fs_change.
+  | { type: 'preview_error'; message: string; url?: string }
   | { type: 'turn_done'; sessionId: string }
   | { type: 'status'; sessionId?: string; message: string }
   | { type: 'error'; message: string }

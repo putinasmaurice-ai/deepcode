@@ -182,9 +182,11 @@ export class AgentEngine {
       }
     ]
     try {
-      // no tools — the vision model only describes; cost is negligible (Flash-Lite) and
-      // not metered here since online vision pricing isn't configured.
+      // no tools — the vision model only describes. Meter it through the ledger (costOf prices
+      // google:/local: by the model id — local is free) so screenshot/attachment vision can't
+      // run up invisible spend in an agent loop (e.g. repeated preview_probe screenshots).
       const res = await this.client.streamChat(messages, [], {}, signal, modelId)
+      if (res.usage) recordUsage(costOf(this.settings.provider, res.usage, modelId))
       return res.content.trim() || null
     } catch (e) {
       if ((e as Error).name === 'AbortError' || signal.aborted) throw e
@@ -475,6 +477,8 @@ export class AgentEngine {
           emit({ type: 'todos', sessionId: session.id, todos })
         },
         trace: tr,
+        // preview_probe turns a screenshot (data URI) into text via the same vision pipeline
+        describeImage: (dataUri) => this.describeImages([dataUri], signal, emit),
         spawnSubagent: async (agentName, prompt) => {
           // nest the subagent under the tool span that spawned it (the 'task' tool);
           // bubble its summed cost/tokens onto the span via onUsage.

@@ -51,6 +51,9 @@ export async function runSubagent(
     cwd,
     signal,
     confineToCwd: deps.settings.confineToCwd,
+    // subagents are by definition unattended → mark the context so every tool's in-execute
+    // unattended guard (e.g. preview_probe) is authoritative, not just screenUnattendedCall.
+    unattended: true,
     emitStatus: (m) => emit({ type: 'status', message: `[${agentName}] ${m}` })
   }
 

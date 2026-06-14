@@ -15,6 +15,9 @@ export interface ToolContext {
   unattended?: boolean
   // Allows a tool (e.g. the subagent/Task tool) to call back into the agent engine.
   spawnSubagent?: (agentName: string, prompt: string) => Promise<string>
+  // Describe a screenshot/image (data URI) via the vision pipeline — lets preview_probe turn a
+  // capturePage() PNG into text for the blind text model. Absent in subagent runs.
+  describeImage?: (dataUri: string) => Promise<string | null>
   emitStatus?: (msg: string) => void
   // Checkpoint hook: called with the absolute path BEFORE a file is modified.
   snapshot?: (absPath: string) => void

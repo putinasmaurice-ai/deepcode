@@ -1242,7 +1242,7 @@ export function App(): JSX.Element {
             />
            </div>
            {previewOpen && session && (
-             <PreviewPane cwd={session.cwd} onClose={() => setPreviewOpen(false)} />
+             <PreviewPane cwd={session.cwd} onClose={() => setPreviewOpen(false)} onFix={(p) => void send(p)} />
            )}
           </div>
         ) : view === 'projects' ? (
