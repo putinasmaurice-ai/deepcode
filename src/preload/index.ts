@@ -38,8 +38,8 @@ const api: DeepCodeApi = {
   watchStop: () => ipcRenderer.invoke(IPC.watchStop),
 
   // agent
-  sendMessage: (sessionId: string, text: string, attachments?: string[], mode?: string) =>
-    ipcRenderer.invoke(IPC.sendMessage, sessionId, text, attachments, mode),
+  sendMessage: (sessionId: string, text: string, attachments?: string[], mode?: string, toolAllow?: string[]) =>
+    ipcRenderer.invoke(IPC.sendMessage, sessionId, text, attachments, mode, toolAllow),
   resendMessage: (
     sessionId: string,
     messageId: string,

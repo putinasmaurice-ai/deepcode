@@ -270,7 +270,7 @@ export function registerIpc(win: BrowserWindow): void {
   // ---- agent turn ----
   ipcMain.handle(
     IPC.sendMessage,
-    async (_e, sessionId: string, rawText: string, attachments?: string[], mode?: ApprovalPolicy) => {
+    async (_e, sessionId: string, rawText: string, attachments?: string[], mode?: ApprovalPolicy, toolAllow?: string[]) => {
     const session = getSession(sessionId)
     if (!session) throw new Error('Session not found')
 
@@ -386,7 +386,7 @@ export function registerIpc(win: BrowserWindow): void {
 
     beginAgentOp()
     try {
-      await engine.runTurn(session, text, emit, mode, images)
+      await engine.runTurn(session, text, emit, mode, images, false, toolAllow)
     } finally {
       endAgentOp()
     }

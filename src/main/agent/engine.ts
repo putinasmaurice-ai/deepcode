@@ -463,7 +463,11 @@ export class AgentEngine {
     rawEmit: Emit,
     policy: ApprovalPolicy = 'interactive',
     images?: string[],
-    unattended = false
+    unattended = false,
+    // restrict this turn to a specific tool allowlist (e.g. the workflow chat dock = workflow +
+    // read + secret tools only, so its frictionless 'full' mode can't reach write_file/run_command/
+    // web_request/git/MCP). Undefined = the full default toolset (the normal main-chat path).
+    toolAllow?: string[]
   ): Promise<void> {
     const aborter = this.acquireSession(session.id)
     const signal = aborter.signal
@@ -564,7 +568,7 @@ export class AgentEngine {
         memoryText
       })
 
-      const tools = buildTools(this.settings, session.cwd, { projectId: session.projectId })
+      const tools = buildTools(this.settings, session.cwd, { projectId: session.projectId, allow: toolAllow })
       const turnTag = String(Date.now())
       const ctx: ToolContext = {
         cwd: session.cwd,

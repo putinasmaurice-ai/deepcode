@@ -20,6 +20,7 @@ import { validateWorkflow, hasBlockingErrors, type WorkflowIssue } from '../../.
 import { RunHistory } from './RunHistory'
 import { NeonEdge } from './NeonEdge'
 import { RunFx } from './RunFx'
+import { WorkflowChat } from './WorkflowChat'
 
 const api = window.deepcode
 
@@ -359,6 +360,9 @@ export function WorkflowEditor({
   // changing trigger (run id) makes RunFx fire exactly once per successful run.
   const [celebrate, setCelebrate] = useState<string | null>(null)
   const [showRuns, setShowRuns] = useState(false)
+  // in-tab chat dock — describe/iterate THIS workflow in plain words while the graph
+  // builds + animates live. Collapsed by default; toggled from the toolbar.
+  const [showChat, setShowChat] = useState(false)
   const [secretNames, setSecretNames] = useState<string[]>([])
   const [wfList, setWfList] = useState<{ id: string; name: string }[]>([])
   const [colorMode, setColorMode] = useState<'light' | 'dark'>(() =>
@@ -417,7 +421,12 @@ export function WorkflowEditor({
         if (diskSig === liveSig) return // nothing changed — leave the canvas untouched
         const dn = Array.isArray(def.nodes) ? def.nodes : []
         const de = Array.isArray(def.edges) ? def.edges : []
-        setNodes(dn.map((n, i) => ({ id: n.id, type: 'wf', position: { x: n.x ?? 250, y: n.y ?? 80 + i * 120 }, data: { node: n } })))
+        // preserve the user's hand-arranged layout: a chat edit re-runs autolayout and may
+        // re-supply existing nodes without coordinates, which would otherwise stack the whole
+        // graph vertically. Keep the live canvas position for any id still present; only place
+        // genuinely NEW nodes (prefer their disk x/y, else the vertical fallback).
+        const livePos = new Map(s.nodes.map((n) => [n.id, n.position]))
+        setNodes(dn.map((n, i) => ({ id: n.id, type: 'wf', position: livePos.get(n.id) ?? { x: n.x ?? 250, y: n.y ?? 80 + i * 120 }, data: { node: n } })))
         setEdges(de.map((e) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle, type: 'neon', data: {} })))
         setSaved(true)
       })
@@ -675,6 +684,11 @@ export function WorkflowEditor({
           className={'btn ghost sm' + (showRuns ? ' on' : '')}
           onClick={() => setShowRuns((s) => { const next = !s; if (next) setSelId(null); return next })}
         >🕘 Verlauf</button>
+        <button
+          className={'btn ghost sm wf-chat-toggle' + (showChat ? ' on' : '')}
+          onClick={() => setShowChat((s) => !s)}
+          title="Beschreibe den Workflow in Worten — der Assistent baut + ändert ihn live"
+        >💬 Assistent</button>
         <button className="btn ghost sm" onClick={save}>Speichern</button>
         {running ? (
           <button className="btn ghost sm" onClick={cancel}>⏹ Stop</button>
@@ -916,6 +930,17 @@ export function WorkflowEditor({
               Im Prompt/Template mit <code>{'{{name}}'}</code> einsetzen.
             </p>
           </div>
+        )}
+        {/* in-tab chat dock — sibling of .react-flow inside the flex .wf-canvas-wrap, so the
+            canvas shrinks to the remaining width while the dock sits on the right. Collapsed
+            by default; describe/iterate THIS workflow in words and syncFromDisk() reloads the
+            canvas live after each turn. */}
+        {showChat && (
+          <WorkflowChat
+            workflow={workflow}
+            onWorkflowChanged={syncFromDisk}
+            onClose={() => setShowChat(false)}
+          />
         )}
       </div>
     </div>

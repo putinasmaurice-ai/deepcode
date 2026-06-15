@@ -104,7 +104,10 @@ export interface DeepCodeApi {
     sessionId: string,
     text: string,
     attachments?: string[],
-    mode?: ApprovalMode
+    mode?: ApprovalMode,
+    // restrict the turn to a tool allowlist (the workflow chat dock passes a safe set so its
+    // 'full' mode can't reach write_file/run_command/web_request/git/MCP). Omit = full toolset.
+    toolAllow?: string[]
   ): Promise<boolean>
   resendMessage(
     sessionId: string,

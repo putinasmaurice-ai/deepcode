@@ -3370,3 +3370,263 @@ kbd {
     transition: none;
   }
 }
+
+/* ---- IN-TAB CHAT DOCK (chat ↔ workflow, the n8n killer combo) ---- */
+/* Lives as a sibling of .react-flow inside the flex .wf-canvas-wrap, so the  */
+/* canvas keeps flex:1 and shrinks to the remaining width while the dock sits */
+/* fixed at ~340px on the right with a subtle neon edge.                      */
+.wf-chat-dock {
+  flex: 0 0 340px;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background:
+    linear-gradient(180deg, rgba(57, 229, 240, 0.05), transparent 140px),
+    var(--bg-2);
+  border-left: 1px solid var(--border-2);
+  box-shadow:
+    -1px 0 0 rgba(57, 229, 240, 0.12),
+    -14px 0 36px -20px rgba(57, 229, 240, 0.35);
+  animation: wfChatIn 0.22s ease;
+}
+@keyframes wfChatIn {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.wf-chat-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  background: linear-gradient(180deg, rgba(77, 163, 255, 0.06), transparent);
+}
+.wf-chat-head .wf-chat-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-chat-head .wf-chat-sub {
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.wf-chat-head .wf-chat-close {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 6px;
+}
+.wf-chat-head .wf-chat-close:hover {
+  color: var(--text);
+  background: var(--bg-3);
+}
+
+/* message stream — reuses MessageView; just give it room + scroll */
+.wf-chat-msgs {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 12px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wf-chat-msgs .msg {
+  margin-bottom: 16px;
+}
+.wf-chat-msgs .msg .bubble {
+  font-size: 13px;
+}
+
+/* friendly empty hint */
+.wf-chat-empty {
+  margin: auto;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 13px;
+  line-height: 1.55;
+  padding: 24px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.wf-chat-empty .wf-chat-empty-orb {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--grad);
+  box-shadow: 0 0 22px rgba(57, 229, 240, 0.55);
+  animation: pulse 3.5s ease-in-out infinite;
+}
+.wf-chat-empty strong {
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+/* working / busy indicator inside the dock — text on the left, Stop on the right */
+.wf-chat-busy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  margin: 0 12px 12px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 9px;
+}
+
+/* composer */
+.wf-chat-input {
+  border-top: 1px solid var(--border);
+  padding: 10px 12px 12px;
+  background: var(--bg-2);
+  position: relative;
+}
+.wf-chat-input textarea {
+  width: 100%;
+  resize: none;
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 10px 56px 10px 12px;
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.5;
+  max-height: 160px;
+  outline: none;
+}
+.wf-chat-input textarea:focus {
+  border-color: var(--accent);
+}
+.wf-chat-input textarea::placeholder {
+  color: var(--text-faint);
+}
+.wf-chat-input .wf-chat-send {
+  position: absolute;
+  right: 18px;
+  bottom: 19px;
+  background: var(--accent);
+  color: #0a0d12;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-weight: 600;
+  font-size: 12px;
+}
+.wf-chat-input .wf-chat-send:hover:not(:disabled) {
+  box-shadow: 0 0 14px rgba(57, 229, 240, 0.45);
+}
+.wf-chat-input .wf-chat-send:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.wf-chat-input .wf-chat-hint {
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+/* toggle button (in the toolbar) — themed; .on lights up the neon accent */
+.wf-chat-toggle.on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* DOCK ↔ CANVAS-OVERLAY COLLISION ----------------------------------------- */
+/* The dock is an in-flow flex item on the right of .wf-canvas-wrap, but the  */
+/* node-config drawer + run HUD/banner are absolutely positioned against the  */
+/* SAME wrap. Without this they'd paint on top of (drawer) or be pushed off-  */
+/* center by (HUD/banner) the dock. When the dock is mounted, reserve its     */
+/* width: tuck the drawer beside the dock and recenter the HUD/banner over    */
+/* just the visible canvas. --wf-dock-w mirrors .wf-chat-dock's flex-basis.   */
+.wf-canvas-wrap:has(.wf-chat-dock) {
+  --wf-dock-w: 340px;
+}
+.wf-canvas-wrap:has(.wf-chat-dock) .wf-drawer {
+  right: var(--wf-dock-w);
+}
+.wf-canvas-wrap:has(.wf-chat-dock) .wf-runhud,
+.wf-canvas-wrap:has(.wf-chat-dock) .wf-runbanner {
+  left: calc((100% - var(--wf-dock-w)) / 2);
+}
+@media (max-width: 1100px) {
+  .wf-canvas-wrap:has(.wf-chat-dock) {
+    --wf-dock-w: 300px;
+  }
+}
+
+/* in-dock secure secret entry (SecretPrompt) — value never leaves the input  */
+/* except via api.submitSecret; styled to sit above the composer.             */
+.wf-chat-secret {
+  border-top: 1px solid var(--border);
+  background: var(--bg-2);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wf-chat-secret-title {
+  font-size: 12.5px;
+}
+.wf-chat-secret-reason {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.wf-chat-secret-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.wf-chat-secret-row input {
+  flex: 1;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+.wf-chat-secret-hint {
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+/* on narrow editors let the dock take a touch less so the canvas survives */
+@media (max-width: 1100px) {
+  .wf-chat-dock {
+    flex-basis: 300px;
+    width: 300px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wf-chat-dock {
+    animation: none;
+  }
+  .wf-chat-empty .wf-chat-empty-orb {
+    animation: none;
+  }
+}
