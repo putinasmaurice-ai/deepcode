@@ -356,6 +356,9 @@ export function WorkflowEditor({
   // live run-HUD: how many nodes finished / the currently executing node's name, for the
   // "Knoten X/Y · '<name>' läuft" overlay + progress fill. derived only during a run.
   const [hud, setHud] = useState<{ done: number; total: number; current: string | null } | null>(null)
+  // pending timer that clears the HUD a moment after a successful run (so the bar visibly fills
+  // to 100% — on a branching graph not all nodes execute, so `done` plateaus below `total`).
+  const hudClearRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // a celebratory confetti burst near the output node when the whole run succeeds; the
   // changing trigger (run id) makes RunFx fire exactly once per successful run.
   const [celebrate, setCelebrate] = useState<string | null>(null)
@@ -469,10 +472,19 @@ export function WorkflowEditor({
         })
       } else if (e.type === 'workflow_run' && e.runId === runIdRef.current && e.status !== 'start') {
         setRunning(false)
-        setHud(null)
-        if (e.status === 'error') setRunBanner({ kind: 'error', text: e.message })
-        else if (e.status === 'cancelled') setRunBanner({ kind: 'cancelled' })
-        else {
+        if (e.status === 'error') {
+          setHud(null)
+          setRunBanner({ kind: 'error', text: e.message })
+        } else if (e.status === 'cancelled') {
+          setHud(null)
+          setRunBanner({ kind: 'cancelled' })
+        } else {
+          // success: fill the bar to 100% (branching means done<total during the run), let it
+          // read for a moment, then retire it. clear any prior timer so a fast re-run can't be
+          // wiped by a stale clear.
+          setHud((h) => (h ? { ...h, done: h.total, current: null } : null))
+          if (hudClearRef.current) clearTimeout(hudClearRef.current)
+          hudClearRef.current = setTimeout(() => setHud(null), 1500)
           setRunBanner({ kind: 'done' })
           setCelebrate(e.runId) // celebratory confetti near the output node
         }
@@ -492,6 +504,9 @@ export function WorkflowEditor({
     const t = setTimeout(() => setCelebrate(null), 1600)
     return () => clearTimeout(t)
   }, [celebrate])
+
+  // clear the pending HUD-retire timer on unmount
+  useEffect(() => () => { if (hudClearRef.current) clearTimeout(hudClearRef.current) }, [])
 
   // a clicked variable chip must never insert into a field from a PREVIOUS node — drop the
   // captured field whenever the selected node changes (re-set on the next field focus).
@@ -639,6 +654,7 @@ export function WorkflowEditor({
     setNodes((ns) => ns.map((n) => ({ ...n, data: { ...n.data, status: undefined, output: undefined, error: undefined, invalid: false, invalidMsg: undefined } })))
     // clear any leftover edge glow from a previous run so only the live path lights up
     setEdges((es) => es.map((e) => ({ ...e, data: { ...e.data, status: undefined } })))
+    if (hudClearRef.current) clearTimeout(hudClearRef.current) // a new run cancels a pending HUD retire
     setHud({ done: 0, total: nodes.length, current: null })
     setRunning(true)
     try {
@@ -935,13 +951,12 @@ export function WorkflowEditor({
             canvas shrinks to the remaining width while the dock sits on the right. Collapsed
             by default; describe/iterate THIS workflow in words and syncFromDisk() reloads the
             canvas live after each turn. */}
-        {showChat && (
-          <WorkflowChat
-            workflow={workflow}
-            onWorkflowChanged={syncFromDisk}
-            onClose={() => setShowChat(false)}
-          />
-        )}
+        <WorkflowChat
+          workflow={workflow}
+          onWorkflowChanged={syncFromDisk}
+          onClose={() => setShowChat(false)}
+          hidden={!showChat}
+        />
       </div>
     </div>
   )

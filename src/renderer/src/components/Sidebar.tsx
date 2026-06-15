@@ -176,6 +176,9 @@ export function Sidebar(p: SidebarProps): JSX.Element {
           </>
         )}
         {p.sessions
+          // hide the workflow editor's chat-dock sessions (titled "🔧 Workflow-Assistent: …" by
+          // WorkflowChat) — they're an editor-internal assistant, not user chats.
+          .filter((s) => !(s.title || '').startsWith('🔧 Workflow-Assistent:'))
           .filter((s) => !p.activeProjectId || s.projectId === p.activeProjectId)
           .filter(
             (s) =>

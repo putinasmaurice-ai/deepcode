@@ -2441,9 +2441,10 @@ kbd {
   margin-top: 5px;
   padding-top: 5px;
   border-top: 1px dashed var(--border-2);
-  font-size: 10px;
+  /* 11px + --text-dim (not 10px/--text-faint) so the data-flow preview meets WCAG-AA contrast */
+  font-size: 11px;
   line-height: 1.4;
-  color: var(--text-faint);
+  color: var(--text-dim);
   max-height: 44px;
   overflow: hidden;
   white-space: pre-wrap;
@@ -2818,7 +2819,9 @@ kbd {
 
 /* status: running = pulsing neon ring */
 .wf-node.st-running {
-  border-color: var(--accent);
+  /* the running ring uses the node's own kind color (--wf-kind) so the per-type
+     color harmony holds during a run, falling back to the accent if unset */
+  border-color: var(--wf-kind, var(--accent));
   animation: wf-pulse 1.3s ease-in-out infinite;
 }
 @keyframes wf-pulse {
@@ -2826,14 +2829,14 @@ kbd {
   100% {
     box-shadow:
       var(--shadow-card),
-      0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent),
-      0 0 10px color-mix(in srgb, var(--accent) 30%, transparent);
+      0 0 0 1px color-mix(in srgb, var(--wf-kind, var(--accent)) 60%, transparent),
+      0 0 10px color-mix(in srgb, var(--wf-kind, var(--accent)) 30%, transparent);
   }
   50% {
     box-shadow:
       var(--shadow-card),
-      0 0 0 2px var(--accent),
-      0 0 26px color-mix(in srgb, var(--accent) 60%, transparent);
+      0 0 0 2px var(--wf-kind, var(--accent)),
+      0 0 26px color-mix(in srgb, var(--wf-kind, var(--accent)) 60%, transparent);
   }
 }
 /* status: done = green flash + a quick pop */
@@ -3560,18 +3563,24 @@ kbd {
 /* center by (HUD/banner) the dock. When the dock is mounted, reserve its     */
 /* width: tuck the drawer beside the dock and recenter the HUD/banner over    */
 /* just the visible canvas. --wf-dock-w mirrors .wf-chat-dock's flex-basis.   */
-.wf-canvas-wrap:has(.wf-chat-dock) {
+/* the dock is now ALWAYS mounted (so a collapse mid-turn keeps the transcript + live
+   subscription) and merely hidden via .hidden; key the drawer/HUD offset on the VISIBLE
+   dock only, so a closed dock reclaims the full canvas width. */
+.wf-chat-dock.hidden {
+  display: none;
+}
+.wf-canvas-wrap:has(.wf-chat-dock:not(.hidden)) {
   --wf-dock-w: 340px;
 }
-.wf-canvas-wrap:has(.wf-chat-dock) .wf-drawer {
+.wf-canvas-wrap:has(.wf-chat-dock:not(.hidden)) .wf-drawer {
   right: var(--wf-dock-w);
 }
-.wf-canvas-wrap:has(.wf-chat-dock) .wf-runhud,
-.wf-canvas-wrap:has(.wf-chat-dock) .wf-runbanner {
+.wf-canvas-wrap:has(.wf-chat-dock:not(.hidden)) .wf-runhud,
+.wf-canvas-wrap:has(.wf-chat-dock:not(.hidden)) .wf-runbanner {
   left: calc((100% - var(--wf-dock-w)) / 2);
 }
 @media (max-width: 1100px) {
-  .wf-canvas-wrap:has(.wf-chat-dock) {
+  .wf-canvas-wrap:has(.wf-chat-dock:not(.hidden)) {
     --wf-dock-w: 300px;
   }
 }

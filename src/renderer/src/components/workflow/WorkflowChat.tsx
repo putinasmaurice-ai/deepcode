@@ -29,11 +29,15 @@ const DOCK_TOOLS = [
 export function WorkflowChat({
   workflow,
   onWorkflowChanged,
-  onClose
+  onClose,
+  hidden
 }: {
   workflow: WorkflowDef
   onWorkflowChanged?: () => void
   onClose?: () => void
+  // kept MOUNTED but hidden (display:none) when collapsed, so an in-flight turn's subscription,
+  // session id and transcript survive a collapse instead of being torn down + restarted.
+  hidden?: boolean
 }): JSX.Element {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [toolState, setToolState] = useState<Record<string, ToolState>>({})
@@ -238,7 +242,7 @@ export function WorkflowChat({
   }, [])
 
   return (
-    <div className="wf-chat-dock">
+    <div className={'wf-chat-dock' + (hidden ? ' hidden' : '')}>
       <div className="wf-chat-head">
         <span className="wf-chat-title">💬 Workflow-Assistent</span>
         <span className="wf-chat-sub">{workflow.name}</span>
