@@ -205,6 +205,12 @@ export interface DeepCodeApi {
   // 'mission' agent events. Returns the mission as it stands at launch.
   startMission(id: string): Promise<Mission>
   stopMission(id: string): Promise<boolean>
+  // schedule a mission for the overnight operator (offpeak window or a cron minute); pass null to
+  // un-schedule. Returns the saved mission (status flips to 'scheduled' when a schedule is set).
+  scheduleMission(id: string, schedule: Mission['schedule'] | null): Promise<Mission>
+  // the morning report for a mission: a path (open externally) + freshly-built markdown content
+  // (render inline). content is null when the mission no longer exists.
+  missionReport(id: string): Promise<{ path: string | null; content: string | null }>
 
   // night shift
   nightGet(): Promise<NightShiftState>

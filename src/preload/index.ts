@@ -141,6 +141,9 @@ const api: DeepCodeApi = {
   generatePlan: (goal: string) => ipcRenderer.invoke(IPC.missionGeneratePlan, goal),
   startMission: (id: string) => ipcRenderer.invoke(IPC.missionStart, id),
   stopMission: (id: string) => ipcRenderer.invoke(IPC.missionStop, id),
+  scheduleMission: (id: string, schedule: unknown) =>
+    ipcRenderer.invoke(IPC.missionSchedule, id, schedule),
+  missionReport: (id: string) => ipcRenderer.invoke(IPC.missionReport, id),
 
   // persistent approval allowlist
   listApprovedCommands: () => ipcRenderer.invoke(IPC.listApprovedCommands),

@@ -74,7 +74,9 @@ import { listSwarmBranches, swarmBranchDiff, swarmMerge, swarmDeleteBranch } fro
 import { getNightShift, saveNightShift, runNightShift, requestStop } from './nightshift'
 import { listMissions, getMission, saveMission, deleteMission } from './missions/store'
 import { runMission, OverseerDeps } from './missions/overseer'
-import { generatePlan } from './missions/plan'
+import { generatePlan, replan as planReplan } from './missions/plan'
+import { MissionScheduler } from './missions/scheduler'
+import { buildMissionReport, writeMissionReport, missionReportPath } from './missions/report'
 import { runStructuredVerify } from './agent/verify-report'
 import { runGit } from './agent/tools/git'
 import { inOffPeak } from '@shared/offpeak'
@@ -243,6 +245,11 @@ export function registerIpc(win: BrowserWindow): void {
   let missionRunning: string | null = null
   const missionAborters = new Map<string, AbortController>()
 
+  // git-safe ref check for a per-milestone branch name (defence in depth: the overseer builds the
+  // name, but never feed an unexpected value to `git branch -f`). Allows the mission/<id>/m<n>-<slug>
+  // shape — slashes, alphanumerics, dot, dash, underscore — and rejects anything else.
+  const safeBranchRef = (s: string): boolean => /^[A-Za-z0-9._/-]+$/.test(s) && !s.includes('..') && !s.startsWith('-')
+
   // Build the real OverseerDeps for ONE run. Mirrors the night-shift dispatch: a throwaway
   // unattended session per task, machine verify gate, local-only git. All events are stamped with
   // a fixed background 'mission' session id so per-task turn output never bleeds into a foreground chat.
@@ -308,16 +315,32 @@ export function registerIpc(win: BrowserWindow): void {
           throw new Error(`git checkout ${branch} fehlgeschlagen: ${r.out.trim().slice(0, 300)}`)
         }
       },
-      // commit the verified task's work to the mission branch. Distinguishes three outcomes so the
-      // overseer can react: { sha } a real commit, { sha: null } a genuine no-op (tree clean after
-      // the failed commit → "nothing to commit"), or { rejected } a non-zero commit that left the
-      // tree DIRTY (a pre-commit hook blocked it) — which must NOT be silently treated as done.
-      commit: async (cwd, message) => {
+      // commit the verified task's work to the mission branch AND drop a LOCAL per-milestone branch
+      // pointer (the `milestone` name the overseer supplies — mission/<id>/m<n>-<slug>) at that commit,
+      // so the user gets a reviewable STACK. Echoes the branch name back so the overseer records
+      // task.branch. Distinguishes three outcomes so the overseer can react: { sha, branch } a real
+      // commit, { sha: null } a genuine no-op (tree clean after the failed commit → "nothing to
+      // commit"), or { rejected } a non-zero commit that left the tree DIRTY (a pre-commit hook
+      // blocked it) — which must NOT be silently treated as done.
+      commit: async (cwd, message, milestone) => {
         await runGit(['add', '-A'], cwd, signal)
         const c = await runGit(['commit', '-m', message], cwd, signal)
         if (c.code === 0) {
           const sha = await runGit(['rev-parse', '--short', 'HEAD'], cwd, signal)
-          return { sha: sha.code === 0 ? sha.out.trim() : null }
+          // per-milestone branch pointer at HEAD — LOCAL only, best-effort. `branch -f` never moves
+          // the checkout, so the mission keeps building on its own branch; a failure here must NOT
+          // sink an already-landed commit, so it's swallowed and the sha still returns. Validate the
+          // name before handing it to git (defence in depth — the overseer composes it).
+          let createdBranch: string | undefined
+          if (milestone && safeBranchRef(milestone)) {
+            try {
+              const b = await runGit(['branch', '-f', milestone], cwd, signal)
+              if (b.code === 0) createdBranch = milestone
+            } catch {
+              /* per-milestone branch is a convenience; never let it fail the commit */
+            }
+          }
+          return { sha: sha.code === 0 ? sha.out.trim() : null, branch: createdBranch }
         }
         // non-zero commit: clean tree → genuine no-op; still-dirty tree → the commit was REJECTED
         // (hook) with the work uncommitted. Surface the hook output so the retry can react.
@@ -325,6 +348,13 @@ export function registerIpc(win: BrowserWindow): void {
         if (st.code === 0 && !st.out.trim()) return { sha: null } // nothing to commit, working tree clean
         return { rejected: c.out.trim().slice(0, 800) }
       },
+      // REPLANNING: when a task exhausts its retries, the overseer asks for remediation tasks instead
+      // of always halting. Pure LLM decomposition (plan.replan) via the same one-shot completion as
+      // generatePlan — bills usage. Returns the NEW remediation MissionTask[] ([] = unsatisfiable, the
+      // overseer then halts). The overseer enforces the maxReplans + total-tasks-added caps; this dep
+      // is just the model call.
+      replan: async (mission, failedTask, failure) =>
+        planReplan(mission.goal, mission.tasks, failedTask, failure, (system, user) => engine.complete(system, user)),
       // working-tree status used by the overseer's pre-flight clean-tree gate (porcelain = empty
       // when clean). The gate refuses to start on a dirty tree so `git add -A` can't sweep the
       // user's unrelated uncommitted work into a mission commit.
@@ -332,6 +362,15 @@ export function registerIpc(win: BrowserWindow): void {
         const r = await runGit(['status', '--porcelain'], cwd, signal)
         if (r.code !== 0) throw new Error(r.out.trim().slice(0, 300) || 'git status fehlgeschlagen')
         return r.out
+      },
+      // discard a FAILED task's never-verified edits back to the last verified commit so they don't
+      // bleed into the next remediation commit and so a halted mission leaves a clean (resumable,
+      // non-blocking) tree. `reset --hard HEAD` drops tracked changes; `clean -fd` removes the task's
+      // newly-created untracked files/dirs. Safe: the start-time clean-tree gate guaranteed a clean
+      // tree and every prior task committed, so the only content here is THIS failed task's own work.
+      discardChanges: async (cwd) => {
+        await runGit(['reset', '--hard', 'HEAD'], cwd, signal)
+        await runGit(['clean', '-fd'], cwd, signal)
       },
       // 'mission' + per-task turn events are session-less (no foreground chat to bleed into) →
       // forward straight to the renderer via the module emitter.
@@ -364,6 +403,74 @@ export function registerIpc(win: BrowserWindow): void {
     // decompose the goal into 3-8 linear tasks via the engine's one-shot completion (bills usage).
     return generatePlan(String(goal ?? ''), (system, user) => engine.complete(system, user))
   })
+  // RECURRING cron re-arm: a cron schedule ('0 2 * * *' = every night) implies recurrence, but a run
+  // drives the mission to a TERMINAL status and isDue() only fires a 'scheduled' mission — so without
+  // re-arming it would run exactly ONCE, then go permanently dormant (the documented overnight
+  // operator breaks). After a terminal run, flip a cron mission back to 'scheduled' and reset its plan
+  // to pending so the NEXT occurrence re-does the work (each nightly fire is a fresh run). The
+  // scheduler's per-minute lastFired key + the cron-minute match + the one-at-a-time latch keep this
+  // from double-firing within the same minute / while running. Off-peak stays SINGLE-SHOT by design
+  // (it would otherwise re-fire continuously throughout the discount window). Mutates the mission in
+  // place; the caller persists. No-op for non-cron / un-scheduled missions.
+  const rearmCron = (m: Mission): void => {
+    if (m.schedule?.mode !== 'cron') return
+    m.status = 'scheduled'
+    m.replansUsed = 0
+    // drop replan-inserted remediation tasks and reset the original plan to pending for a clean rerun
+    m.tasks = m.tasks
+      .filter((t) => t.kind !== 'remediation')
+      .map((t) => ({ ...t, status: 'pending', attempts: 0, commit: undefined, branch: undefined, summary: undefined }))
+  }
+  // Shared, guarded launch path used by BOTH the manual missionStart and the overnight scheduler:
+  // one-mission-at-a-time, abortable, fire-and-forget. Throws on the one-at-a-time guard so the
+  // manual handler can surface it; the scheduler swallows it (a missed tick retries next minute).
+  // After the run ends (any terminal status) it writes the morning report onto mission.reportPath.
+  const launchMission = (mission: Mission): Mission => {
+    if (missionRunning) throw new Error('Es läuft bereits eine Mission — bitte erst stoppen.')
+    const id = mission.id
+    missionRunning = id
+    const ac = new AbortController()
+    missionAborters.set(id, ac)
+    const deps = makeOverseerDeps(ac.signal)
+    // fire and forget — progress streams via 'mission' agent events; the renderer polls getMission.
+    runMission(mission, deps, { waitForOffPeak: mission.waitForOffPeak })
+      .then((final) => {
+        // morning report (per-task status/commit/branch/cost + keep/rewind hints) — written for
+        // every terminal outcome so the user wakes to a reviewable summary. Re-read from disk so the
+        // report metadata can't clobber a concurrent edit, and never let a report write fail the run.
+        try {
+          const cur = getMission(id) ?? final
+          const path = writeMissionReport(cur)
+          cur.reportPath = path
+          rearmCron(cur) // RECURRING cron: re-arm for the next occurrence (mutates cur in place)
+          saveMission(cur)
+        } catch (e) {
+          console.error('Mission-Bericht konnte nicht geschrieben werden:', (e as Error).message)
+        }
+      })
+      .catch((err) => {
+        // An escaped rejection (the overseer normally persists its own terminal status, but a throw
+        // from outside its try-blocks would otherwise leave the file stuck 'running'). Persist a
+        // durable terminal 'failed' so a restart doesn't resume a phantom — re-read first so the
+        // status flip can't clobber concurrent report/edit writes.
+        try {
+          const cur = getMission(id)
+          if (cur && cur.status === 'running') {
+            cur.status = 'failed'
+            saveMission(cur)
+          }
+        } catch {
+          /* best-effort durable failure; the event below still notifies the UI */
+        }
+        emit({ type: 'mission', missionId: id, status: 'failed', message: (err as Error).message })
+      })
+      .finally(() => {
+        missionAborters.delete(id)
+        if (missionRunning === id) missionRunning = null
+      })
+    return getMission(id) ?? mission
+  }
+
   ipcMain.handle(IPC.missionStart, (_e, id: string) => {
     const mission = getMission(id)
     if (!mission) throw new Error('Mission not found')
@@ -372,25 +479,44 @@ export function registerIpc(win: BrowserWindow): void {
     if (!mission.verifyCommand || !mission.verifyCommand.trim()) {
       throw new Error('Kein Verify-Befehl gesetzt — eine Mission ohne maschinelle Abnahme kann nicht gestartet werden.')
     }
-    if (missionRunning) throw new Error('Es läuft bereits eine Mission — bitte erst stoppen.')
-    missionRunning = id
-    const ac = new AbortController()
-    missionAborters.set(id, ac)
-    const deps = makeOverseerDeps(ac.signal)
-    // fire and forget — progress streams via 'mission' agent events; the renderer polls getMission.
-    runMission(mission, deps, { waitForOffPeak: mission.waitForOffPeak })
-      .catch((err) => emit({ type: 'mission', missionId: id, status: 'failed', message: (err as Error).message }))
-      .finally(() => {
-        missionAborters.delete(id)
-        if (missionRunning === id) missionRunning = null
-      })
-    return getMission(id)
+    return launchMission(mission)
   })
   ipcMain.handle(IPC.missionStop, (_e, id: string) => {
     // abort halts the overseer loop: it threads this signal into every runTask/verify/git call and
     // checks signal.aborted between tasks, so the run unwinds without committing on a stopped task.
     missionAborters.get(id)?.abort()
     return true
+  })
+  // save a schedule on a mission (the overnight operator auto-starts it inside its window). Saved
+  // separately from missionSave so the panel can flip scheduling on/off without rewriting the plan.
+  ipcMain.handle(IPC.missionSchedule, (_e, id: string, schedule: Mission['schedule'] | null) => {
+    const mission = getMission(id)
+    if (!mission) throw new Error('Mission not found')
+    if (schedule) {
+      // guard a scheduled mission the same way the manual start is guarded — never queue a mission
+      // the scheduler would refuse to run (empty verify command auto-passes + commits unverified).
+      if (!mission.verifyCommand || !mission.verifyCommand.trim()) {
+        throw new Error('Kein Verify-Befehl gesetzt — eine Mission ohne maschinelle Abnahme kann nicht geplant werden.')
+      }
+      if (schedule.mode === 'cron' && !String(schedule.cron ?? '').trim()) {
+        throw new Error('Cron-Zeitplan fehlt — bitte einen 5-Felder-Cron-Ausdruck angeben.')
+      }
+      mission.schedule = schedule.mode === 'cron' ? { mode: 'cron', cron: String(schedule.cron ?? '').trim() } : { mode: 'offpeak' }
+      mission.status = 'scheduled'
+    } else {
+      // un-schedule: drop the schedule and reset a still-'scheduled' mission back to a runnable state.
+      delete mission.schedule
+      if (mission.status === 'scheduled') mission.status = mission.tasks.length ? 'ready' : 'planning'
+    }
+    return saveMission(mission)
+  })
+  // morning report: the path (so the panel can open it externally) + the freshly-built content (so
+  // it can render inline without a file read). Returns null content when no report has been written.
+  ipcMain.handle(IPC.missionReport, (_e, id: string) => {
+    const mission = getMission(id)
+    if (!mission) return { path: null, content: null }
+    const path = mission.reportPath ?? missionReportPath(id)
+    return { path, content: buildMissionReport(mission) }
   })
 
   ipcMain.handle(IPC.projectHealth, (_e, cwd: string) => computeProjectHealth(cwd))
@@ -1323,6 +1449,43 @@ export function registerIpc(win: BrowserWindow): void {
   }
   const wfScheduler = new WorkflowScheduler(runTriggeredWorkflow)
   wfScheduler.start()
+
+  // ---- mission overnight operator (scheduler) ----
+  // Auto-starts SCHEDULED missions inside their off-peak window / cron minute via the SAME guarded
+  // launch path as a manual start (one-mission-at-a-time, machine verify gate, local-only git). The
+  // scheduler already serializes to one in-flight run; here we additionally SKIP (rather than fail)
+  // when the daily cap is hit or the working tree is dirty, so a nightly mission stays scheduled and
+  // simply retries on the next eligible tick instead of flipping to 'failed'.
+  const runScheduledMission = async (mission: Mission): Promise<void> => {
+    if (missionRunning) return // one at a time — another mission is already running; retry next tick
+    if (!mission.verifyCommand || !mission.verifyCommand.trim()) {
+      console.info(`[mission] scheduled "${mission.goal.slice(0, 40)}" skipped — no verify command.`)
+      return
+    }
+    if (overDailyCap(settings.maxCostPerDay)) {
+      console.info(`[mission] scheduled "${mission.goal.slice(0, 40)}" skipped — daily cap $${settings.maxCostPerDay} reached.`)
+      return
+    }
+    // clean-tree pre-check: don't even start (the overseer would fail-closed + brand it 'failed',
+    // which would un-schedule the nightly run). Skip quietly and retry when the tree is clean.
+    try {
+      const cwd = validDir(mission.cwd) || validDir(settings.defaultCwd) || homedir()
+      const st = await runGit(['status', '--porcelain'], cwd, new AbortController().signal)
+      if (st.code === 0 && st.out.trim()) {
+        console.info(`[mission] scheduled "${mission.goal.slice(0, 40)}" skipped — working tree dirty.`)
+        return
+      }
+    } catch {
+      return // can't check the tree → don't risk an unattended commit; retry next tick
+    }
+    try {
+      launchMission(mission)
+    } catch {
+      /* one-at-a-time guard raced us between the check and launch — retry next tick */
+    }
+  }
+  const missionScheduler = new MissionScheduler((m) => runScheduledMission(m))
+  missionScheduler.start()
 
   // ---- workflow file-watch trigger ----
   // fires saved workflows whose trigger node is set to mode='filewatch' when a matching file

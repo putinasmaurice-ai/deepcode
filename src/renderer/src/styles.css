@@ -3754,3 +3754,164 @@ kbd {
     animation: none;
   }
 }
+
+/* ============================================================ */
+/* MISSION COMMAND CENTER — read-only DAG of the plan tree.     */
+/* Cohesive with the workflow neon canvas: it REUSES the shared */
+/* NeonEdge component (.wf-edge-* + .wf-edge-group.is-* rules    */
+/* above) so dep edges glow/flow exactly like workflow edges,   */
+/* and mirrors the .wf-node living-card look with its own        */
+/* .mission-graph-* classes so the two never clash. Nodes are    */
+/* laid out left→right by topological depth; status drives the   */
+/* color + the same pulse/pop/shake motion. Purely presentational*/
+/* — it re-renders from the live `mission` prop, no timers.       */
+/* ============================================================ */
+.mission-graph {
+  position: relative;
+  height: 360px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 90% at 50% -10%, color-mix(in srgb, var(--accent-3) 8%, transparent), transparent 60%),
+    var(--bg-2);
+}
+.mission-graph .react-flow {
+  background: transparent;
+}
+.mission-graph-empty {
+  padding: 22px 14px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-faint);
+}
+
+/* the task card — built to read like .wf-node but standalone */
+.mission-graph-node {
+  position: relative;
+  min-width: 168px;
+  max-width: 210px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  font-size: 12px;
+  color: var(--text);
+  border: 1px solid var(--border-2);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-elev) 70%, transparent), var(--bg-3));
+  backdrop-filter: blur(2px);
+  box-shadow: var(--shadow-card);
+  --mg-kind: var(--accent);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.25s ease,
+    transform 0.15s ease;
+}
+.mission-graph-node[data-kind='remediation'] {
+  --mg-kind: var(--accent-2);
+}
+/* kind accent bar, mirroring .wf-node::before */
+.mission-graph-node::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--mg-kind);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--mg-kind) 60%, transparent);
+  opacity: 0.9;
+}
+.mission-graph-node:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--mg-kind) 55%, var(--border-2));
+  box-shadow:
+    var(--shadow-card),
+    0 0 0 1px color-mix(in srgb, var(--mg-kind) 30%, transparent),
+    0 0 18px color-mix(in srgb, var(--mg-kind) 22%, transparent);
+}
+.mission-graph-node-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+.mission-graph-ic {
+  flex: 0 0 auto;
+  font-size: 13px;
+  color: var(--mg-kind);
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--mg-kind) 45%, transparent));
+}
+.mission-graph-ttl {
+  flex: 1;
+  font-weight: 600;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.mission-graph-tag {
+  flex: 0 0 auto;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--accent-2);
+  border: 1px solid color-mix(in srgb, var(--accent-2) 50%, transparent);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+.mission-graph-meta {
+  margin-top: 5px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* status modifiers — reuse the workflow keyframes (wf-pulse/wf-pop/wf-shake) so the
+   mission DAG animates identically to the workflow canvas. The pulse ring uses the
+   node's kind color via --wf-kind (mapped from --mg-kind for keyframe reuse). */
+.mission-graph-node.st-pending {
+  opacity: 0.92;
+}
+.mission-graph-node.st-running {
+  --wf-kind: var(--mg-kind);
+  border-color: var(--mg-kind);
+  animation: wf-pulse 1.3s ease-in-out infinite;
+}
+.mission-graph-node.st-done {
+  border-color: var(--green);
+  box-shadow:
+    var(--shadow-card),
+    0 0 0 1px color-mix(in srgb, var(--green) 55%, transparent),
+    0 0 16px color-mix(in srgb, var(--green) 28%, transparent);
+  animation: wf-pop 0.5s ease-out;
+}
+.mission-graph-node.st-done .mission-graph-ic {
+  color: var(--green);
+}
+.mission-graph-node.st-failed {
+  border-color: var(--red);
+  box-shadow:
+    var(--shadow-card),
+    0 0 0 1px color-mix(in srgb, var(--red) 55%, transparent),
+    0 0 16px color-mix(in srgb, var(--red) 30%, transparent);
+  animation: wf-shake 0.4s ease-in-out;
+}
+.mission-graph-node.st-failed .mission-graph-ic {
+  color: var(--red);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mission-graph-node.st-running {
+    animation: none !important;
+    box-shadow:
+      var(--shadow-card),
+      0 0 0 2px var(--mg-kind),
+      0 0 16px color-mix(in srgb, var(--mg-kind) 40%, transparent);
+  }
+  .mission-graph-node.st-done,
+  .mission-graph-node.st-failed {
+    animation: none !important;
+  }
+}

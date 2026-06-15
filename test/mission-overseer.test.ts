@@ -10,13 +10,14 @@ const HOME = vi.hoisted(() => {
   return home
 })
 
-import { mkdirSync, rmSync } from 'fs'
+import { mkdirSync, rmSync, writeFileSync, existsSync } from 'fs'
+import { execFileSync } from 'child_process'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { PATHS } from '../src/main/paths'
-import { runMission, OverseerDeps, CommitResult } from '../src/main/missions/overseer'
+import { runMission, OverseerDeps, CommitResult, readyTasks, validateDag } from '../src/main/missions/overseer'
 import { getMission, saveMission, deleteMission } from '../src/main/missions/store'
-import { generatePlan, parsePlanJson, coercePlan } from '../src/main/missions/plan'
+import { generatePlan, replan, parsePlanJson, coercePlan } from '../src/main/missions/plan'
 import type { Mission, MissionTask } from '../src/shared/types'
 
 const CFG = join(HOME, '.deepcode')
@@ -58,10 +59,12 @@ const makeMission = (tasks: MissionTask[]): Mission => {
 }
 
 // A stub OverseerDeps with live call counters; `verifyResults` is consumed per verify call
-// (the last entry repeats once exhausted, so a single [false] means "always fails").
-type StubDeps = OverseerDeps & { runCalls: number; verifyCalls: number; commits: string[] }
+// (the last entry repeats once exhausted, so a single [false] means "always fails"). `replan` lets
+// a test inject remediation tasks (default: [] = give up → halt). `replanCalls`/`commits` are read
+// via getters so a test can assert how often the overseer asked for a replan / committed.
+type StubDeps = OverseerDeps & { runCalls: number; verifyCalls: number; replanCalls: number; commits: string[]; milestones: string[] }
 function makeDeps(over: Partial<OverseerDeps> & { verifyResults?: boolean[] } = {}): StubDeps {
-  const counters = { runCalls: 0, verifyCalls: 0, commits: [] as string[] }
+  const counters = { runCalls: 0, verifyCalls: 0, replanCalls: 0, commits: [] as string[], milestones: [] as string[] }
   const verifyResults = over.verifyResults ?? []
   const deps = {
     runTask:
@@ -80,11 +83,19 @@ function makeDeps(over: Partial<OverseerDeps> & { verifyResults?: boolean[] } = 
     ensureBranch: over.ensureBranch ?? (async () => {}),
     commit:
       over.commit ??
-      (async (_cwd: string, msg: string) => {
+      (async (_cwd: string, msg: string, milestone?: string) => {
         counters.commits.push(msg)
-        return { sha: `c${counters.commits.length}` }
+        if (milestone) counters.milestones.push(milestone)
+        return { sha: `c${counters.commits.length}`, branch: milestone }
       }),
     treeStatus: over.treeStatus ?? (async () => ''), // clean tree by default
+    discardChanges: over.discardChanges ?? (async () => {}), // no-op tree discard by default
+    replan:
+      over.replan ??
+      (async () => {
+        counters.replanCalls++
+        return [] // default: no remediation → the overseer halts loudly
+      }),
     emit: over.emit ?? (() => {}),
     overDailyCap: over.overDailyCap ?? (() => false),
     inOffPeak: over.inOffPeak ?? (() => true),
@@ -93,7 +104,9 @@ function makeDeps(over: Partial<OverseerDeps> & { verifyResults?: boolean[] } = 
   return Object.defineProperties(deps as StubDeps, {
     runCalls: { get: () => counters.runCalls },
     verifyCalls: { get: () => counters.verifyCalls },
-    commits: { get: () => counters.commits }
+    replanCalls: { get: () => counters.replanCalls },
+    commits: { get: () => counters.commits },
+    milestones: { get: () => counters.milestones }
   })
 }
 
@@ -301,6 +314,201 @@ describe('runMission overseer', () => {
     expect(deps.runCalls).toBe(0)
   })
 
+  // ---- V2: DAG / ready-based ordering + bounded replan ----
+
+  it('(14) runs tasks by DAG readiness (deps), not array order', async () => {
+    // array order is [c, a, b] but deps force a -> b -> c. The overseer must run a, b, c.
+    const a = task('a')
+    const b = task('b')
+    const c = task('c')
+    b.deps = [a.id]
+    c.deps = [b.id]
+    const order: string[] = []
+    const m = makeMission([c, a, b])
+    const deps = makeDeps({
+      verifyResults: [true, true, true],
+      runTask: async (_mission, t) => {
+        order.push(t.title)
+        return { summary: 'did it', tokens: 1, cost: 0 }
+      }
+    })
+    const result = await runMission(m, deps, {})
+    expect(result.status).toBe('done')
+    expect(order).toEqual(['a', 'b', 'c'])
+    expect(result.tasks.every((t) => t.status === 'done')).toBe(true)
+  })
+
+  it('(15) a dependency cycle fails the mission closed without running anything', async () => {
+    const a = task('a')
+    const b = task('b')
+    a.deps = [b.id]
+    b.deps = [a.id] // cycle
+    const m = makeMission([a, b])
+    const deps = makeDeps({ verifyResults: [true] })
+    const result = await runMission(m, deps, {})
+    expect(result.status).toBe('failed')
+    expect(deps.runCalls).toBe(0) // never ran
+    expect(deps.commits).toHaveLength(0)
+  })
+
+  it('(15b) a dep on a missing task id fails the mission closed without running anything', async () => {
+    const a = task('a')
+    a.deps = ['no-such-task']
+    const m = makeMission([a])
+    const deps = makeDeps({ verifyResults: [true] })
+    const result = await runMission(m, deps, {})
+    expect(result.status).toBe('failed')
+    expect(deps.runCalls).toBe(0)
+    expect(deps.commits).toHaveLength(0)
+  })
+
+  it('(16) a failed task triggers ONE replan whose remediation runs, then the goal retries', async () => {
+    const goal = task('goal')
+    const m = makeMission([goal])
+    // verify: goal fails twice (exhausts) → replan inserts a fix → fix passes → goal passes.
+    // sequence of verify calls: F, F (goal attempts) | T (fix) | T (goal retry)
+    const deps = makeDeps({
+      verifyResults: [false, false, true, true],
+      replan: async () => [
+        { id: randomUUID(), title: 'fix it', instruction: 'repair the thing', status: 'pending', attempts: 0 } as MissionTask
+      ]
+    })
+    const result = await runMission(m, deps, {})
+    expect(result.status).toBe('done')
+    // one remediation task inserted + the original goal, both done
+    expect(result.tasks).toHaveLength(2)
+    expect(result.tasks.some((t) => t.kind === 'remediation' && t.status === 'done')).toBe(true)
+    expect(result.tasks.find((t) => t.title === 'goal')!.status).toBe('done')
+    expect(result.replansUsed).toBe(1)
+    expect(deps.commits).toHaveLength(2) // fix + goal both committed
+  })
+
+  it('(17) replan budget exhaustion halts the mission (no infinite replanning)', async () => {
+    const goal = task('goal')
+    const m = makeMission([goal])
+    m.maxReplans = 2
+    saveMission(m)
+    let replanCalls = 0
+    // every verify fails forever; each replan inserts a fresh fix that also fails. Bounded by
+    // maxReplans=2 → at most 2 replans, then HALT. Must terminate, not loop.
+    const deps = makeDeps({
+      verifyResults: [false], // always fail
+      replan: async () => {
+        replanCalls++
+        return [{ id: randomUUID(), title: `fix${replanCalls}`, instruction: 'try again', status: 'pending', attempts: 0 } as MissionTask]
+      }
+    })
+    const result = await runMission(m, deps, {})
+    expect(result.status).toBe('failed')
+    expect(replanCalls).toBe(2) // replanned exactly maxReplans times, then halted
+    expect(result.replansUsed).toBe(2)
+  })
+
+  it('(18) replan returning [] (unsatisfiable) halts the mission loudly', async () => {
+    const goal = task('goal')
+    const m = makeMission([goal])
+    const deps = makeDeps({
+      verifyResults: [false], // goal always fails → exhausts → replan
+      replan: async () => [] // give up
+    })
+    const result = await runMission(m, deps, {})
+    expect(result.status).toBe('failed')
+    expect(deps.replanCalls).toBe(0) // we passed our own replan; default counter untouched
+    expect(result.replansUsed ?? 0).toBe(0) // [] is not a successful replan → budget not consumed beyond the attempt
+    expect(result.tasks[0].status).toBe('failed')
+  })
+
+  it('(18b) daily cap crossed when a task fails gates the replan (no billed replan past the ceiling)', async () => {
+    const goal = task('goal')
+    const m = makeMission([goal])
+    let attempts = 0
+    // goal verify always fails → exhausts after 2 attempts; cap flips on once the task has failed, so
+    // it is over the cap by the time tryReplan would fire. The replan dep must NOT be called.
+    const deps = makeDeps({
+      verifyResults: [false],
+      overDailyCap: () => attempts >= 2, // false during the 2 attempts, true at replan time
+      runTask: async () => {
+        attempts++
+        return { summary: 'x', tokens: 0, cost: 0 }
+      },
+      replan: async () => [
+        { id: randomUUID(), title: 'fix', instruction: 'repair', status: 'pending', attempts: 0 } as MissionTask
+      ]
+    })
+    const result = await runMission(m, deps, {})
+    expect(result.status).toBe('failed')
+    expect(deps.replanCalls).toBe(0) // the paid replan completion was NEVER issued past the cap
+    expect(result.replansUsed ?? 0).toBe(0)
+  })
+
+  it('(18c) the added-task cap is a LIFETIME bound: existing remediation tasks count on resume', async () => {
+    // simulate a restart of a mission that already grew by 2 remediation tasks. originalCount derives
+    // from the NON-remediation tasks (1), so maxAddedTasks = 2 and addedTasks resumes at 2 → already
+    // at the cap. A further failure must HALT on the added-task cap, never insert more.
+    const goal = task('goal')
+    const rem1: MissionTask = { id: randomUUID(), title: 'r1', instruction: 'r', status: 'done', attempts: 1, kind: 'remediation', commit: 'aaa' }
+    const rem2: MissionTask = { id: randomUUID(), title: 'r2', instruction: 'r', status: 'done', attempts: 1, kind: 'remediation', commit: 'bbb' }
+    const m = makeMission([goal, rem1, rem2])
+    m.maxReplans = 5 // budget NOT the limiting factor — the added-task cap must be
+    m.replansUsed = 2
+    saveMission(m)
+    let replanCalls = 0
+    const deps = makeDeps({
+      verifyResults: [false], // goal fails → would want to replan
+      replan: async () => {
+        replanCalls++
+        return [{ id: randomUUID(), title: 'r3', instruction: 'r', status: 'pending', attempts: 0 } as MissionTask]
+      }
+    })
+    const result = await runMission(m, deps, {})
+    expect(result.status).toBe('failed')
+    expect(replanCalls).toBe(0) // added-task cap already reached on resume → no further growth
+    expect(result.tasks.filter((t) => t.kind === 'remediation')).toHaveLength(2) // no new ones inserted
+  })
+
+  it('(18d) a throw from verify() is a failed attempt, not an escaped rejection leaving "running"', async () => {
+    const m = makeMission([task('a')])
+    const deps = makeDeps({
+      verify: async () => {
+        throw new Error('git spawn EPERM')
+      }
+    })
+    const result = await runMission(m, deps, {})
+    expect(result.status).toBe('failed') // durable terminal status, not stuck 'running'
+    expect(result.tasks[0].status).toBe('failed')
+    expect(deps.runCalls).toBe(2) // retried after the verify throw, then failed
+    expect(getMission(m.id)!.status).toBe('failed')
+  })
+
+  it('(18e) a throw from commit() after a green verify retries, then fails durably', async () => {
+    const m = makeMission([task('a')])
+    const deps = makeDeps({
+      verifyResults: [true, true],
+      commit: async () => {
+        throw new Error('git commit spawn failed')
+      }
+    })
+    const result = await runMission(m, deps, {})
+    expect(result.status).toBe('failed')
+    expect(result.tasks[0].status).toBe('failed')
+    expect(result.tasks[0].commit).toBeUndefined()
+    expect(deps.runCalls).toBe(2) // retried after the commit throw
+    expect(getMission(m.id)!.status).toBe('failed')
+  })
+
+  it('(19) records a per-milestone branch on each verified task', async () => {
+    const m = makeMission([task('first thing'), task('second thing')])
+    const deps = makeDeps({ verifyResults: [true, true] })
+    const result = await runMission(m, deps, {})
+    expect(result.status).toBe('done')
+    expect(deps.milestones).toHaveLength(2)
+    // sibling namespace ("--m<n>-"), NOT a child segment ("/m<n>-") that would D/F-conflict in git
+    expect(result.tasks[0].branch).toMatch(/--m1-first-thing$/)
+    expect(result.tasks[1].branch).toMatch(/--m2-second-thing$/)
+    // persisted to disk too
+    expect(getMission(m.id)!.tasks[0].branch).toMatch(/--m1-/)
+  })
+
   it('emits mission events scoped to the mission id', async () => {
     const m = makeMission([task('a')])
     const events: { status: string; missionId: string }[] = []
@@ -345,6 +553,247 @@ describe('generatePlan', () => {
 
   it('rejects an empty goal', async () => {
     await expect(generatePlan('', async () => '{}')).rejects.toThrow(/Ziel/)
+  })
+
+  it('emits DAG tasks: remaps model dep ids onto minted ids', async () => {
+    const json = JSON.stringify({
+      tasks: [
+        { id: 't1', title: 'A', instruction: 'do a', deps: [] },
+        { id: 't2', title: 'B', instruction: 'do b', deps: ['t1'] }
+      ]
+    })
+    const tasks = await generatePlan('build it', async () => json)
+    expect(tasks).toHaveLength(2)
+    expect(tasks[0].deps).toEqual([]) // first task has no deps
+    expect(tasks[1].deps).toEqual([tasks[0].id]) // remapped from 't1' to the minted id
+    expect(tasks.every((t) => t.kind === 'task')).toBe(true)
+    // minted ids are not the model's local ids
+    expect(tasks[0].id).not.toBe('t1')
+  })
+
+  it('drops a dep pointing at an unknown / dropped task id', async () => {
+    const coerced = coercePlan([
+      { id: 'a', title: 'A', instruction: 'do a', deps: ['ghost'] },
+      { id: 'b', title: 'B', instruction: '', deps: [] } // dropped (empty instruction)
+    ])
+    expect(coerced).toHaveLength(1)
+    expect(coerced[0].deps).toEqual([]) // 'ghost' (and the dropped 'b') resolve to nothing
+  })
+})
+
+describe('replan', () => {
+  const failed: MissionTask = { id: 'x', title: 'goal', instruction: 'do goal', status: 'failed', attempts: 2 }
+  it('coerces remediation tasks tagged kind=remediation', async () => {
+    const json = JSON.stringify({ tasks: [{ id: 'fix1', title: 'Fix', instruction: 'repair' }] })
+    const r = await replan('build it', [failed], failed, 'verify failed', async () => json)
+    expect(r).toHaveLength(1)
+    expect(r[0]).toMatchObject({ title: 'Fix', instruction: 'repair', kind: 'remediation', status: 'pending', attempts: 0 })
+  })
+
+  it('returns [] when the planner gives no remediation (unsatisfiable)', async () => {
+    expect(await replan('g', [failed], failed, 'fail', async () => '{"tasks":[]}')).toEqual([])
+  })
+
+  it('returns [] on unparseable output instead of throwing (overseer treats it as give-up)', async () => {
+    expect(await replan('g', [failed], failed, 'fail', async () => 'sorry no json')).toEqual([])
+  })
+
+  it('returns [] when the planner call throws', async () => {
+    expect(
+      await replan('g', [failed], failed, 'fail', async () => {
+        throw new Error('boom')
+      })
+    ).toEqual([])
+  })
+})
+
+describe('DAG pure helpers', () => {
+  const t = (id: string, status: MissionTask['status'], deps: string[] = []): MissionTask => ({
+    id,
+    title: id,
+    instruction: `do ${id}`,
+    status,
+    attempts: 0,
+    deps
+  })
+
+  it('readyTasks returns only pending tasks whose deps are all done, in array order', () => {
+    const tasks = [t('a', 'done'), t('b', 'pending', ['a']), t('c', 'pending', ['b']), t('d', 'pending', ['a'])]
+    const ready = readyTasks(tasks)
+    expect(ready.map((x) => x.id)).toEqual(['b', 'd']) // c waits on b (still pending); a is done
+  })
+
+  it('readyTasks ignores done/running/failed tasks', () => {
+    const tasks = [t('a', 'running'), t('b', 'failed'), t('c', 'done'), t('d', 'pending')]
+    expect(readyTasks(tasks).map((x) => x.id)).toEqual(['d'])
+  })
+
+  it('validateDag passes a valid DAG and rejects cycles + missing deps', () => {
+    expect(validateDag([t('a', 'pending'), t('b', 'pending', ['a'])])).toBeNull()
+    expect(validateDag([t('a', 'pending', ['b']), t('b', 'pending', ['a'])])).toMatch(/[Zz]yklus/)
+    expect(validateDag([t('a', 'pending', ['ghost'])])).toMatch(/unbekannte/)
+    expect(validateDag([t('a', 'pending', ['a'])])).toMatch(/sich selbst/)
+  })
+})
+
+// ---- REAL-GIT integration: the deps the stubs mask. Drives the overseer against an actual git repo
+// with the SAME commit / ensureBranch / treeStatus / discardChanges shape the ipc layer supplies, so
+// a git D/F ref conflict (child milestone segment under the base branch) or a missing discard is
+// caught instead of stubbed away. Skips cleanly if git isn't on PATH.
+let GIT_OK = true
+try {
+  execFileSync('git', ['--version'], { stdio: 'ignore' })
+} catch {
+  GIT_OK = false
+}
+
+describe.skipIf(!GIT_OK)('runMission against real git', () => {
+  const REPOS = join(HOME, 'repos')
+  const git = (cwd: string, args: string[]): string =>
+    execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+
+  function makeRepo(): string {
+    mkdirSync(REPOS, { recursive: true })
+    const cwd = join(REPOS, randomUUID())
+    mkdirSync(cwd)
+    git(cwd, ['init', '-q'])
+    git(cwd, ['config', 'user.email', 't@t.t'])
+    git(cwd, ['config', 'user.name', 't'])
+    git(cwd, ['config', 'commit.gpgsign', 'false'])
+    writeFileSync(join(cwd, 'seed.txt'), 'seed\n')
+    git(cwd, ['add', '-A'])
+    git(cwd, ['commit', '-qm', 'init'])
+    return cwd
+  }
+
+  // The git-backed deps, mirroring makeOverseerDeps in ipc.ts (minus electron). runTask writes a file
+  // so each task produces real working-tree changes for commit/discard to act on.
+  function realGitDeps(cwd: string, verifyResults: boolean[]): StubDeps {
+    const signal = new AbortController().signal
+    const runGit = async (args: string[]): Promise<{ code: number; out: string }> => {
+      try {
+        return { code: 0, out: git(cwd, args) }
+      } catch (e) {
+        const err = e as { status?: number; stdout?: Buffer; stderr?: Buffer }
+        return { code: err.status ?? 1, out: String(err.stdout ?? '') + String(err.stderr ?? '') }
+      }
+    }
+    let fileN = 0
+    const counters = { runCalls: 0, verifyCalls: 0, replanCalls: 0, commits: [] as string[], milestones: [] as string[] }
+    const deps = {
+      runTask: async () => {
+        counters.runCalls++
+        writeFileSync(join(cwd, `task-${++fileN}.txt`), `work ${fileN}\n`)
+        return { summary: 'did it', tokens: 1, cost: 0 }
+      },
+      verify: async () => {
+        const ok = verifyResults.length ? verifyResults[Math.min(counters.verifyCalls, verifyResults.length - 1)] : true
+        counters.verifyCalls++
+        return { ok, summary: ok ? 'pass' : 'FAIL' }
+      },
+      ensureBranch: async (_c: string, branch: string) => {
+        const ex = await runGit(['rev-parse', '--verify', branch])
+        const r = ex.code === 0 ? await runGit(['checkout', branch]) : await runGit(['checkout', '-b', branch])
+        if (r.code !== 0 && !/already on/i.test(r.out)) throw new Error(`checkout ${branch}: ${r.out}`)
+      },
+      commit: async (_c: string, message: string, milestone?: string): Promise<CommitResult> => {
+        await runGit(['add', '-A'])
+        const c = await runGit(['commit', '-m', message])
+        counters.commits.push(message)
+        if (c.code === 0) {
+          const sha = await runGit(['rev-parse', '--short', 'HEAD'])
+          let branch: string | undefined
+          if (milestone) {
+            const b = await runGit(['branch', '-f', milestone])
+            if (b.code === 0) {
+              branch = milestone
+              counters.milestones.push(milestone)
+            }
+          }
+          return { sha: sha.code === 0 ? sha.out.trim() : null, branch }
+        }
+        const st = await runGit(['status', '--porcelain'])
+        if (st.code === 0 && !st.out.trim()) return { sha: null }
+        return { rejected: c.out.trim() }
+      },
+      treeStatus: async () => (await runGit(['status', '--porcelain'])).out,
+      discardChanges: async () => {
+        await runGit(['reset', '--hard', 'HEAD'])
+        await runGit(['clean', '-fd'])
+      },
+      replan: async () => {
+        counters.replanCalls++
+        return []
+      },
+      emit: () => {},
+      overDailyCap: () => false,
+      inOffPeak: () => true,
+      signal
+    } as OverseerDeps
+    return Object.defineProperties(deps as StubDeps, {
+      runCalls: { get: () => counters.runCalls },
+      verifyCalls: { get: () => counters.verifyCalls },
+      replanCalls: { get: () => counters.replanCalls },
+      commits: { get: () => counters.commits },
+      milestones: { get: () => counters.milestones }
+    })
+  }
+
+  it('(20) milestone branches are actually CREATED in git (no D/F ref conflict with the base branch)', async () => {
+    const cwd = makeRepo()
+    const m = makeMission([task('add tests'), task('wire it up')])
+    m.cwd = cwd
+    saveMission(m)
+    const deps = realGitDeps(cwd, [true, true])
+    const result = await runMission(m, deps, {})
+
+    expect(result.status).toBe('done')
+    // each verified task recorded a milestone branch that REALLY EXISTS in git (the old child-segment
+    // namespace "mission/<id>/m1-…" would have failed with a D/F conflict → task.branch undefined).
+    const branches = git(cwd, ['branch', '--list']).split('\n').map((s) => s.replace(/^[*+ ]+/, '').trim()).filter(Boolean)
+    expect(result.tasks[0].branch).toBeTruthy()
+    expect(result.tasks[1].branch).toBeTruthy()
+    expect(branches).toContain(result.tasks[0].branch)
+    expect(branches).toContain(result.tasks[1].branch)
+    // sibling namespace, not a child of the base branch
+    expect(result.tasks[0].branch).toMatch(/--m1-add-tests$/)
+    expect(branches).toContain(`mission/${m.id}`)
+  })
+
+  it('(21) a failed task discards its uncommitted edits → halted mission leaves a CLEAN tree', async () => {
+    const cwd = makeRepo()
+    const goal = task('do goal')
+    const m = makeMission([goal])
+    m.cwd = cwd
+    m.maxReplans = 0 // no replan → fail straight to halt
+    saveMission(m)
+    const deps = realGitDeps(cwd, [false]) // verify always fails → task fails, edits never committed
+    const result = await runMission(m, deps, {})
+
+    expect(result.status).toBe('failed')
+    // the failed task wrote task-1.txt but it was never committed; the halt must have discarded it.
+    expect(existsSync(join(cwd, 'task-1.txt'))).toBe(false)
+    expect(git(cwd, ['status', '--porcelain']).trim()).toBe('') // clean tree → resumable, non-blocking
+  })
+
+  it('(22) replan remediation commit does NOT absorb the failed task’s rejected edits', async () => {
+    const cwd = makeRepo()
+    const goal = task('goal')
+    const m = makeMission([goal])
+    m.cwd = cwd
+    saveMission(m)
+    // goal fails twice (writes task-1, task-2; both discarded) → replan inserts a fix that passes.
+    // The fix's commit must contain ONLY the fix's own file, never the goal's discarded task-*.txt.
+    const deps = realGitDeps(cwd, [false, false, true, true])
+    ;(deps as { replan: OverseerDeps['replan'] }).replan = async () => [
+      { id: randomUUID(), title: 'fix it', instruction: 'repair', status: 'pending', attempts: 0 } as MissionTask
+    ]
+    const result = await runMission(m, deps, {})
+    expect(result.status).toBe('done')
+    const fix = result.tasks.find((t) => t.kind === 'remediation')!
+    // files in the remediation commit = its own diff against the parent: no task-1/2.txt leaked in.
+    const filesInFixCommit = git(cwd, ['show', '--name-only', '--pretty=format:', fix.commit!]).trim().split('\n').filter(Boolean)
+    expect(filesInFixCommit.some((f) => /^task-[12]\.txt$/.test(f))).toBe(false)
   })
 })
 

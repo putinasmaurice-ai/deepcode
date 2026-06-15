@@ -118,6 +118,8 @@ export const IPC = {
   missionGeneratePlan: 'missions:generatePlan',
   missionStart: 'missions:start',
   missionStop: 'missions:stop',
+  missionSchedule: 'missions:schedule',
+  missionReport: 'missions:report',
 
   // persistent approval allowlist
   listApprovedCommands: 'approvals:list',

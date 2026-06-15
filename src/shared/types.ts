@@ -92,8 +92,9 @@ export interface NightShiftState {
 
 // ---- Mission Control (autonomous outer loop) ----
 // A mission breaks the per-turn MAX_STEPS ceiling by making the OUTER loop a persisted plan:
-// each task is its own agent turn, machine-verified, and auto-committed on pass. V1 is LINEAR
-// (no branching tree, no replanning) — see src/main/missions/overseer.ts.
+// each task is its own agent turn, machine-verified, and auto-committed on pass. V2 turns the
+// plan into a branching DAG (task.deps) the overseer runs by readiness (topological), with a
+// bounded REPLAN loop on exhaustion + per-milestone branch pointers — see overseer.ts.
 export interface MissionTask {
   id: string
   title: string
@@ -104,6 +105,16 @@ export interface MissionTask {
   summary?: string
   tokens?: number
   cost?: number
+  // V2 DAG: ids of prerequisite tasks that must be 'done' before this one is READY to run. The
+  // overseer runs a ready task (all deps done) instead of strict array order. A cycle or a dep on
+  // a missing id fails the mission CLOSED before anything runs.
+  deps?: string[]
+  // V2 per-milestone branch: the lightweight branch pointer created at this task's verified commit
+  // (e.g. mission/<id>/m2-add-tests). Set from what the commit dep returns; LOCAL only, reviewable.
+  branch?: string
+  // V2 provenance: 'task' = part of the original plan, 'remediation' = inserted by a replan to
+  // unblock a failed task. Distinguishes the morning-report stack + caps replan growth.
+  kind?: 'task' | 'remediation'
 }
 
 export interface Mission {
@@ -114,10 +125,21 @@ export interface Mission {
   // machine verify gate — the ONLY thing that decides a task is 'done' (never the LLM's say-so)
   verifyCommand: string
   branch?: string
-  status: 'planning' | 'ready' | 'running' | 'done' | 'failed' | 'stopped'
+  // V2 adds 'scheduled': a mission queued for the overnight operator (MissionScheduler) to auto-start
+  // inside its off-peak window / cron minute.
+  status: 'planning' | 'ready' | 'running' | 'done' | 'failed' | 'stopped' | 'scheduled'
   tasks: MissionTask[]
   // wait for DeepSeek's off-peak window before running (like night shift)
   waitForOffPeak?: boolean
+  // V2 REPLAN budget: when a task exhausts its retries the overseer may ask deps.replan() for
+  // remediation tasks instead of halting. Bounded by maxReplans (default 2) + a hard cap on total
+  // tasks added; a replan that returns nothing / makes no progress HALTS loudly.
+  maxReplans?: number
+  replansUsed?: number
+  // V2 OVERNIGHT OPERATOR: when set, the MissionScheduler auto-starts this mission. offpeak = inside
+  // DeepSeek's discount window; cron = on the given cron minute. Honors daily-cap + clean-tree +
+  // one-mission-at-a-time, same as a manual start.
+  schedule?: { mode: 'offpeak' | 'cron'; cron?: string }
   createdAt: number
   updatedAt: number
   lastRunAt?: number
