@@ -110,6 +110,15 @@ export const IPC = {
   deleteAutomation: 'automations:delete',
   runAutomation: 'automations:run',
 
+  // mission control (autonomous multi-task missions, machine-verified + auto-committed)
+  missionsList: 'missions:list',
+  missionGet: 'missions:get',
+  missionSave: 'missions:save',
+  missionDelete: 'missions:delete',
+  missionGeneratePlan: 'missions:generatePlan',
+  missionStart: 'missions:start',
+  missionStop: 'missions:stop',
+
   // persistent approval allowlist
   listApprovedCommands: 'approvals:list',
   removeApprovedCommand: 'approvals:remove',

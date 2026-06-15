@@ -1338,6 +1338,121 @@ kbd {
   text-align: center;
 }
 
+/* mission control */
+.mission-hint {
+  color: var(--text-faint);
+  font-size: 11px;
+  margin-top: 5px;
+}
+.mission-warn {
+  color: var(--yellow);
+  font-size: 11px;
+  margin-top: 5px;
+}
+.mission-progress {
+  height: 6px;
+  background: var(--bg-3);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 10px 0 6px;
+}
+.mission-progress-fill {
+  height: 100%;
+  background: var(--grad);
+  transition: width 0.3s ease;
+}
+.mission-progress-fill.failed {
+  background: var(--red);
+}
+.mission-task {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 11px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.mission-status {
+  flex: 0 0 22px;
+  text-align: center;
+  font-size: 14px;
+}
+.mission-status.status-running {
+  color: var(--accent);
+  animation: spin 1.2s linear infinite;
+}
+.mission-status.status-done {
+  color: var(--green);
+}
+.mission-status.status-failed {
+  color: var(--red);
+}
+.mission-task-title {
+  font-weight: 600;
+}
+.mission-instr {
+  margin-top: 2px;
+  white-space: normal;
+  font-family: var(--sans);
+}
+.mission-task-edit {
+  width: 100%;
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+  border-radius: 7px;
+  color: var(--text);
+  padding: 6px 9px;
+  font-size: 13px;
+  font-family: var(--sans);
+  outline: none;
+  margin-bottom: 5px;
+}
+.mission-task-edit:focus {
+  border-color: var(--accent);
+}
+.mission-task-edit.instr {
+  font-family: var(--mono);
+  font-size: 12px;
+  resize: vertical;
+  min-height: 48px;
+}
+.mission-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  cursor: pointer;
+}
+.mission-row:last-child {
+  border-bottom: none;
+}
+.mission-row-goal {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mission-dot {
+  flex: 0 0 9px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.mission-dot.status-running {
+  background: var(--accent);
+}
+.mission-dot.status-done {
+  background: var(--green);
+}
+.mission-dot.status-failed {
+  background: var(--red);
+}
+.mission-dot.status-stopped {
+  background: var(--yellow);
+}
+
 /* project health badges */
 .health {
   display: flex;

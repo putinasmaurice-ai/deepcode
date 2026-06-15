@@ -5,6 +5,8 @@ import type {
   HookDef,
   McpServerDef,
   MemoryEntry,
+  Mission,
+  MissionTask,
   NightShiftState,
   PluginDef,
   ProjectDef,
@@ -191,6 +193,18 @@ export interface DeepCodeApi {
   saveAutomation(a: AutomationDef): Promise<AutomationDef[]>
   deleteAutomation(id: string): Promise<AutomationDef[]>
   runAutomation(id: string): Promise<boolean>
+
+  // mission control
+  listMissions(): Promise<Mission[]>
+  getMission(id: string): Promise<Mission | null>
+  saveMission(m: Mission): Promise<Mission>
+  deleteMission(id: string): Promise<boolean>
+  // decompose a high-level goal into 3-8 linear tasks (LLM); returns the task list to fill a draft
+  generatePlan(goal: string): Promise<MissionTask[]>
+  // start the overseer loop for a saved mission (one mission at a time); progress streams via
+  // 'mission' agent events. Returns the mission as it stands at launch.
+  startMission(id: string): Promise<Mission>
+  stopMission(id: string): Promise<boolean>
 
   // night shift
   nightGet(): Promise<NightShiftState>

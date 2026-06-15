@@ -90,6 +90,40 @@ export interface NightShiftState {
   lastRunAt?: number
 }
 
+// ---- Mission Control (autonomous outer loop) ----
+// A mission breaks the per-turn MAX_STEPS ceiling by making the OUTER loop a persisted plan:
+// each task is its own agent turn, machine-verified, and auto-committed on pass. V1 is LINEAR
+// (no branching tree, no replanning) — see src/main/missions/overseer.ts.
+export interface MissionTask {
+  id: string
+  title: string
+  instruction: string
+  status: 'pending' | 'running' | 'done' | 'failed'
+  attempts: number
+  commit?: string // short HEAD hash recorded after a verified task is committed
+  summary?: string
+  tokens?: number
+  cost?: number
+}
+
+export interface Mission {
+  id: string
+  goal: string
+  cwd: string
+  projectId?: string
+  // machine verify gate — the ONLY thing that decides a task is 'done' (never the LLM's say-so)
+  verifyCommand: string
+  branch?: string
+  status: 'planning' | 'ready' | 'running' | 'done' | 'failed' | 'stopped'
+  tasks: MissionTask[]
+  // wait for DeepSeek's off-peak window before running (like night shift)
+  waitForOffPeak?: boolean
+  createdAt: number
+  updatedAt: number
+  lastRunAt?: number
+  reportPath?: string
+}
+
 export interface ProjectHealth {
   cwd: string
   files: number
@@ -376,6 +410,9 @@ export type AgentEvent =
   // visual workflow runs: per-run and per-node status so the editor can trace live
   | { type: 'workflow_run'; runId: string; workflowId: string; status: 'start' | 'done' | 'error' | 'cancelled'; message?: string }
   | { type: 'workflow_node'; runId: string; nodeId: string; status: WorkflowNodeStatus; output?: string; error?: string }
+  // Mission Control progress: per-mission + per-task status. Session-less (like workflow_run) —
+  // the overseer runs throwaway sessions per task and emits under a background 'mission' id.
+  | { type: 'mission'; missionId: string; taskId?: string; status: string; message?: string }
   // self-healing progress (the coder repairing a failed workflow node, then replaying)
   | {
       type: 'workflow_heal'

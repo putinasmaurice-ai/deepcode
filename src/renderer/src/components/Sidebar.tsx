@@ -12,6 +12,7 @@ export const NAV_MAIN: { view: View; icon: string; label: string }[] = [
   { view: 'settings', icon: '⚙️', label: 'Settings' }
 ]
 export const NAV_MORE: { view: View; icon: string; label: string }[] = [
+  { view: 'missions', icon: '🎯', label: 'Missionen' },
   { view: 'market', icon: '🛒', label: 'Marketplace' },
   { view: 'skills', icon: '📘', label: 'Skills' },
   { view: 'commands', icon: '/', label: 'Slash Commands' },

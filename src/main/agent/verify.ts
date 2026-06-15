@@ -8,6 +8,12 @@ export function runVerify(
   cwd: string,
   signal: AbortSignal
 ): Promise<{ ok: boolean; output: string }> {
+  // Fail closed on a missing gate: an empty/whitespace command spawns an empty shell that exits 0
+  // on every platform, which would trivially pass the machine-verify gate and auto-'done' a task
+  // with ZERO verification. The gate can NEVER pass on an empty command, from any caller.
+  if (!command.trim()) {
+    return Promise.resolve({ ok: false, output: 'Leerer Verify-Befehl — Gate kann nicht bestehen.' })
+  }
   const isWin = process.platform === 'win32'
   const shell = isWin ? 'powershell.exe' : '/bin/bash'
   const args = isWin ? ['-NoProfile', '-NonInteractive', '-Command', command] : ['-lc', command]

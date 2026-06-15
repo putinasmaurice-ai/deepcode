@@ -325,6 +325,23 @@ export class AgentEngine {
     return generateWorkflow(this.deps(), description, id, now)
   }
 
+  // One-shot, tool-less completion that bills usage against the configured model — the same
+  // pattern testSkill/generate.ts use, exposed so callers outside the engine (Mission Control's
+  // plan generator) can run a single LLM round without reaching into the private client.
+  async complete(system: string, user: string): Promise<string> {
+    const res = await this.client.streamChat(
+      [
+        { role: 'system', content: system },
+        { role: 'user', content: user }
+      ],
+      [],
+      {},
+      new AbortController().signal
+    )
+    if (res.usage) recordUsage(costOf(this.settings.provider, res.usage, this.settings.provider.model))
+    return res.content
+  }
+
   // Validate a skill against its tests.json scenarios. Scenarios with a `mock` response run
   // offline/free; the rest run the skill body + prompt through the model (no tools).
   async testSkill(skillName: string, cwd?: string): Promise<{ found: boolean; results: SkillTestResult[] }> {

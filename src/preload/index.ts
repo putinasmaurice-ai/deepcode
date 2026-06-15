@@ -133,6 +133,15 @@ const api: DeepCodeApi = {
   deleteAutomation: (id: string) => ipcRenderer.invoke(IPC.deleteAutomation, id),
   runAutomation: (id: string) => ipcRenderer.invoke(IPC.runAutomation, id),
 
+  // mission control
+  listMissions: () => ipcRenderer.invoke(IPC.missionsList),
+  getMission: (id: string) => ipcRenderer.invoke(IPC.missionGet, id),
+  saveMission: (m: unknown) => ipcRenderer.invoke(IPC.missionSave, m),
+  deleteMission: (id: string) => ipcRenderer.invoke(IPC.missionDelete, id),
+  generatePlan: (goal: string) => ipcRenderer.invoke(IPC.missionGeneratePlan, goal),
+  startMission: (id: string) => ipcRenderer.invoke(IPC.missionStart, id),
+  stopMission: (id: string) => ipcRenderer.invoke(IPC.missionStop, id),
+
   // persistent approval allowlist
   listApprovedCommands: () => ipcRenderer.invoke(IPC.listApprovedCommands),
   removeApprovedCommand: (command: string, cwd: string) =>

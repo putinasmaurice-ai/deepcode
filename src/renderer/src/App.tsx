@@ -30,6 +30,7 @@ const AuditPanel = lazy(() => import('./components/AuditPanel').then((m) => ({ d
 const TracePanel = lazy(() => import('./components/TracePanel').then((m) => ({ default: m.TracePanel })))
 const SwarmPanel = lazy(() => import('./components/SwarmPanel').then((m) => ({ default: m.SwarmPanel })))
 const NightShiftPanel = lazy(() => import('./components/NightShiftPanel').then((m) => ({ default: m.NightShiftPanel })))
+const MissionPanel = lazy(() => import('./components/MissionPanel').then((m) => ({ default: m.MissionPanel })))
 const UsagePanel = lazy(() => import('./components/UsagePanel').then((m) => ({ default: m.UsagePanel })))
 import { inOffPeak } from '../../shared/offpeak'
 import {
@@ -51,6 +52,7 @@ export type View =
   | 'projects'
   | 'usage'
   | 'night'
+  | 'missions'
   | 'market'
   | 'audit'
   | 'traces'
@@ -1363,6 +1365,8 @@ export function App(): JSX.Element {
           <UsagePanel />
         ) : view === 'night' ? (
           <NightShiftPanel />
+        ) : view === 'missions' ? (
+          <MissionPanel />
         ) : view === 'market' ? (
           <MarketPanel />
         ) : view === 'workflows' ? (

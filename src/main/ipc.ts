@@ -72,6 +72,13 @@ import { listAudit, searchSessions } from './history'
 import { listTraces, getTrace } from './trace-store'
 import { listSwarmBranches, swarmBranchDiff, swarmMerge, swarmDeleteBranch } from './swarm-branches'
 import { getNightShift, saveNightShift, runNightShift, requestStop } from './nightshift'
+import { listMissions, getMission, saveMission, deleteMission } from './missions/store'
+import { runMission, OverseerDeps } from './missions/overseer'
+import { generatePlan } from './missions/plan'
+import { runStructuredVerify } from './agent/verify-report'
+import { runGit } from './agent/tools/git'
+import { inOffPeak } from '@shared/offpeak'
+import { Mission } from '@shared/types'
 import { overDailyCap } from './ledger'
 import { startWatch, stopWatch, beginAgentOp, endAgentOp } from './watcher'
 import { computeProjectHealth } from './health'
@@ -228,6 +235,164 @@ export function registerIpc(win: BrowserWindow): void {
     shell.openPath(path)
     return true
   })
+
+  // ---- mission control ----
+  // One autonomous mission at a time (the overseer drives throwaway agent turns + git commits;
+  // two concurrent ones would race the same branch/working tree). The AbortController lets
+  // stopMission halt the loop cleanly (the overseer threads its signal into every runTask/verify/git).
+  let missionRunning: string | null = null
+  const missionAborters = new Map<string, AbortController>()
+
+  // Build the real OverseerDeps for ONE run. Mirrors the night-shift dispatch: a throwaway
+  // unattended session per task, machine verify gate, local-only git. All events are stamped with
+  // a fixed background 'mission' session id so per-task turn output never bleeds into a foreground chat.
+  const makeOverseerDeps = (signal: AbortSignal): OverseerDeps => {
+    const cwdOf = (m: Mission): string => validDir(m.cwd) || validDir(settings.defaultCwd) || homedir()
+    return {
+      // dispatch a task as a throwaway unattended turn (like nightshift.ts), summing the
+      // session's billed tokens/cost and handing back the last assistant message as the summary.
+      runTask: async (mission, task, feedback) => {
+        const session: Session = {
+          id: randomUUID(),
+          title: `[🎯] ${task.title.replace(/\s+/g, ' ').slice(0, 45)}`,
+          cwd: cwdOf(mission),
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          messages: [],
+          projectId: mission.projectId,
+          model: settings.provider.model
+        }
+        saveSession(session)
+        const prompt = task.instruction + (feedback ? '\n\nVorheriger Fehlversuch:\n' + feedback : '')
+        beginAgentOp()
+        // Bridge the mission's abort to the in-flight engine turn so Stop halts the LIVE (most
+        // expensive) coding turn, not just the gap between attempts/tasks. engine.runTurn owns its
+        // own per-session AbortController keyed on session.id; recordIfPending remembers a cancel
+        // that races ahead of the turn's registration. Mirrors makeWfDeps.runAgent.
+        const onAbort = (): void => engine.cancel(session.id, true)
+        signal.addEventListener('abort', onAbort, { once: true })
+        if (signal.aborted) onAbort()
+        try {
+          // fully unattended → the engine gates MCP / claude_code / task / git push|pr
+          await engine.runTurn(session, prompt, emit, 'full', undefined, true)
+        } finally {
+          signal.removeEventListener('abort', onAbort)
+          engine.clearPendingCancel(session.id)
+          endAgentOp()
+        }
+        let tokens = 0
+        let cost = 0
+        for (const m of session.messages) {
+          if (m.usage) {
+            tokens += m.usage.totalTokens
+            cost += m.usage.cost
+          }
+        }
+        const last = [...session.messages].reverse().find((m) => m.role === 'assistant')
+        return { summary: (last?.content ?? '(keine Antwort)').slice(0, 600), tokens, cost }
+      },
+      // machine verify gate — the ONLY thing that decides a task is done. Never the LLM's say-so.
+      verify: async (command, cwd) => {
+        const v = await runStructuredVerify(command, cwd, signal)
+        return { ok: v.ok, summary: v.output.slice(0, 800) }
+      },
+      // ensure the mission branch exists + is checked out (local only). Create it on first run,
+      // switch to it on a resume. Tolerant of "already on" (git prints it to a non-zero path on some
+      // versions) — the overseer commits onto whatever HEAD this leaves us on.
+      ensureBranch: async (cwd, branch) => {
+        const exists = await runGit(['rev-parse', '--verify', branch], cwd, signal)
+        const r = exists.code === 0
+          ? await runGit(['checkout', branch], cwd, signal)
+          : await runGit(['checkout', '-b', branch], cwd, signal)
+        if (r.code !== 0 && !/already on/i.test(r.out)) {
+          throw new Error(`git checkout ${branch} fehlgeschlagen: ${r.out.trim().slice(0, 300)}`)
+        }
+      },
+      // commit the verified task's work to the mission branch. Distinguishes three outcomes so the
+      // overseer can react: { sha } a real commit, { sha: null } a genuine no-op (tree clean after
+      // the failed commit → "nothing to commit"), or { rejected } a non-zero commit that left the
+      // tree DIRTY (a pre-commit hook blocked it) — which must NOT be silently treated as done.
+      commit: async (cwd, message) => {
+        await runGit(['add', '-A'], cwd, signal)
+        const c = await runGit(['commit', '-m', message], cwd, signal)
+        if (c.code === 0) {
+          const sha = await runGit(['rev-parse', '--short', 'HEAD'], cwd, signal)
+          return { sha: sha.code === 0 ? sha.out.trim() : null }
+        }
+        // non-zero commit: clean tree → genuine no-op; still-dirty tree → the commit was REJECTED
+        // (hook) with the work uncommitted. Surface the hook output so the retry can react.
+        const st = await runGit(['status', '--porcelain'], cwd, signal)
+        if (st.code === 0 && !st.out.trim()) return { sha: null } // nothing to commit, working tree clean
+        return { rejected: c.out.trim().slice(0, 800) }
+      },
+      // working-tree status used by the overseer's pre-flight clean-tree gate (porcelain = empty
+      // when clean). The gate refuses to start on a dirty tree so `git add -A` can't sweep the
+      // user's unrelated uncommitted work into a mission commit.
+      treeStatus: async (cwd) => {
+        const r = await runGit(['status', '--porcelain'], cwd, signal)
+        if (r.code !== 0) throw new Error(r.out.trim().slice(0, 300) || 'git status fehlgeschlagen')
+        return r.out
+      },
+      // 'mission' + per-task turn events are session-less (no foreground chat to bleed into) →
+      // forward straight to the renderer via the module emitter.
+      emit,
+      overDailyCap: () => overDailyCap(settings.maxCostPerDay),
+      inOffPeak: () => inOffPeak(),
+      signal
+    }
+  }
+
+  // Runtime-truth override (mirrors nightshift's `s.running = running`): a mission persisted as
+  // 'running' but with no live overseer (its id is not in missionAborters) is a PHANTOM left by a
+  // crash/restart — report it reconciled to 'stopped' so the UI offers Resume instead of a dead
+  // Stop button. Never mutates the file; the next real run rewrites the status authoritatively.
+  const reconcile = <T extends Mission | null>(m: T): T => {
+    if (m && m.status === 'running' && !missionAborters.has(m.id)) {
+      return { ...m, status: 'stopped' } as T
+    }
+    return m
+  }
+  ipcMain.handle(IPC.missionsList, () => listMissions().map(reconcile))
+  ipcMain.handle(IPC.missionGet, (_e, id: string) => reconcile(getMission(id)))
+  ipcMain.handle(IPC.missionSave, (_e, m: Mission) => saveMission(m))
+  ipcMain.handle(IPC.missionDelete, (_e, id: string) => {
+    // don't delete a mission out from under a running overseer (its writes would resurrect the file)
+    if (missionRunning === id) throw new Error('Diese Mission läuft gerade — bitte erst stoppen.')
+    return deleteMission(id)
+  })
+  ipcMain.handle(IPC.missionGeneratePlan, async (_e, goal: string) => {
+    // decompose the goal into 3-8 linear tasks via the engine's one-shot completion (bills usage).
+    return generatePlan(String(goal ?? ''), (system, user) => engine.complete(system, user))
+  })
+  ipcMain.handle(IPC.missionStart, (_e, id: string) => {
+    const mission = getMission(id)
+    if (!mission) throw new Error('Mission not found')
+    // authoritative guard (not just the renderer's disabled button): never start a mission without
+    // a real machine gate — an empty verify command would auto-pass and commit unverified work.
+    if (!mission.verifyCommand || !mission.verifyCommand.trim()) {
+      throw new Error('Kein Verify-Befehl gesetzt — eine Mission ohne maschinelle Abnahme kann nicht gestartet werden.')
+    }
+    if (missionRunning) throw new Error('Es läuft bereits eine Mission — bitte erst stoppen.')
+    missionRunning = id
+    const ac = new AbortController()
+    missionAborters.set(id, ac)
+    const deps = makeOverseerDeps(ac.signal)
+    // fire and forget — progress streams via 'mission' agent events; the renderer polls getMission.
+    runMission(mission, deps, { waitForOffPeak: mission.waitForOffPeak })
+      .catch((err) => emit({ type: 'mission', missionId: id, status: 'failed', message: (err as Error).message }))
+      .finally(() => {
+        missionAborters.delete(id)
+        if (missionRunning === id) missionRunning = null
+      })
+    return getMission(id)
+  })
+  ipcMain.handle(IPC.missionStop, (_e, id: string) => {
+    // abort halts the overseer loop: it threads this signal into every runTask/verify/git call and
+    // checks signal.aborted between tasks, so the run unwinds without committing on a stopped task.
+    missionAborters.get(id)?.abort()
+    return true
+  })
+
   ipcMain.handle(IPC.projectHealth, (_e, cwd: string) => computeProjectHealth(cwd))
   ipcMain.handle(IPC.exportSession, (_e, id: string) => {
     const s = getSession(id)
