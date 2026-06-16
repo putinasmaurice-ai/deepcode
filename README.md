@@ -215,9 +215,12 @@ src/
   preload/        contextBridge API (window.deepcode)
   renderer/       React UI (chat, streaming, tool approvals, all management panels)
 test/             vitest tests for the pure logic (pricing, danger heuristic, cron matcher,
-                  context-window map, message elision, line-diff) AND real-git/store integration
-                  suites for the flagship orchestration (swarm worktree lifecycle, Time Machine
-                  timeline correlation + state reconstruction, Mission Control overseer)
+                  context-window map, message elision, line-diff, vision routing, plugin-install
+                  URL safety, palette fuzzy ranking), real-git/store integration suites for the
+                  flagship orchestration (swarm worktree lifecycle + cost cap, Time Machine timeline
+                  correlation + state reconstruction, Mission Control overseer), AND renderer
+                  component tests under jsdom + @testing-library (a `// @vitest-environment jsdom`
+                  docblock opts a file into the DOM env; node stays the default)
 ```
 
 `npm run typecheck && npm test` gates every push via GitHub Actions CI.

@@ -1,31 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { filterPalette, PaletteScorable } from './palette-fuzzy'
 
-export interface PaletteItem {
+export interface PaletteItem extends PaletteScorable {
   id: string
   label: string
   hint?: string
   icon?: string
   run: () => void
-}
-
-// Subsequence fuzzy match: every char of the query must appear in order in the
-// target. Returns a score (lower = better) so exact prefixes float to the top.
-function fuzzyScore(query: string, target: string): number | null {
-  if (!query) return 0
-  const q = query.toLowerCase()
-  const t = target.toLowerCase()
-  let qi = 0
-  let score = 0
-  let lastHit = -1
-  for (let ti = 0; ti < t.length && qi < q.length; ti++) {
-    if (t[ti] === q[qi]) {
-      score += ti - lastHit // reward adjacency
-      lastHit = ti
-      qi++
-    }
-  }
-  if (qi < q.length) return null // not all chars matched
-  return score + (t.startsWith(q) ? -1000 : 0)
 }
 
 export function CommandPalette({
@@ -44,13 +25,7 @@ export function CommandPalette({
     inputRef.current?.focus()
   }, [])
 
-  const filtered = useMemo(() => {
-    const scored = items
-      .map((it) => ({ it, s: fuzzyScore(q, it.label + ' ' + (it.hint ?? '')) }))
-      .filter((x) => x.s !== null) as { it: PaletteItem; s: number }[]
-    scored.sort((a, b) => a.s - b.s)
-    return scored.map((x) => x.it).slice(0, 40)
-  }, [q, items])
+  const filtered = useMemo(() => filterPalette(items, q), [q, items])
 
   useEffect(() => {
     setSel(0)
