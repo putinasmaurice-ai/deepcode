@@ -968,6 +968,18 @@ export function App(): JSX.Element {
     }
   }
 
+  // Drag-reorder the tab strip. `openTabs` is the single ordered source of truth — `tabSessions`
+  // renders in this order and the localStorage effect persists it, so reordering it is all we do.
+  function reorderTabs(from: number, to: number): void {
+    setOpenTabs((t) => {
+      if (from < 0 || to < 0 || from >= t.length || to >= t.length || from === to) return t
+      const next = t.slice()
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    })
+  }
+
   const approve = useCallback((callId: string, approved: boolean, remember?: boolean): void => {
     api.approveTool(callId, approved, remember).catch((e) => addToast(String(e), 'error'))
     setToolState((t) => ({ ...t, [callId]: { ...t[callId], pending: false } }))
@@ -1158,6 +1170,7 @@ export function App(): JSX.Element {
             onSelect={(id) => void openSession(id)}
             onClose={closeTab}
             onNew={requestNewChat}
+            onReorder={reorderTabs}
           />
         )}
         <div className="topbar">

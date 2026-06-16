@@ -1011,9 +1011,26 @@ export class AgentEngine {
           return last
         })
       }
+      // a successful fs write tool returns a before→after diff in meta — surface it in the trace
+      // so the Traces panel can show WHAT changed, not just that the tool ran (gate on ok so a
+      // failed/rolled-back edit attaches nothing). Presence of meta.diff is the trigger, not the
+      // tool name, so any future tool that produces a diff lights up for free.
+      const m = res.meta as
+        | { diff?: unknown; linesAdded?: unknown; linesRemoved?: unknown; path?: unknown }
+        | undefined
+      const added = typeof m?.linesAdded === 'number' ? m.linesAdded : 0
+      const removed = typeof m?.linesRemoved === 'number' ? m.linesRemoved : 0
+      // gate on a REAL line change, not the diff string length: lineDiff(x,x) on an identical
+      // overwrite still emits context-only lines (added=removed=0), which would attach a useless
+      // "+0/−0" toggle. Requiring added>0||removed>0 excludes exactly that no-op case.
+      const hasDiff = res.ok && typeof m?.diff === 'string' && m.diff.length > 0 && (added > 0 || removed > 0)
       ctx.trace?.end(toolSpan, {
         status: res.ok ? 'ok' : ctx.signal.aborted ? 'cancelled' : 'error',
-        error: res.ok ? undefined : res.content
+        error: res.ok ? undefined : res.content,
+        diff: hasDiff ? (m!.diff as string) : undefined,
+        diffAdded: hasDiff ? added : undefined,
+        diffRemoved: hasDiff ? removed : undefined,
+        diffPath: hasDiff && typeof m!.path === 'string' ? (m!.path as string) : undefined
       })
       return res
     } finally {

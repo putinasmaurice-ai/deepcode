@@ -82,6 +82,23 @@ function upsert(list: Trace[], t: Trace): Trace[] {
   return next
 }
 
+// The before→after diff captured on a write/edit tool span — same renderer as the chat's
+// DiffView, reusing the existing .diff / .diff-line CSS so a tool span shows WHAT it changed.
+function TraceDiff({ diff }: { diff: string }): JSX.Element {
+  return (
+    <div className="diff trace-diff">
+      {diff.split('\n').map((line, i) => {
+        const cls = line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : 'ctx'
+        return (
+          <div key={i} className={'diff-line ' + cls}>
+            {line || ' '}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // Observability: browse past chat turns as a correlated tree — each LLM call (with cost),
 // each tool call (with duration / ok-error), nested subagents, verify + compaction.
 export function TracePanel(): JSX.Element {
@@ -92,6 +109,16 @@ export function TracePanel(): JSX.Element {
   const [onlyUnattended, setOnlyUnattended] = useState(false)
   const [view, setView] = useState<'tree' | 'wf'>('tree')
   const [showStats, setShowStats] = useState(false)
+  // which tool spans have their captured diff expanded (keyed by span.id, which is stable across
+  // the live re-flatten — a row index would mis-target while the tree streams).
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const toggleDiff = (id: string): void =>
+    setExpanded((s) => {
+      const next = new Set(s)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
 
   useEffect(() => {
     api.listTraces().then((t) => {
@@ -227,6 +254,15 @@ export function TracePanel(): JSX.Element {
                           <span className="trace-span-tail">
                             {span.costUsd ? <span className="trace-cost">{usd(span.costUsd)}</span> : null}
                             {span.tokens ? <span className="trace-tok">{span.tokens.toLocaleString()} tok</span> : null}
+                            {span.diff ? (
+                              <button
+                                className="trace-diff-toggle"
+                                title="Änderung anzeigen"
+                                onClick={() => toggleDiff(span.id)}
+                              >
+                                {expanded.has(span.id) ? '▾' : '▸'} +{span.diffAdded ?? 0}/−{span.diffRemoved ?? 0}
+                              </button>
+                            ) : null}
                             <span className="trace-dur">{dur(span.startedAt, span.endedAt)}</span>
                             <span className="trace-span-st">{STATUS_ICON[span.status] ?? ''}</span>
                           </span>
@@ -236,6 +272,7 @@ export function TracePanel(): JSX.Element {
                         ) : span.detail ? (
                           <div className="trace-span-detail">{span.detail}</div>
                         ) : null}
+                        {span.diff && expanded.has(span.id) ? <TraceDiff diff={span.diff} /> : null}
                       </div>
                     ))}
                   </div>

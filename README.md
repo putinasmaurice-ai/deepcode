@@ -68,7 +68,10 @@ Projekts. (Auto-Chats beim Start und projektgebundene Chats starten ohne Nachfra
 
 **🗂️ Multi-Session-Tabs** — mehrere Chats gleichzeitig offen, als Browser-artige **Tab-Leiste**
 über dem Chat. Wechsle per Klick oder **Strg+Tab / Strg+Umschalt+Tab**, schließe einen Tab mit `✕`
-oder Mittelklick (der Chat bleibt in der Seitenleiste, wird nicht gelöscht). Da das Backend jede
+oder Mittelklick (der Chat bleibt in der Seitenleiste, wird nicht gelöscht). Bei vielen Tabs
+**scrollt die Leiste horizontal** (Trackpad/Mausrad) statt zu zerquetschen, der aktive Tab wird
+beim Wechsel automatisch in den sichtbaren Bereich geholt, und Tabs lassen sich **per Drag &
+Drop umsortieren** (die Reihenfolge bleibt über Neustarts erhalten). Da das Backend jede
 Session **unabhängig pro ID** ausführt, laufen **Hintergrund-Tabs weiter**: ein pulsierender Punkt
 markiert einen Tab, dessen Agent gerade arbeitet, und ein Toast meldet, wenn ein Hintergrund-Chat
 fertig ist. Offene Tabs + aktiver Tab werden über Neustarts hinweg gemerkt.
@@ -168,8 +171,10 @@ mcp-builder, xlsx/pdf/docx, postgres-best-practices.
 **🔬 Run traces (observability)** — a Traces panel that replays each chat turn as a correlated
 **tree**: every LLM call (with its cost + tokens), every tool call (with duration and ok/error),
 nested **subagents**, plus verify and context-compaction — so you can see exactly where a turn spent
-its time and money. One JSON per turn under `~/.deepcode/traces/` (kept local), pruned to the newest
-few hundred; a cancelled or errored turn still produces a complete tree.
+its time and money. A `write_file`/`edit_file` span carries an **expandable before→after diff**
+(`▸ +added/−removed`) right in the tree, so you see *what* a tool changed, not just that it ran
+(secret-redacted, capped, collapsed by default). One JSON per turn under `~/.deepcode/traces/`
+(kept local), pruned to the newest few hundred; a cancelled or errored turn still produces a complete tree.
 
 More: Projects (instructions + goal + trust level), cost dashboard (per chat/project/total —
 accurate to the DeepSeek **off-peak discount** and a **per-vendor price card** for DeepInfra/Google),

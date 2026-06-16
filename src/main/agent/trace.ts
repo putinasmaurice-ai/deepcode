@@ -20,6 +20,10 @@ export interface TraceMeta {
 
 const DETAIL_CAP = 200
 const ERROR_CAP = 300
+// the diff is multi-line and far larger than a label, so it gets its own field + cap and is
+// NOT run through clip() (which would collapse newlines). Secrets are still redacted (the
+// redactors are single-token regexes that leave \n intact), matching the chat DiffView's tier.
+const DIFF_CAP = 6000
 // 2s (not 500ms): the panel only refreshes on turn_done, so intermediate writes exist only
 // for the running-stub + crash-resilience — a longer throttle cuts the per-flush re-serialize
 // (whole growing trace) cost on long 60-step turns without hurting the UX.
@@ -109,7 +113,17 @@ export class TraceRecorder {
 
   end(
     id: string | undefined,
-    patch: { status: TraceStatus; costUsd?: number; tokens?: number; detail?: string; error?: string }
+    patch: {
+      status: TraceStatus
+      costUsd?: number
+      tokens?: number
+      detail?: string
+      error?: string
+      diff?: string
+      diffAdded?: number
+      diffRemoved?: number
+      diffPath?: string
+    }
   ): void {
     if (!id) return
     const span = this.byId.get(id)
@@ -126,6 +140,11 @@ export class TraceRecorder {
     }
     if (patch.detail) span.detail = clip(patch.detail, DETAIL_CAP)
     if (patch.error) span.error = clip(patch.error, ERROR_CAP)
+    // redact (no whitespace-collapse) so newlines survive, then cap — see DIFF_CAP note above
+    if (patch.diff) span.diff = redact(patch.diff).slice(0, DIFF_CAP)
+    if (patch.diffAdded != null && Number.isFinite(patch.diffAdded)) span.diffAdded = patch.diffAdded
+    if (patch.diffRemoved != null && Number.isFinite(patch.diffRemoved)) span.diffRemoved = patch.diffRemoved
+    if (patch.diffPath) span.diffPath = clip(patch.diffPath, 200)
     this.flush(false)
     this.live()
   }

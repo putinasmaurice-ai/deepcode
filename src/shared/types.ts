@@ -662,6 +662,12 @@ export interface TraceSpan {
   tokens?: number
   detail?: string // short, already-truncated action summary (no full tool I/O)
   error?: string // short error head when status==='error'
+  // before→after line diff for a successful write_file/edit_file/apply_patch tool span — lets the
+  // Traces panel show WHAT a tool changed, not just that it ran. Capped; only set on fs write tools.
+  diff?: string
+  diffAdded?: number
+  diffRemoved?: number
+  diffPath?: string // the edited file path (relative-ish display), when a single file was touched
 }
 
 export interface Trace {
