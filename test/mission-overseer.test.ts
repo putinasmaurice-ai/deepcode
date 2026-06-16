@@ -184,6 +184,34 @@ describe('runMission overseer', () => {
     expect(result.status).toBe('stopped')
   })
 
+  it('(3c) Stop pressed DURING a replan round halts cleanly (no "fehlgeschlagen" message, no throw)', async () => {
+    // engine.complete now receives the overseer signal, so a Stop pressed while the replan round is
+    // in flight aborts the billed call → it surfaces as a thrown error inside tryReplan. The overseer
+    // must treat that as the same clean halt as the post-call abort check, NOT a replan failure.
+    const m = makeMission([task('a')])
+    const ac = new AbortController()
+    const msgs: string[] = []
+    const deps = makeDeps({
+      verifyResults: [false], // task 'a' exhausts its retries → triggers a replan
+      signal: ac.signal,
+      emit: (e) => {
+        const msg = (e as { message?: string }).message
+        if (msg) msgs.push(msg)
+      },
+      // simulate Stop landing during the billed replan round: the threaded signal aborts mid-call,
+      // which engine.complete/streamChat raise as a throw.
+      replan: async () => {
+        ac.abort()
+        throw new Error('Aborted')
+      }
+    })
+    const result = await runMission(m, deps, {})
+    // resolves to a terminal status without an unhandled rejection / loop (current branding: failed)
+    expect(result.status).toBe('failed')
+    // the abort is a clean halt — never reported as a replan failure
+    expect(msgs.some((t) => /Umplanung fehlgeschlagen/.test(t))).toBe(false)
+  })
+
   it('(4) restart over a mission with a done task skips it (no re-run / no re-commit)', async () => {
     const done = task('a', 'done')
     const m = makeMission([done, task('b')])

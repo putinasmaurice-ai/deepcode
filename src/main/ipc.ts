@@ -356,7 +356,11 @@ export function registerIpc(win: BrowserWindow): void {
       // overseer then halts). The overseer enforces the maxReplans + total-tasks-added caps; this dep
       // is just the model call.
       replan: async (mission, failedTask, failure) =>
-        planReplan(mission.goal, mission.tasks, failedTask, failure, (system, user) => engine.complete(system, user)),
+        // thread the overseer's signal so Stop aborts the billed replan round in-flight (the dep's
+        // closure has it). The overseer's tryReplan catch treats the resulting AbortError as a halt.
+        planReplan(mission.goal, mission.tasks, failedTask, failure, (system, user) =>
+          engine.complete(system, user, signal)
+        ),
       // working-tree status used by the overseer's pre-flight clean-tree gate (porcelain = empty
       // when clean). The gate refuses to start on a dirty tree so `git add -A` can't sweep the
       // user's unrelated uncommitted work into a mission commit.

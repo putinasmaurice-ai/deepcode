@@ -328,7 +328,10 @@ export class AgentEngine {
   // One-shot, tool-less completion that bills usage against the configured model — the same
   // pattern testSkill/generate.ts use, exposed so callers outside the engine (Mission Control's
   // plan generator) can run a single LLM round without reaching into the private client.
-  async complete(system: string, user: string): Promise<string> {
+  // An optional signal makes the billed round abortable: Mission Control threads the overseer's
+  // signal so a Stop pressed during plan-replan unwinds the in-flight round promptly instead of
+  // after it returns. Omitted (testSkill etc.) → a fresh never-aborted signal, behaviour unchanged.
+  async complete(system: string, user: string, signal?: AbortSignal): Promise<string> {
     const res = await this.client.streamChat(
       [
         { role: 'system', content: system },
@@ -336,7 +339,7 @@ export class AgentEngine {
       ],
       [],
       {},
-      new AbortController().signal
+      signal ?? new AbortController().signal
     )
     if (res.usage) recordUsage(costOf(this.settings.provider, res.usage, this.settings.provider.model))
     return res.content

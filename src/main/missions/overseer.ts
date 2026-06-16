@@ -366,6 +366,10 @@ async function tryReplan(
   try {
     remediation = await deps.replan(mission, failedTask, failedTask.summary ?? 'Verify fehlgeschlagen.')
   } catch (e) {
+    // A Stop pressed DURING the replan round now aborts the billed call in-flight (the signal is
+    // threaded into engine.complete), surfacing here as an AbortError. Treat it as the same clean
+    // halt the post-call check below already performs — NOT a replan failure (no scary message).
+    if (deps.signal.aborted) return true
     emit('task_retry', `🛑 Umplanung fehlgeschlagen: ${(e as Error).message}`, failedTask.id)
     return true // halt
   }
