@@ -223,9 +223,11 @@ test/             vitest tests for the pure logic (pricing, danger heuristic, cr
                   docblock opts a file into the DOM env; node stays the default)
 ```
 
-`npm run typecheck && npm test` gates every push via GitHub Actions CI, and a **second CI job
-builds the app and runs the UI smoke test** (`npm run smoke`) so a build break, a renderer
-console error, or a broken view/flow now fails CI — not just unit-logic regressions.
+`npm run lint && npm run typecheck && npm test` gates every push via GitHub Actions CI, and a
+**second CI job builds the app and runs the UI smoke test** (`npm run smoke`) so a build break, a
+renderer console error, or a broken view/flow now fails CI — not just unit-logic regressions.
+Lint (flat ESLint + typescript-eslint + react-hooks) is scoped to real bug classes — rules-of-hooks
+gates, type/stylistic concerns stay with strict `tsc` — so it's a meaningful gate, not cosmetic noise.
 `node scripts/ui-smoke.mjs` launches the built app via Playwright, clicks through every
 view/flow and exits non-zero on any uncaught page exception, real console error, or interaction
 failure (screenshots are uploaded as a CI artifact on failure). `scripts/ui-approval.mjs`

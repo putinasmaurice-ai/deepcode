@@ -24,7 +24,7 @@ describe('parsePluginRepoUrl — host/scheme allowlist + path-safe name', () => 
     expect(parsePluginRepoUrl('not a url')).toBeNull()
     // @ts-expect-error non-string input must be rejected, not throw
     expect(parsePluginRepoUrl(undefined)).toBeNull()
-    // @ts-expect-error
+    // @ts-expect-error non-string input must be rejected, not throw
     expect(parsePluginRepoUrl(123)).toBeNull()
   })
 })
