@@ -35,6 +35,7 @@ import { focusFeedback } from '@shared/test-report'
 import { detectTestFramework, proveRedFirst, isTestFile } from './verify-synth'
 import { runSwarm, buildPlanPrompt, parseShards, formatSwarmReport, isGitRepo } from './swarm'
 import { chooseVisionModel } from './vision-route'
+import { gateDecision } from './gate-decision'
 import { setSecret, isSecretNameValid } from '../workflows/secrets'
 
 export type { ApprovalPolicy } from './policy'
@@ -407,46 +408,32 @@ export class AgentEngine {
     // approved because no user is present — mirrors the workflow tool-node gate, and also
     // stops the agent node from being an open door around it (MCP drop-table, claude_code,
     // delegating to a subagent via `task`, git push/PR). Read-only + file/safe-shell stay.
-    if (unattended) {
-      // dangerous shell + MCP/claude_code/task + outward git (structured AND raw run_command)
-      // — one shared screen, so it can't drift from the subagent loop's gate.
-      const blocked = screenUnattendedCall(call.name, parsedArgs)
-      if (blocked) return blocked
-    }
+    // dangerous shell + MCP/claude_code/task + outward git (structured AND raw run_command) — one
+    // shared screen, so it can't drift from the subagent loop's gate. Only when unattended.
+    const unattendedBlock = unattended ? screenUnattendedCall(call.name, parsedArgs) : null
     const isCmd = call.name === 'run_command'
     // Screen both foreground and background shell commands for catastrophic patterns.
     const cmdArg =
       isCmd || call.name === 'run_background_command' ? (parsedArgs.command as unknown) : undefined
     const dangerous = typeof cmdArg === 'string' && isDangerousCommand(cmdArg)
-    // MCP tools can perform irreversible remote actions (drop tables, delete branches,
-    // send mail). They must never be silently auto-approved by the coarse write bucket —
-    // require an explicit prompt unless the user opted into full/trusted.
     const isMcp = call.name.startsWith('mcp__')
     const mutating = tool.permission === 'write' || tool.permission === 'bash'
-    if (policy === 'plan' && mutating) {
-      return `Plan mode: "${call.name}" was NOT executed. Describe this change as part of your plan instead.`
-    }
-    // A catastrophic shell command NEVER auto-runs — not under Auto (full), not in a
-    // trusted project, not in an unattended workflow/automation. Only Interaktiv may run
-    // it, and only after an explicit approval prompt (handled below). This closes the hole
-    // where `policy === 'full'` returned auto-approve before the `dangerous` flag was ever
-    // consulted (workflow agent nodes run under 'full').
-    if (dangerous && policy !== 'interactive') {
-      return `Blocked: „${call.name}" wurde als gefährlicher Befehl eingestuft und darf unbeaufsichtigt (Modus: ${policy}) nicht laufen. Wechsle in den Interaktiv-Modus, um ihn ausdrücklich zu bestätigen.`
-    }
-    // MCP tools NEVER auto-approve — not even under 'full'/trusted. They can perform
-    // irreversible remote actions, so they always fall through to an explicit prompt
-    // (the 'full' short-circuit below must not swallow them — see comment above).
-    if (policy === 'full' && !isMcp) return null
-    if (this.autoApproved(tool.permission) && !dangerous && !isMcp) return null
-    if (policy === 'safe') {
-      // Unattended/restricted: deny anything not pre-approved. The interactive-only
-      // allowlist must NOT punch through here — that's what autoApprove.bash is for.
-      return `Skipped "${call.name}" — not permitted in unattended (safe) mode.`
-    }
-    // Interactive only: a command the user blessed before (in THIS cwd) runs without
-    // a prompt — never a dangerous one (screened above), never cross-project.
-    if (isCmd && !dangerous && isCommandApproved(parsedArgs.command, cwd)) {
+    // The pure decision tree (order + messages live in gate-decision.ts, unit-tested). We compute
+    // the side-effectful inputs here and only ACT on the verdict below.
+    const decision = gateDecision({
+      policy,
+      toolName: call.name,
+      mutating,
+      dangerous,
+      isMcp,
+      isCmd,
+      unattendedBlock,
+      autoApproved: this.autoApproved(tool.permission),
+      commandApproved: isCmd && !dangerous && isCommandApproved(parsedArgs.command, cwd)
+    })
+    if (decision.kind === 'deny') return decision.reason
+    if (decision.kind === 'allow') return null
+    if (decision.kind === 'allowlist') {
       emit({ type: 'status', message: `Auto-erlaubt (Allowlist): ${String(parsedArgs.command).slice(0, 80)}` })
       return null
     }
