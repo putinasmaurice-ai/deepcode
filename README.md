@@ -58,6 +58,21 @@ never left reverted; on a persistent restore failure it stops loudly and keeps t
 Modes: **Interaktiv** (asks before changes), **Plan** (read-only, proposes a plan), **Auto** (approves everything).
 File changes are checkpointed — `/rewind` undoes the last turn. Dangerous commands always require approval.
 
+**📁 Arbeitsplatz pro Chat** — beim Start eines **neuen Chats** (Strg+N / Palette / Sidebar-`+`)
+fragt DeepCode zuerst, in welchem Ordner der Agent arbeiten soll: vorhandenen **wählen**, leer
+lassen (Standard-Ordner) oder **„＋ Neuer Ordner…"** für einen frischen, leeren Projektordner — so
+landet ein neues Projekt in seinem eigenen Ordner (wie in Claude Code Desktop). Auch im laufenden
+Chat wechselt der `📁`-Anzeiger im Header das Arbeitsverzeichnis, und der Button **„＋ Ordner"**
+legt direkt einen neuen an. Dasselbe **„Neu…"** gibt es im **Projekte**-Panel beim Anlegen eines
+Projekts. (Auto-Chats beim Start und projektgebundene Chats starten ohne Nachfrage.)
+
+**🗂️ Multi-Session-Tabs** — mehrere Chats gleichzeitig offen, als Browser-artige **Tab-Leiste**
+über dem Chat. Wechsle per Klick oder **Strg+Tab / Strg+Umschalt+Tab**, schließe einen Tab mit `✕`
+oder Mittelklick (der Chat bleibt in der Seitenleiste, wird nicht gelöscht). Da das Backend jede
+Session **unabhängig pro ID** ausführt, laufen **Hintergrund-Tabs weiter**: ein pulsierender Punkt
+markiert einen Tab, dessen Agent gerade arbeitet, und ein Toast meldet, wenn ein Hintergrund-Chat
+fertig ist. Offene Tabs + aktiver Tab werden über Neustarts hinweg gemerkt.
+
 **🐝 Swarm mode** — `/swarm <task>` plans the task into independent sub-tasks and runs them **in
 parallel, each in its own isolated git worktree + branch**, so their edits can't collide — then
 reports the branches for you to review and merge. A first-class orchestrator (not the `task` tool):

@@ -4,7 +4,7 @@ import { isImagePath, imageToDataUri } from './images'
 import { checkForUpdates } from './updater'
 import { randomUUID } from 'crypto'
 import { homedir } from 'os'
-import { existsSync, statSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, statSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'fs'
 import { join, resolve, sep } from 'path'
 import { IPC } from '@shared/ipc'
 import {
@@ -32,7 +32,7 @@ import { loadHooks } from './systems/hooks'
 import { pluginSkills, pluginCommands, pluginSubagents, pluginHooks, loadPlugins, togglePlugin } from './systems/plugins'
 import { loadMemory, saveMemory, deleteMemory, recordArenaVote } from './systems/memory'
 import { mcpManager } from './systems/mcp'
-import { PATHS } from './paths'
+import { PATHS, safeFolderName } from './paths'
 import { buildAttachmentContext, listProjectFiles } from './attachments'
 import { listApprovedCommands, removeApprovedCommand } from './approvals'
 import { detectPreview } from './preview'
@@ -1380,8 +1380,37 @@ export function registerIpc(win: BrowserWindow): void {
 
   // ---- misc ----
   ipcMain.handle(IPC.pickDirectory, async () => {
-    const res = await dialog.showOpenDialog(win, { properties: ['openDirectory'] })
-    return res.canceled ? null : res.filePaths[0]
+    // 'createDirectory' adds a "New Folder" button on macOS; harmless on Windows (native
+    // picker already has one). Authorize the chosen path for subsequent reads/preview.
+    const res = await dialog.showOpenDialog(win, {
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (res.canceled || !res.filePaths[0]) return null
+    pickedPaths.add(resolve(res.filePaths[0]))
+    return res.filePaths[0]
+  })
+  // Create a brand-new project folder: pick a parent + a name, get a fresh empty dir back.
+  // This is the missing half of "choose a folder as the chat workspace" — so a new project
+  // lands in its own folder instead of only being able to adopt an existing one.
+  ipcMain.handle(IPC.createDirectory, (_e, parent: string, name: string) => {
+    const base = validDir(parent)
+    if (!base) throw new Error('Übergeordneter Ordner existiert nicht: ' + parent)
+    // safeFolderName keeps the name to a single segment (no traversal / illegal chars) so it
+    // can't escape `base`; spaces and hyphens stay allowed. See paths.ts.
+    const clean = safeFolderName(name)
+    const target = join(base, clean)
+    if (existsSync(target)) {
+      let entries: string[] = ['?']
+      try {
+        entries = readdirSync(target)
+      } catch {
+        /* unreadable → treat as occupied */
+      }
+      if (entries.length > 0) throw new Error('Ordner existiert bereits und ist nicht leer: ' + target)
+    }
+    mkdirSync(target, { recursive: true })
+    pickedPaths.add(resolve(target))
+    return target
   })
   ipcMain.handle(IPC.pickFiles, async () => {
     const res = await dialog.showOpenDialog(win, {

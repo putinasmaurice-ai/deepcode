@@ -144,6 +144,7 @@ export const IPC = {
 
   // misc
   pickDirectory: 'dialog:pickDirectory',
+  createDirectory: 'dialog:createDirectory',
   pickFiles: 'dialog:pickFiles',
   openConfigDir: 'shell:openConfigDir',
   getCwdInfo: 'fs:cwdInfo'

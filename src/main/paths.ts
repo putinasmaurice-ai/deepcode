@@ -42,6 +42,24 @@ export function safeId(id: unknown): string {
   return id
 }
 
+// Validate a user-typed folder NAME (a single path segment) before it is joined onto a
+// parent dir in createDirectory. Rejects traversal, separators, the Windows-illegal chars
+// (< > : " / \ | ? *), the dot-names and a trailing dot. Spaces and hyphens ARE allowed —
+// "CODING APP" and "mein-projekt" are valid folder names. Returns the trimmed name or throws.
+export function safeFolderName(name: unknown): string {
+  const clean = String(name ?? '').trim()
+  if (
+    !clean ||
+    clean === '.' ||
+    clean === '..' ||
+    /[<>:"/\\|?*]/.test(clean) ||
+    /\.$/.test(clean)
+  ) {
+    throw new Error('Ungültiger Ordnername: ' + String(name))
+  }
+  return clean
+}
+
 export function ensureConfigDirs(): void {
   const dirs = [
     PATHS.root,

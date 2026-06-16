@@ -256,6 +256,8 @@ export interface DeepCodeApi {
 
   // misc
   pickDirectory(): Promise<string | null>
+  // create a fresh sub-folder under `parent` and return its absolute path (throws on invalid name / non-empty collision)
+  createDirectory(parent: string, name: string): Promise<string>
   pickFiles(): Promise<string[]>
   openConfigDir(): Promise<boolean>
   getCwdInfo(cwd: string): Promise<CwdInfo>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ProjectDef, ProjectHealth } from '../../../shared/types'
+import { NewFolderDialog } from './NewFolderDialog'
 
 const api = window.deepcode
 
@@ -43,6 +44,7 @@ export function ProjectsPanel({
   const [cwd, setCwd] = useState('')
   const [editing, setEditing] = useState<ProjectDef | null>(null)
   const [health, setHealth] = useState<Record<string, ProjectHealth | 'loading'>>({})
+  const [newFolder, setNewFolder] = useState(false)
 
   async function checkHealth(p: ProjectDef): Promise<void> {
     setHealth((h) => ({ ...h, [p.id]: 'loading' }))
@@ -90,6 +92,17 @@ export function ProjectsPanel({
 
   return (
     <div className="panel">
+      {newFolder && (
+        <NewFolderDialog
+          defaultName={name.trim()}
+          onClose={() => setNewFolder(false)}
+          onCreated={(path) => {
+            setCwd(path)
+            if (!name.trim()) setName(path.replace(/[/\\]+$/, '').split(/[/\\]/).pop() || '')
+            setNewFolder(false)
+          }}
+        />
+      )}
       <div className="panel-inner">
         <h1>Projekte</h1>
         <p className="sub">
@@ -110,6 +123,14 @@ export function ProjectsPanel({
                 <input value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder="C:\…" />
                 <button className="btn ghost" style={{ flex: '0 0 auto' }} onClick={pickDir}>
                   Wählen…
+                </button>
+                <button
+                  className="btn ghost"
+                  style={{ flex: '0 0 auto' }}
+                  onClick={() => setNewFolder(true)}
+                  title="Frischen, leeren Ordner für dieses Projekt anlegen"
+                >
+                  Neu…
                 </button>
               </div>
             </div>

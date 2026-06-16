@@ -178,6 +178,8 @@ const api: DeepCodeApi = {
 
   // misc
   pickDirectory: () => ipcRenderer.invoke(IPC.pickDirectory),
+  createDirectory: (parent: string, name: string) =>
+    ipcRenderer.invoke(IPC.createDirectory, parent, name),
   pickFiles: () => ipcRenderer.invoke(IPC.pickFiles),
   openConfigDir: () => ipcRenderer.invoke(IPC.openConfigDir),
   getCwdInfo: (cwd: string) => ipcRenderer.invoke(IPC.getCwdInfo, cwd)

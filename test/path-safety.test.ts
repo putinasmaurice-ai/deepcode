@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { safeId } from '../src/main/paths'
+import { safeId, safeFolderName } from '../src/main/paths'
 import { isPrivateIp } from '../src/main/agent/tools/web'
 import { previewToolDiff } from '../src/main/preview-diff'
 
@@ -12,6 +12,24 @@ describe('safeId', () => {
   it('rejects traversal / separators / empties', () => {
     for (const bad of ['../sessions/x', '..\\..\\settings', 'a/b', 'a\\b', '..', '.', '', 'a b', 'a.b']) {
       expect(() => safeId(bad)).toThrow(/invalid id/)
+    }
+  })
+})
+
+// createDirectory: a renderer-typed folder name is joined onto a parent dir, so it must stay
+// a single, non-escaping segment — but ordinary names (spaces, hyphens, dots) must still work.
+describe('safeFolderName', () => {
+  it('accepts ordinary folder names incl. spaces, hyphens and inner dots', () => {
+    for (const ok of ['CODING APP', 'mein-projekt', 'my_app', 'v0.2.59', 'projekt 1']) {
+      expect(safeFolderName(ok)).toBe(ok)
+    }
+  })
+  it('trims surrounding whitespace', () => {
+    expect(safeFolderName('  neues-projekt  ')).toBe('neues-projekt')
+  })
+  it('rejects traversal, separators, illegal chars, dot-names and trailing dots', () => {
+    for (const bad of ['..', '.', '', '   ', 'a/b', 'a\\b', '../x', 'foo:bar', 'a*b', 'q?', 'x|y', 'name.']) {
+      expect(() => safeFolderName(bad)).toThrow(/Ungültiger Ordnername/)
     }
   })
 })

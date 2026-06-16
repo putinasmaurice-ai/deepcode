@@ -22,6 +22,9 @@ import { CommandPalette, PaletteItem } from './components/CommandPalette'
 import { FindBar } from './components/FindBar'
 import { PreviewPane } from './components/PreviewPane'
 import { CrystalBall } from './components/CrystalBall'
+import { NewFolderDialog } from './components/NewFolderDialog'
+import { NewChatDialog } from './components/NewChatDialog'
+import { SessionTabs } from './components/SessionTabs'
 // Heavy, view-gated panels are code-split (lazy) so the cold-start bundle stays small — the big
 // one is the workflow editor (React Flow). Each loads its chunk on first open.
 const WorkflowsPanel = lazy(() => import('./components/workflow/WorkflowsPanel').then((m) => ({ default: m.WorkflowsPanel })))
@@ -143,6 +146,10 @@ export function App(): JSX.Element {
   const [projects, setProjects] = useState<ProjectDef[]>([])
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [gitBranch, setGitBranch] = useState<string | null>(null)
+  const [showNewFolder, setShowNewFolder] = useState(false)
+  const [showNewChat, setShowNewChat] = useState(false)
+  // ids of the chats currently open as tabs (a subset of `sessions`); the active tab is `session`
+  const [openTabs, setOpenTabs] = useState<string[]>([])
   const [mode, setMode] = useState<AgentMode>('interactive')
   const [todos, setTodos] = useState<TodoItem[]>([])
   const [sessionFilter, setSessionFilter] = useState('')
@@ -268,11 +275,19 @@ export function App(): JSX.Element {
         setFindOpen(true)
       } else if (e.ctrlKey && e.key.toLowerCase() === 'n') {
         e.preventDefault()
-        newSession()
+        requestNewChat()
       } else if (e.ctrlKey && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setView('chat')
         setTimeout(() => document.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus(), 50)
+      } else if (e.ctrlKey && e.key === 'Tab') {
+        // Ctrl+Tab / Ctrl+Shift+Tab cycle through the open chat tabs (browser-style)
+        e.preventDefault()
+        if (openTabs.length >= 2) {
+          const cur = session?.id ? openTabs.indexOf(session.id) : -1
+          const dir = e.shiftKey ? -1 : 1
+          void openSession(openTabs[(cur + dir + openTabs.length) % openTabs.length])
+        }
       } else if (
         e.key === 'Escape' &&
         busy &&
@@ -315,7 +330,7 @@ export function App(): JSX.Element {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProjectId, settings, busy, session, paletteOpen, findOpen])
+  }, [activeProjectId, settings, busy, session, paletteOpen, findOpen, openTabs])
 
   // ---- bootstrap ----
   useEffect(() => {
@@ -325,11 +340,41 @@ export function App(): JSX.Element {
       setProjects(await api.listProjects())
       const list = await api.listSessions()
       setSessions(list)
-      if (list.length) await openSession(list[0].id)
-      else await newSession(s)
+      // restore the previously open tabs (multi-session workspace); drop any that no longer
+      // exist, then re-open the last active one.
+      let saved: string[] = []
+      try {
+        saved = JSON.parse(localStorage.getItem('open-tabs') || '[]')
+      } catch {
+        saved = []
+      }
+      const validTabs = saved.filter((id) => list.some((x) => x.id === id))
+      const active = localStorage.getItem('active-tab')
+      if (validTabs.length) {
+        setOpenTabs(validTabs)
+        await openSession(validTabs.includes(active ?? '') ? (active as string) : validTabs[0])
+      } else if (list.length) {
+        await openSession(list[0].id)
+      } else {
+        await newSession(s)
+      }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // persist the open tabs + active tab so a restart restores your workspace of chats
+  useEffect(() => {
+    localStorage.setItem('open-tabs', JSON.stringify(openTabs))
+  }, [openTabs])
+  useEffect(() => {
+    if (session?.id) localStorage.setItem('active-tab', session.id)
+  }, [session?.id])
+  // mirror openTabs into a ref so the stable event handler can tell a finished BACKGROUND chat
+  // (an open tab you switched away from) apart from an automation/night-shift session
+  const openTabsRef = useRef<string[]>([])
+  useEffect(() => {
+    openTabsRef.current = openTabs
+  }, [openTabs])
 
   // refresh projects when returning to chat (panel edits may have changed them)
   useEffect(() => {
@@ -446,6 +491,20 @@ export function App(): JSX.Element {
       if (e.type === 'turn_done') {
         endRun(sid)
         refreshSessions()
+        // if it's a chat you have open in another tab (not an automation), let you know it's done
+        if (openTabsRef.current.includes(sid)) {
+          api
+            .getSession(sid)
+            .then((bs) => {
+              if (bs) {
+                addToast(`✓ „${bs.title || 'Chat'}" fertig`, 'info', {
+                  label: 'Öffnen',
+                  run: () => void openSession(sid)
+                })
+              }
+            })
+            .catch(() => {})
+        }
       }
       return
     }
@@ -634,6 +693,7 @@ export function App(): JSX.Element {
       return null
     })
     setSession(s)
+    setOpenTabs((t) => (t.includes(id) ? t : [...t, id]))
     setMessages(s.messages.filter((m) => m.role !== 'tool'))
     setToolState(deriveToolState(s.messages))
     setSessionUsage(computeUsage(s.messages))
@@ -650,11 +710,17 @@ export function App(): JSX.Element {
     scrollDown()
   }
 
-  async function newSession(s?: AppSettings | null, projectId?: string | null): Promise<void> {
+  async function newSession(
+    s?: AppSettings | null,
+    projectId?: string | null,
+    cwdOverride?: string
+  ): Promise<void> {
     const pid = projectId !== undefined ? projectId : activeProjectId
-    const cwd = pid ? undefined : (s ?? settings)?.defaultCwd
+    // a workspace explicitly chosen in the New-Chat dialog wins over the project/default cwd
+    const cwd = cwdOverride || (pid ? undefined : (s ?? settings)?.defaultCwd)
     const created = await api.createSession(cwd || undefined, pid || undefined)
     setSessions((list) => [created, ...list])
+    setOpenTabs((t) => (t.includes(created.id) ? t : [...t, created.id]))
     setDeferred(null) // drop any pending off-peak send from the previous chat
     // drop (and settle main on) any secret prompt from the previous chat — it belongs there
     setPendingSecret((prev) => {
@@ -668,6 +734,13 @@ export function App(): JSX.Element {
     setView('chat')
     setError('')
     setStatus('')
+  }
+
+  // User-initiated "new chat" (Ctrl+N, palette, sidebar +): ask for the workspace up front —
+  // pick an existing folder or create a fresh one — then start the chat there. Auto-creates
+  // (boot, last-chat-deleted) and project chats keep starting directly without the prompt.
+  function requestNewChat(): void {
+    setShowNewChat(true)
   }
 
   async function exportChat(): Promise<void> {
@@ -871,9 +944,27 @@ export function App(): JSX.Element {
     }
     const list = await api.listSessions()
     setSessions(list)
+    const remainingTabs = openTabs.filter((t) => t !== id)
+    setOpenTabs(remainingTabs)
     if (session?.id === id) {
-      if (list.length) openSession(list[0].id)
+      // prefer another still-open tab, else the most recent session, else a fresh chat
+      const fallback = remainingTabs[0] ?? list[0]?.id
+      if (fallback) openSession(fallback)
       else newSession()
+    }
+  }
+
+  // Close a tab WITHOUT deleting the chat (it stays in the sidebar). If it was the active tab,
+  // switch to a neighbour; closing the last open tab falls back to the most recent session (or a
+  // fresh chat) so an agent is never left without a working session.
+  function closeTab(id: string): void {
+    const idx = openTabs.indexOf(id)
+    const next = openTabs.filter((t) => t !== id)
+    setOpenTabs(next)
+    if (id === session?.id) {
+      const fallback = next[idx] ?? next[idx - 1] ?? next[next.length - 1] ?? sessions.find((s) => s.id !== id)?.id
+      if (fallback) void openSession(fallback)
+      else void newSession()
     }
   }
 
@@ -920,11 +1011,10 @@ export function App(): JSX.Element {
     }
   }
 
-  async function pickCwd(): Promise<void> {
+  // Change the current session's working directory in place (keeps the chat). Shared by the
+  // "pick existing folder" and "create new folder" paths in the topbar.
+  async function applyCwd(dir: string): Promise<void> {
     if (!session) return
-    const dir = await api.pickDirectory()
-    if (!dir) return
-    // Change the current session's working directory in place (keeps the chat).
     try {
       const updated = (await api.changeCwd(session.id, dir)) as Session
       setSession(updated)
@@ -934,15 +1024,31 @@ export function App(): JSX.Element {
     }
   }
 
+  async function pickCwd(): Promise<void> {
+    if (!session) return
+    const dir = await api.pickDirectory()
+    if (dir) await applyCwd(dir)
+  }
+
   const apiKeyMissing = settings && !settings.provider.apiKey
 
   const transcript = useMemo(() => messages.filter((m) => !m.hidden), [messages])
+
+  // resolve the open-tab ids to their sessions for the tab strip (active one uses the freshest
+  // `session` object so an in-flight rename/title shows immediately)
+  const tabSessions = useMemo(
+    () =>
+      openTabs
+        .map((id) => (id === session?.id ? session : sessions.find((s) => s.id === id)))
+        .filter((s): s is Session => !!s),
+    [openTabs, sessions, session]
+  )
 
   // Command palette (Ctrl+P): every view, the common actions, and the recent
   // chats — all fuzzy-searchable from one place.
   const paletteItems = useMemo<PaletteItem[]>(() => {
     const actions: PaletteItem[] = [
-      { id: 'act:new', icon: '✨', label: 'Neuer Chat', hint: 'Ctrl+N', run: () => newSession() },
+      { id: 'act:new', icon: '✨', label: 'Neuer Chat', hint: 'Ctrl+N', run: () => requestNewChat() },
       {
         id: 'act:focus',
         icon: '⌨️',
@@ -1028,7 +1134,7 @@ export function App(): JSX.Element {
         activeSessionId={session?.id ?? null}
         onOpenSession={openSession}
         onDeleteSession={removeSession}
-        onNewSession={() => newSession()}
+        onNewSession={requestNewChat}
         sessionFilter={sessionFilter}
         onFilter={setSessionFilter}
         contentHits={contentHits}
@@ -1044,6 +1150,16 @@ export function App(): JSX.Element {
       />
 
       <main className="main">
+        {tabSessions.length > 0 && (
+          <SessionTabs
+            tabs={tabSessions}
+            activeId={session?.id ?? null}
+            running={running}
+            onSelect={(id) => void openSession(id)}
+            onClose={closeTab}
+            onNew={requestNewChat}
+          />
+        )}
         <div className="topbar">
           {view === 'chat' && session && (
             <>
@@ -1062,6 +1178,14 @@ export function App(): JSX.Element {
               >
                 📁 {session.cwd}
               </div>
+              <button
+                className="pill"
+                style={{ cursor: 'pointer' }}
+                onClick={() => setShowNewFolder(true)}
+                title="Neuen, leeren Projektordner anlegen und als Arbeitsplatz öffnen"
+              >
+                ＋ Ordner
+              </button>
               {gitBranch && (
                 <span className="pill branch-pill" title={gitDirty ? `${gitDirty} unkommittierte Änderung(en)` : 'Working tree sauber'}>
                   ⎇ {gitBranch}
@@ -1393,6 +1517,27 @@ export function App(): JSX.Element {
         )}
         </Suspense>
       </main>
+      {showNewFolder && (
+        <NewFolderDialog
+          onClose={() => setShowNewFolder(false)}
+          onCreated={(path) => {
+            setShowNewFolder(false)
+            void applyCwd(path)
+          }}
+        />
+      )}
+      {showNewChat && (
+        <NewChatDialog
+          defaultCwd={session?.cwd || settings?.defaultCwd || ''}
+          onClose={() => setShowNewChat(false)}
+          onStart={(cwd) => {
+            setShowNewChat(false)
+            // projectId undefined → keep the existing active-project behavior; the chosen
+            // workspace still wins for the chat's working directory via cwdOverride.
+            void newSession(undefined, undefined, cwd || undefined)
+          }}
+        />
+      )}
       {settings && !settings.provider.apiKey && !firstRunDismissed && (
         <FirstRunModal
           settings={settings}
