@@ -200,4 +200,8 @@ console.log(JSON.stringify({
   consoleErrorsReal: realConsole,
   interactionFailures: failures
 }, null, 2))
+// Real CI gate: fail on an uncaught page exception (exit 2), OR a real renderer console error /
+// an interaction failure (exit 1). Previously only pageErrors failed the run, so a broken view or
+// a console error passed CI silently.
 if (pageErrors.length) process.exit(2)
+if (realConsole.length || failures.length) process.exit(1)

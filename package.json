@@ -1,6 +1,6 @@
 {
   "name": "deepcode",
-  "version": "0.2.63",
+  "version": "0.2.64",
   "description": "DeepCode — an agentic coding desktop app powered by DeepSeek. A Claude-Code / Codex style assistant with Plugins, Skills, MCP, Subagents, Hooks, Memory, Automations and Slash Commands.",
   "main": "./out/main/index.js",
   "author": "Maurice",
@@ -17,7 +17,9 @@
     "package": "electron-vite build && electron-builder",
     "package:win": "electron-vite build && electron-builder --win",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "smoke": "electron-vite build && node scripts/ui-smoke.mjs",
+    "smoke:run": "node scripts/ui-smoke.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
