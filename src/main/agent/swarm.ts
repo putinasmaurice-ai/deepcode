@@ -33,6 +33,10 @@ export interface SwarmRunDeps {
   signal: AbortSignal
   deadline?: number
   concurrency: number
+  // hard ceiling on TOTAL swarm spend: once the workers' accumulated cost crosses this, no further
+  // workers are launched. The daily cap is only checked at run START, so without this a single
+  // parallel run could overshoot the day's budget. Undefined / 0 = no cap.
+  costCapUsd?: number
 }
 
 function slug(s: string): string {
@@ -75,14 +79,19 @@ export function parseShards(text: string, maxWorkers: number): SwarmShard[] {
   return []
 }
 
-export function formatSwarmReport(workers: SwarmWorker[]): string {
+export function formatSwarmReport(workers: SwarmWorker[], capped?: boolean): string {
   const okN = workers.filter((w) => w.ok).length
   const cost = workers.reduce((a, w) => a + w.costUsd, 0)
   const lines = workers.map(
     (w) => `${w.ok ? '✅' : '❌'} \`${w.branch}\` — ${w.label}${w.diffStat ? `\n${w.diffStat.trim()}` : ''}`
   )
+  const capNote = capped
+    ? `\n\n⚠️ Kosten-Limit erreicht — weitere Worker wurden NICHT gestartet (bereits fertige bleiben committet).`
+    : ''
   return (
-    `🐝 Schwarm fertig: ${okN}/${workers.length} Worker erfolgreich${cost ? ` · ≈ $${cost.toFixed(4)}` : ''}.\n\n` +
+    `🐝 Schwarm fertig: ${okN}/${workers.length} Worker erfolgreich${cost ? ` · ≈ $${cost.toFixed(4)}` : ''}.` +
+    capNote +
+    `\n\n` +
     lines.join('\n\n') +
     `\n\nJeder Worker hat seine Änderung als eigenen Branch committet (Worktrees wurden aufgeräumt). ` +
     `Prüfe/merge die Branches z.B. mit dem git-Tool: \`git merge <branch>\` (oder einzeln per Diff). ` +
@@ -101,13 +110,23 @@ export async function runSwarm(
   projectCwd: string,
   sessionId: string,
   deps: SwarmRunDeps
-): Promise<{ runId: string; workers: SwarmWorker[] }> {
+): Promise<{ runId: string; workers: SwarmWorker[]; capped: boolean }> {
   const runId = randomUUID()
   const tag = runId.slice(0, 12) // long enough that cross-run branch/dir collisions are negligible
   const root = join(PATHS.swarm, safeId(sessionId), tag)
   // teardown MUST run even after the user/deadline aborts — runGit short-circuits on an aborted
   // signal, so a separate non-aborted signal is used for all cleanup git ops.
   const td = new AbortController().signal
+  // Internal run signal: aborts when the user/deadline aborts (deps.signal) OR when the cost cap is
+  // hit. It gates worktree creation + worker launching, so a cap STOPS launching new workers while
+  // letting in-flight ones finish. The COMMIT phase stays gated on deps.signal only — so a cost cap
+  // still commits the workers that completed, whereas a user/deadline abort discards partial work.
+  const runCtl = new AbortController()
+  const onParentAbort = (): void => runCtl.abort()
+  if (deps.signal.aborted) runCtl.abort()
+  else deps.signal.addEventListener('abort', onParentAbort, { once: true })
+  let totalCost = 0
+  let capped = false
   deps.emit({ type: 'swarm_run', runId, status: 'start', total: shards.length })
 
   // git metadata ops (worktree add/remove, commit, refs) on ONE repo can race on the .git lock,
@@ -123,8 +142,8 @@ export async function runSwarm(
   try {
     // Phase 1: create each worktree on its own new branch (sequential — avoids .git lock races)
     for (const L of live) {
-      if (deps.signal.aborted) break
-      const add = await runGit(['worktree', 'add', L.dir, '-b', L.w.branch], projectCwd, deps.signal)
+      if (runCtl.signal.aborted) break
+      const add = await runGit(['worktree', 'add', L.dir, '-b', L.w.branch], projectCwd, runCtl.signal)
       L.created = add.code === 0
       if (!L.created) {
         L.w.summary = 'worktree add fehlgeschlagen: ' + add.out.slice(0, 300)
@@ -144,6 +163,11 @@ export async function runSwarm(
             const text = await deps.runWorker(prompt, L.dir, (u) => {
               L.w.costUsd += u.cost
               L.w.tokens += u.totalTokens
+              totalCost += u.cost
+              if (deps.costCapUsd != null && deps.costCapUsd > 0 && totalCost >= deps.costCapUsd && !capped) {
+                capped = true
+                runCtl.abort() // stop launching further workers; in-flight ones finish
+              }
             })
             L.w.summary = String(text || '').slice(0, 600)
           } catch (e) {
@@ -152,9 +176,9 @@ export async function runSwarm(
         }
       })
     try {
-      await runPool(tasks.map((t) => () => t().catch(() => undefined)), deps.concurrency, deps.signal, deps.deadline)
+      await runPool(tasks.map((t) => () => t().catch(() => undefined)), deps.concurrency, runCtl.signal, deps.deadline)
     } catch {
-      /* abort/deadline rejected the pool — fall through to finalize/teardown */
+      /* abort/deadline/cost-cap rejected the pool — fall through to finalize/teardown */
     }
 
     // Phase 3: commit each worktree (sequential). Skipped on abort — partial work isn't trustworthy
@@ -185,6 +209,7 @@ export async function runSwarm(
       }
     }
   } finally {
+    deps.signal.removeEventListener('abort', onParentAbort)
     // teardown on the NON-aborted `td` signal so Stop/deadline can't neuter it. Remove every
     // created worktree except those deliberately preserved (commit-failed-with-changes).
     for (const L of live) {
@@ -200,5 +225,5 @@ export async function runSwarm(
     }
   }
   deps.emit({ type: 'swarm_run', runId, status: 'done', total: shards.length })
-  return { runId, workers: live.map((L) => L.w) }
+  return { runId, workers: live.map((L) => L.w), capped }
 }

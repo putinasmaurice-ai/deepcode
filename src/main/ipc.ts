@@ -33,6 +33,7 @@ import { pluginSkills, pluginCommands, pluginSubagents, pluginHooks, loadPlugins
 import { loadMemory, saveMemory, deleteMemory, recordArenaVote } from './systems/memory'
 import { mcpManager } from './systems/mcp'
 import { PATHS, safeFolderName } from './paths'
+import { parsePluginRepoUrl, pluginCloneArgs } from './plugin-install'
 import { buildAttachmentContext, listProjectFiles } from './attachments'
 import { listApprovedCommands, removeApprovedCommand } from './approvals'
 import { detectPreview } from './preview'
@@ -789,16 +790,15 @@ export function registerIpc(win: BrowserWindow): void {
   // Marketplace: install a plugin/skill bundle by cloning a git repo into
   // ~/.deepcode/plugins/<repo>. Shallow clone, 60s cap.
   ipcMain.handle(IPC.installFromGit, async (_e, url: string) => {
-    const m = url.trim().match(/^https:\/\/(github\.com|gitlab\.com|codeberg\.org)\/[\w.-]+\/([\w.-]+?)(\.git)?\/?$/)
-    if (!m) return { ok: false, message: 'Bitte eine https-Repo-URL angeben (GitHub/GitLab/Codeberg).' }
-    const name = m[2]
+    const name = parsePluginRepoUrl(url)
+    if (!name) return { ok: false, message: 'Bitte eine https-Repo-URL angeben (GitHub/GitLab/Codeberg).' }
     const dest = join(PATHS.plugins, name)
     if (existsSync(dest)) return { ok: false, message: `"${name}" ist bereits installiert.` }
     return new Promise((resolvePromise) => {
       execFile(
         'git',
         // harden against an untrusted repo: block file:// submodule transports and skip tag fetching
-        ['clone', '--depth', '1', '--no-tags', '-c', 'protocol.file.allow=never', '-c', 'submodule.recurse=false', url.trim(), dest],
+        pluginCloneArgs(url, dest),
         { timeout: 60_000 },
         (err) => {
           if (err) {

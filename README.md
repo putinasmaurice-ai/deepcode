@@ -80,8 +80,11 @@ fertig ist. Offene Tabs + aktiver Tab werden über Neustarts hinweg gemerkt.
 parallel, each in its own isolated git worktree + branch**, so their edits can't collide — then
 reports the branches for you to review and merge. A first-class orchestrator (not the `task` tool):
 workers are unattended-gated and **sandboxed to file edits only** (read/edit/grep/glob — no
-shell/git/network), the wall-clock + daily/per-worker cost caps bound the run, and every worktree
-is torn down even on Stop/timeout (a worker whose commit fails is preserved, not discarded).
+shell/git/network), and the run is bounded by the wall-clock ceiling AND a **hard total-cost cap**
+(the day's budget): once the workers' accumulated spend crosses it, no further workers are launched
+— so a single parallel run can't overshoot the daily budget — while the workers that already
+finished still commit. Every worktree is torn down even on Stop/timeout (a worker whose commit
+fails is preserved, not discarded).
 Great for "migrate all N modules" — parallel instead of a serial grind. A **🐝 Schwarm** panel
 then lists the resulting `swarm/*` branches: review each diff and **merge** it into your current
 branch with one click (a dirty tree is refused and a conflicting merge is safely aborted so the

@@ -14,7 +14,7 @@ import { mkdirSync, writeFileSync, existsSync, rmSync } from 'fs'
 import { join } from 'path'
 import { PATHS } from '../src/main/paths'
 import { runGit } from '../src/main/agent/tools/git'
-import { runSwarm, SwarmShard, SwarmRunDeps } from '../src/main/agent/swarm'
+import { runSwarm, formatSwarmReport, SwarmShard, SwarmRunDeps } from '../src/main/agent/swarm'
 import type { AgentEvent } from '../src/shared/types'
 
 const CFG = join(HOME, '.deepcode')
@@ -102,5 +102,36 @@ describe('runSwarm — isolated git worktrees, branch survival, teardown', () =>
     // lifecycle events were emitted
     expect(events.some((e) => e.type === 'swarm_run' && e.status === 'start')).toBe(true)
     expect(events.some((e) => e.type === 'swarm_run' && e.status === 'done')).toBe(true)
+  }, 60000)
+
+  it('stops launching new workers once the cost cap is hit (completed ones still commit)', async () => {
+    const shards: SwarmShard[] = Array.from({ length: 4 }, (_, i) => ({
+      label: `cap ${i}`,
+      prompt: `edit module ${i}`
+    }))
+    // each worker bills 0.01; cap 0.015 → after the first 2 (concurrency 2) bill, the cap trips
+    // and workers 2/3 are never launched.
+    const deps: SwarmRunDeps = {
+      runWorker: async (prompt, cwd, onUsage) => {
+        onUsage({ cost: 0.01, totalTokens: 100 })
+        writeFileSync(join(cwd, 'worker.txt'), `edit ${prompt}\n`, 'utf8')
+        return `done ${prompt}`
+      },
+      emit: () => {},
+      signal: new AbortController().signal,
+      concurrency: 2,
+      costCapUsd: 0.015
+    }
+
+    const { workers, capped } = await runSwarm(shards, REPO, `${SID}cap`, deps)
+
+    expect(capped).toBe(true)
+    const okCount = workers.filter((w) => w.ok).length
+    expect(okCount).toBeGreaterThanOrEqual(1) // the in-flight batch completed + committed
+    expect(okCount).toBeLessThan(4) // the cap prevented the full run
+    // the skipped workers committed nothing
+    expect(workers.some((w) => !w.ok && w.diffStat === '(keine Änderungen)')).toBe(true)
+    // the report carries the cap notice
+    expect(formatSwarmReport(workers, capped)).toContain('Kosten-Limit erreicht')
   }, 60000)
 })

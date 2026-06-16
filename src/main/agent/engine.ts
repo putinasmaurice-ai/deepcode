@@ -34,6 +34,7 @@ import { runStructuredVerify } from './verify-report'
 import { focusFeedback } from '@shared/test-report'
 import { detectTestFramework, proveRedFirst, isTestFile } from './verify-synth'
 import { runSwarm, buildPlanPrompt, parseShards, formatSwarmReport, isGitRepo } from './swarm'
+import { chooseVisionModel } from './vision-route'
 import { setSecret, isSecretNameValid } from '../workflows/secrets'
 
 export type { ApprovalPolicy } from './policy'
@@ -227,31 +228,16 @@ export class AgentEngine {
     budget?: { usd: number; tokens: number } // per-turn budget: vision spend counts toward maxCostPerTurn
   ): Promise<string | null> {
     const p = this.settings.provider
-    const online = this.settings.visionMode === 'online'
-    const hasGoogleKey = !!(p.googleApiKey && p.googleApiKey.trim())
-    // Force the LOKAL model id to carry a routable prefix. Without this, a bare/empty
-    // model name falls through to the DeepSeek text endpoint in deepseek.ts — which would
-    // send the raw image bytes to the cloud, defeating the whole point of LOKAL mode.
-    // LOKAL mode must ALWAYS route to Ollama — coerce to a 'local:' id even if the user
-    // typed a bare name or (mis)typed a 'google:' id into the local field, so selecting
-    // LOKAL can never silently send image bytes to the Google cloud.
-    const localId = (): string => {
-      const vm = (p.visionModel || 'local:qwen2.5vl:7b').trim()
-      return vm.startsWith('local:') ? vm : `local:${vm.replace(/^google:/, '')}`
-    }
-    let modelId: string
-    let label: string
-    if (online && hasGoogleKey) {
-      const vm = p.onlineVisionModel?.trim() || 'gemini-2.5-flash-lite'
-      modelId = `google:${vm}`
-      label = `Gemini (${vm})`
-    } else if (online && !hasGoogleKey) {
-      modelId = localId()
-      label = 'lokal (kein Google-Key)'
+    // pure routing decision (security-critical LOKAL→local: coercion lives in vision-route.ts and is
+    // unit-tested there) — keeps the cloud-leak guard testable in isolation from the network.
+    const { modelId, label, usedLocalFallback } = chooseVisionModel({
+      visionMode: this.settings.visionMode,
+      visionModel: p.visionModel,
+      onlineVisionModel: p.onlineVisionModel,
+      hasGoogleKey: !!(p.googleApiKey && p.googleApiKey.trim())
+    })
+    if (usedLocalFallback) {
       emit({ type: 'status', message: '👁 Kein Google-Key gesetzt — nutze lokales Vision-Modell. Trage den Key in den Settings ein für Gemini.' })
-    } else {
-      modelId = localId()
-      label = `lokal (${modelId.replace('local:', '')})`
     }
     emit({ type: 'status', message: `👁 Analysiere ${images.length} Bild(er) mit ${label}…` })
     const messages: ApiMessage[] = [
@@ -765,7 +751,7 @@ export class AgentEngine {
     if (signal.aborted) swarmAc.abort()
     const ceiling = setTimeout(() => swarmAc.abort(), SWARM_MAX_MS)
     try {
-      const { workers } = await runSwarm(shards, session.cwd, session.id, {
+      const { workers, capped } = await runSwarm(shards, session.cwd, session.id, {
         runWorker: (prompt, cwd, onUsage) =>
           runSubagent(
             this.deps(),
@@ -786,9 +772,12 @@ export class AgentEngine {
         emit,
         signal: swarmAc.signal,
         deadline: Date.now() + SWARM_MAX_MS,
-        concurrency: SWARM_MAX_WORKERS
+        concurrency: SWARM_MAX_WORKERS,
+        // a single run may not blow past the day's budget: the daily cap is checked only at START,
+        // so bound the whole parallel run to it too (un-launched workers are skipped once hit).
+        costCapUsd: this.settings.maxCostPerDay || undefined
       })
-      return formatSwarmReport(workers)
+      return formatSwarmReport(workers, capped)
     } finally {
       clearTimeout(ceiling)
       signal.removeEventListener('abort', onParentAbort)
