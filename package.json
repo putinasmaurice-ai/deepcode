@@ -1,6 +1,6 @@
 {
   "name": "deepcode",
-  "version": "0.2.60",
+  "version": "0.2.61",
   "description": "DeepCode — an agentic coding desktop app powered by DeepSeek. A Claude-Code / Codex style assistant with Plugins, Skills, MCP, Subagents, Hooks, Memory, Automations and Slash Commands.",
   "main": "./out/main/index.js",
   "author": "Maurice",
@@ -28,6 +28,9 @@
     "nodemailer": "^8.0.11"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^22.10.0",
     "@types/nodemailer": "^8.0.1",
@@ -37,6 +40,7 @@
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
+    "jsdom": "^29.1.1",
     "playwright": "^1.60.0",
     "png-to-ico": "^3.0.1",
     "react": "^18.3.1",

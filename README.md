@@ -211,8 +211,10 @@ src/
     ipc.ts        IPC handlers wiring the renderer to the engine
   preload/        contextBridge API (window.deepcode)
   renderer/       React UI (chat, streaming, tool approvals, all management panels)
-test/             vitest unit tests for the pure logic (pricing, danger heuristic,
-                  cron matcher, context-window map, message elision, line-diff)
+test/             vitest tests for the pure logic (pricing, danger heuristic, cron matcher,
+                  context-window map, message elision, line-diff) AND real-git/store integration
+                  suites for the flagship orchestration (swarm worktree lifecycle, Time Machine
+                  timeline correlation + state reconstruction, Mission Control overseer)
 ```
 
 `npm run typecheck && npm test` gates every push via GitHub Actions CI.
