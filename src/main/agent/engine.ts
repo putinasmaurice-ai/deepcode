@@ -518,6 +518,11 @@ export class AgentEngine {
       // so Regenerate/Edit work on a freshly-sent message (not just after reopen).
       emit({ type: 'user_message', sessionId: session.id, id: userMsgId })
 
+      // the turn key: identical value keys the FS checkpoints (recordSnapshot below) AND, threaded
+      // into the trace, lets Time Machine correlate this turn's reasoning to its file pre-images
+      // EXACTLY. Created here (before the trace) so both share it; the ToolContext snapshot reuses it.
+      const turnTag = String(Date.now())
+
       // open the run-trace now so a running turn shows up in the Trace panel immediately
       const tr = new TraceRecorder(
         {
@@ -525,7 +530,8 @@ export class AgentEngine {
           title: userText,
           cwd: session.cwd,
           model: session.model || this.settings.provider.model,
-          unattended
+          unattended,
+          turnTag
         },
         { onUpdate: (t) => emit({ type: 'trace', sessionId: session.id, trace: t }) }
       )
@@ -586,7 +592,6 @@ export class AgentEngine {
       })
 
       const tools = buildTools(this.settings, session.cwd, { projectId: session.projectId, allow: toolAllow })
-      const turnTag = String(Date.now())
       const ctx: ToolContext = {
         cwd: session.cwd,
         signal,

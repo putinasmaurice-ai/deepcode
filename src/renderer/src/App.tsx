@@ -32,6 +32,7 @@ const SwarmPanel = lazy(() => import('./components/SwarmPanel').then((m) => ({ d
 const NightShiftPanel = lazy(() => import('./components/NightShiftPanel').then((m) => ({ default: m.NightShiftPanel })))
 const MissionPanel = lazy(() => import('./components/MissionPanel').then((m) => ({ default: m.MissionPanel })))
 const UsagePanel = lazy(() => import('./components/UsagePanel').then((m) => ({ default: m.UsagePanel })))
+const TimeMachinePanel = lazy(() => import('./components/timemachine/TimeMachinePanel').then((m) => ({ default: m.TimeMachinePanel })))
 import { inOffPeak } from '../../shared/offpeak'
 import {
   SettingsPanel,
@@ -67,6 +68,7 @@ export type View =
   | 'plugins'
   | 'automations'
   | 'workflows'
+  | 'timemachine'
 
 export interface ToolState {
   result?: ToolResult
@@ -1377,6 +1379,8 @@ export function App(): JSX.Element {
           <TracePanel />
         ) : view === 'swarm' ? (
           <SwarmPanel />
+        ) : view === 'timemachine' ? (
+          <TimeMachinePanel />
         ) : (
           <Panel
             view={view}

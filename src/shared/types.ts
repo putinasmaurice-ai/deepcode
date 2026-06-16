@@ -677,4 +677,74 @@ export interface Trace {
   tokens: number
   spans: TraceSpan[] // flat; the tree is rebuilt via parentId in the UI
   unattended?: boolean
+  // the engine turn key (String(Date.now()) at turn start) — IDENTICAL to the checkpoint turnTag,
+  // so Time Machine can correlate this reasoning trace to that turn's FS pre-image snapshots EXACTLY
+  // (not by fuzzy timestamp proximity). Absent on traces written before this field existed.
+  turnTag?: string
+}
+
+// ---- Time Machine (causal replay + branch-from-here) ----
+// Time Machine fuses the three PERSISTED, per-turn, millisecond-timestamped stores into ONE
+// scrubbable timeline: traces (reasoning/tool span tree + cost), checkpoints (restorable FS
+// pre-images), session messages (conversation + cost). A "tick" is one agent TURN, keyed by its
+// millisecond turnTag. It is honest about what is NOT replayable: background jobs live in-memory
+// only (jobs.ts), preview frames aren't persisted, traces cap at 300 and checkpoints at 100 per
+// session, and pre-images over 5MB / locked files are skipped (never reconstructable).
+
+// One file a turn touched, as recorded in that turn's checkpoint pre-image.
+export interface TimelineTickFile {
+  path: string // absolute path
+  rel: string // path relative to the session cwd (for display)
+  existed: boolean // did the file exist BEFORE the turn ran?
+  skipped: boolean // pre-image NOT captured (locked or >5MB) → cannot be reconstructed
+}
+
+// A single fused point on a session's timeline (one agent turn).
+export interface TimelineTick {
+  tick: number // ms timestamp = the turn key (sort ascending = chronological)
+  iso: string // localized human time, prebuilt main-side
+  sessionId: string
+  traceId?: string // present when the turn's trace survived (not pruned past MAX_TRACES)
+  checkpointTag?: string // present when the turn changed files (a checkpoint exists)
+  status: TraceStatus | 'unknown'
+  model?: string
+  costUsd: number
+  tokens: number
+  spanCount: number
+  toolCount: number
+  topError?: string // short head of the first failing span, if any
+  files: TimelineTickFile[] // files this turn changed
+  restorable: boolean // ≥1 non-skipped file → branch-from-here can reconstruct something
+  userExcerpt?: string // first user message of the turn (clipped)
+  assistantExcerpt?: string // first assistant text of the turn (clipped)
+  messageCount: number
+  hasTrace: boolean
+  hasCheckpoint: boolean
+  skippedFiles: number // count of files whose pre-image was skipped (honesty badge)
+}
+
+// The expanded detail for one selected tick.
+export interface TickDetail {
+  tick: TimelineTick
+  trace?: Trace // full span tree (reasoning) when it survived
+  messages: ChatMessage[] // the turn's messages (clipped main-side)
+  diff?: string // unified diff of the turn's file changes (pre-image → after), capped
+}
+
+// A timemachine/* branch produced by branch-from-here — surfaced in the fork list (mirrors SwarmBranch).
+export interface TimeMachineFork {
+  branch: string // timemachine/<sessionSlug>-t<tick>
+  subject: string // commit subject
+  stat: string // git diff --stat HEAD...branch
+}
+
+// Result of forking the repo state at a past tick into a new local branch.
+export interface ForkResult {
+  ok: boolean
+  branch?: string
+  sha?: string // short HEAD of the new branch
+  applied: number // files written from a captured pre-image
+  skipped: number // touched files whose pre-image could NOT be reconstructed (honest gap)
+  deleted: number // files that did not yet exist at the tick → removed on the fork
+  message: string
 }

@@ -145,6 +145,16 @@ const api: DeepCodeApi = {
     ipcRenderer.invoke(IPC.missionSchedule, id, schedule),
   missionReport: (id: string) => ipcRenderer.invoke(IPC.missionReport, id),
 
+  // time machine (causal replay + branch-from-here)
+  timeMachineTimeline: (sessionId: string) => ipcRenderer.invoke(IPC.tmTimeline, sessionId),
+  timeMachineTick: (sessionId: string, tick: number) => ipcRenderer.invoke(IPC.tmTick, sessionId, tick),
+  timeMachineFork: (sessionId: string, tick: number) => ipcRenderer.invoke(IPC.tmFork, sessionId, tick),
+  timeMachineForks: (sessionId: string) => ipcRenderer.invoke(IPC.tmForks, sessionId),
+  timeMachineForkDiff: (sessionId: string, branch: string) =>
+    ipcRenderer.invoke(IPC.tmForkDiff, sessionId, branch),
+  timeMachineDeleteFork: (sessionId: string, branch: string) =>
+    ipcRenderer.invoke(IPC.tmDeleteFork, sessionId, branch),
+
   // persistent approval allowlist
   listApprovedCommands: () => ipcRenderer.invoke(IPC.listApprovedCommands),
   removeApprovedCommand: (command: string, cwd: string) =>

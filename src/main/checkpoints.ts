@@ -116,6 +116,20 @@ export function listTurnTags(sessionId: string): string[] {
     .sort()
 }
 
+// Cheap per-file metadata for a turn's checkpoint — path + existed + skipped, WITHOUT the
+// (potentially large) pre-image content. The Time Machine timeline needs only this to render a
+// turn's touched-file list; loading full content for every tick would be wasteful.
+export interface SnapshotMeta {
+  path: string
+  existed: boolean
+  skipped: boolean
+}
+
+// Read the turn's snapshot json and drop the content field — used to build the timeline cheaply.
+export function getTurnSnapshotMeta(sessionId: string, turnTag: string): SnapshotMeta[] {
+  return load(sessionId, turnTag).map((s) => ({ path: s.path, existed: s.existed, skipped: !!s.skipped }))
+}
+
 // Restore the latest checkpoint turn; returns the restored file paths.
 export function rewindLastTurn(sessionId: string): string[] {
   const tags = listTurnTags(sessionId)

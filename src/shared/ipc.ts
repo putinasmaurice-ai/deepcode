@@ -121,6 +121,14 @@ export const IPC = {
   missionSchedule: 'missions:schedule',
   missionReport: 'missions:report',
 
+  // time machine (causal replay + branch-from-here) — read-only timeline + a local fork branch
+  tmTimeline: 'timemachine:timeline',
+  tmTick: 'timemachine:tick',
+  tmFork: 'timemachine:fork',
+  tmForks: 'timemachine:forks',
+  tmForkDiff: 'timemachine:forkDiff',
+  tmDeleteFork: 'timemachine:deleteFork',
+
   // persistent approval allowlist
   listApprovedCommands: 'approvals:list',
   removeApprovedCommand: 'approvals:remove',

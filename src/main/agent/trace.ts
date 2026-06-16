@@ -13,6 +13,9 @@ export interface TraceMeta {
   cwd: string
   model: string
   unattended?: boolean
+  // the engine turn key (=== the FS checkpoint tag) so Time Machine correlates this trace to the
+  // turn's file pre-images exactly. Optional: a trace can be recorded without a turn tag.
+  turnTag?: string
 }
 
 const DETAIL_CAP = 200
@@ -80,7 +83,8 @@ export class TraceRecorder {
       costUsd: 0,
       tokens: 0,
       spans: [],
-      unattended: meta.unattended
+      unattended: meta.unattended,
+      turnTag: meta.turnTag
     }
     this.flush(true) // appear in the list immediately as 'running'
     this.live()

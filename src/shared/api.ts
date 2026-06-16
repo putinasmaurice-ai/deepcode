@@ -19,7 +19,11 @@ import type {
   WorkflowDef,
   WorkflowRun,
   Trace,
-  SwarmBranch
+  SwarmBranch,
+  TimelineTick,
+  TickDetail,
+  TimeMachineFork,
+  ForkResult
 } from './types'
 
 // Approval mode the renderer can request for a turn (mirrors the engine's ApprovalPolicy).
@@ -222,6 +226,20 @@ export interface DeepCodeApi {
   // watcher
   watchStart(cwd: string): Promise<boolean>
   watchStop(): Promise<boolean>
+
+  // time machine (causal replay + branch-from-here). cwd is always resolved main-side from the
+  // stored session (never renderer-supplied) so git only ever runs in a known project tree.
+  // timeline: the fused, chronological list of ticks for a session.
+  timeMachineTimeline(sessionId: string): Promise<TimelineTick[]>
+  // tick detail: the selected tick's full trace span-tree + its turn messages + a file diff.
+  timeMachineTick(sessionId: string, tick: number): Promise<TickDetail | null>
+  // branch-from-here: reconstruct the repo state just before this turn into a NEW local branch
+  // (worktree-isolated; the live working tree is untouched; never pushed; no agent re-run).
+  timeMachineFork(sessionId: string, tick: number): Promise<ForkResult>
+  // list / diff / delete the timemachine/* fork branches in this session's repo.
+  timeMachineForks(sessionId: string): Promise<TimeMachineFork[]>
+  timeMachineForkDiff(sessionId: string, branch: string): Promise<string>
+  timeMachineDeleteFork(sessionId: string, branch: string): Promise<{ ok: boolean; output: string }>
 
   // persistent approval allowlist (cwd-scoped)
   listApprovedCommands(): Promise<ApprovedCommand[]>

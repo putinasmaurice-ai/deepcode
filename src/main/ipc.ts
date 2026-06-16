@@ -71,6 +71,8 @@ import { computeUsageSummary } from './usage'
 import { listAudit, searchSessions } from './history'
 import { listTraces, getTrace } from './trace-store'
 import { listSwarmBranches, swarmBranchDiff, swarmMerge, swarmDeleteBranch } from './swarm-branches'
+import { buildTimeline, buildTickDetail } from './timemachine/timeline'
+import { branchFromHere, listForks, forkDiff, deleteFork } from './timemachine/fork'
 import { getNightShift, saveNightShift, runNightShift, requestStop } from './nightshift'
 import { listMissions, getMission, saveMission, deleteMission } from './missions/store'
 import { runMission, OverseerDeps } from './missions/overseer'
@@ -1192,6 +1194,16 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.swarmDiff, (_e, branch: string) => swarmBranchDiff(swarmCwd(), branch, swarmAc().signal))
   ipcMain.handle(IPC.swarmMerge, (_e, branch: string) => swarmMerge(swarmCwd(), branch, swarmAc().signal))
   ipcMain.handle(IPC.swarmDeleteBranch, (_e, branch: string) => swarmDeleteBranch(swarmCwd(), branch, swarmAc().signal))
+  // ---- Time Machine: causal-replay scrubber over the three persisted per-turn stores ----
+  // timeline/tick are pure reads (no git, no signal); fork/forks/forkDiff/deleteFork drive local-only
+  // git worktrees, so each gets a throwaway AbortController exactly like swarmAc above.
+  const tmAc = (): AbortController => new AbortController()
+  ipcMain.handle(IPC.tmTimeline, (_e, sessionId: string) => buildTimeline(sessionId))
+  ipcMain.handle(IPC.tmTick, (_e, sessionId: string, tick: number) => buildTickDetail(sessionId, tick))
+  ipcMain.handle(IPC.tmFork, (_e, sessionId: string, tick: number) => branchFromHere(sessionId, tick, tmAc().signal))
+  ipcMain.handle(IPC.tmForks, (_e, sessionId: string) => listForks(sessionId, tmAc().signal))
+  ipcMain.handle(IPC.tmForkDiff, (_e, sessionId: string, branch: string) => forkDiff(sessionId, branch, tmAc().signal))
+  ipcMain.handle(IPC.tmDeleteFork, (_e, sessionId: string, branch: string) => deleteFork(sessionId, branch, tmAc().signal))
   // export a workflow to a .json file the user picks (share / back up / move between machines)
   // ---- backup / restore (portable JSON export of the user's config) ----
   ipcMain.handle(IPC.exportBackup, async () => {
