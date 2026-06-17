@@ -22,17 +22,17 @@ if not exist "node_modules" (
   )
 )
 
-REM Build if there is no bundle yet (fresh clone / out\ deleted). `npm run start`
-REM is electron-vite preview, which only serves out\ and does NOT build itself.
-if not exist "out\main\index.js" (
-  echo  Baue die App ^(erstmalig^)...
-  call npm run build
-  if errorlevel 1 (
-    echo.
-    echo  FEHLER beim Build.
-    pause
-    exit /b 1
-  )
+REM ALWAYS build before starting. `npm run start` is electron-vite preview, which only
+REM SERVES out\ and never builds — so without this, relaunching after a code change would
+REM keep running the stale bundle (a fixed bug would look "still broken" until out\ is rebuilt).
+REM The build is fast (~1-2s); this guarantees every launch runs the current source.
+echo  Baue die App ^(aktueller Stand^)...
+call npm run build
+if errorlevel 1 (
+  echo.
+  echo  FEHLER beim Build.
+  pause
+  exit /b 1
 )
 
 echo  Starte die App...
