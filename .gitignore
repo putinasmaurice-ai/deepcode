@@ -11,3 +11,6 @@ release
 # portable gh CLI lives in the repo-root tools/ — anchor to root so it does NOT
 # also ignore the source dir src/main/agent/tools/
 /tools/
+
+# Playwright-MCP scratch captures (page snapshots) — not source
+.playwright-mcp/
