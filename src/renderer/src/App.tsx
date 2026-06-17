@@ -1359,6 +1359,7 @@ export function App(): JSX.Element {
                     onEdit={startEdit}
                     onAutomate={automateFromChat}
                     cwd={session?.cwd}
+                    live={busy}
                   />
                 ))}
                 {busy && <WorkingIndicator status={status} />}

@@ -44,7 +44,8 @@ function MessageViewImpl({
   onApprove,
   onEdit,
   onAutomate,
-  cwd
+  cwd,
+  live
 }: {
   message: ChatMessage
   toolState: Record<string, ToolState>
@@ -52,6 +53,9 @@ function MessageViewImpl({
   onEdit?: (messageId: string, content: string) => void
   onAutomate?: (content: string) => void
   cwd?: string
+  // is a turn for THIS session currently in flight? A tool call with no result is only "running"
+  // while live — after a turn ends/an interrupted turn reloads, it's shown as "abgebrochen".
+  live?: boolean
 }): JSX.Element | null {
   const bubbleRef = useRef<HTMLDivElement>(null)
   useCodeEnhancer(bubbleRef, message.content)
@@ -128,6 +132,7 @@ function MessageViewImpl({
           args={tc.arguments}
           state={toolState[tc.id]}
           cwd={cwd}
+          live={live}
           onApprove={(ok, remember) => onApprove(tc.id, ok, remember)}
         />
       ))}
@@ -149,6 +154,7 @@ function MessageViewImpl({
 export const MessageView = memo(MessageViewImpl, (prev, next) => {
   if (prev.onApprove !== next.onApprove || prev.onEdit !== next.onEdit || prev.onAutomate !== next.onAutomate || prev.cwd !== next.cwd)
     return false
+  if (prev.live !== next.live) return false // busy→idle must flip a resultless tool from running→abgebrochen
   const a = prev.message
   const b = next.message
   if (
@@ -206,12 +212,14 @@ function ToolBlock({
   args,
   state,
   cwd,
+  live,
   onApprove
 }: {
   name: string
   args: string
   state?: ToolState
   cwd?: string
+  live?: boolean
   onApprove: (ok: boolean, remember?: boolean) => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
@@ -226,14 +234,19 @@ function ToolBlock({
   const pending = state?.pending
   const summary = summarizeArgs(name, args)
   const diff = (result?.meta?.diff as string | undefined) || undefined
+  // No result + not pending: only "running" while a turn is actually in flight (live). Otherwise
+  // this is a tool call from an interrupted/reloaded turn (toolState is in-memory, empty after a
+  // restart) — show "abgebrochen" instead of a forever-spinning "running".
   const statusLabel = pending
     ? '● awaiting approval'
     : result
       ? result.ok
         ? '● done'
         : '● failed'
-      : '● running'
-  const statusClass = pending ? 'run' : result ? (result.ok ? 'ok' : 'err') : 'run'
+      : live
+        ? '● running'
+        : '● abgebrochen'
+  const statusClass = pending ? 'run' : result ? (result.ok ? 'ok' : 'err') : live ? 'run' : 'err'
 
   return (
     <div className="tool">
