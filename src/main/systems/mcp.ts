@@ -2,9 +2,41 @@ import { existsSync, readFileSync } from 'fs'
 import { PATHS } from '../paths'
 import { atomicWriteJson } from '../atomic'
 import { safeEnv } from '../audit'
-import { McpServerDef } from '@shared/types'
+import { McpServerDef, ToolResult } from '@shared/types'
 import { Tool, ok, fail } from '../agent/tools/types'
 import { pluginMcpServers } from './plugins'
+
+// A hung MCP server must NEVER block a turn forever. Bound every call by the turn's abort signal
+// (so Stop/Escape interrupts it instantly) AND a hard wall-clock timeout (so a server that just
+// never answers still releases the turn). 2 min covers legitimately slow tools; Stop is immediate.
+export const MCP_CALL_TIMEOUT_MS = 120_000
+
+// Run one MCP tool call with abort + timeout wired in, and map the result to a ToolResult. Exported
+// (and client typed structurally) so the timeout/abort/error behaviour is unit-testable without a
+// live MCP server. Without this, `client.callTool` had no signal and no timeout — a hung server
+// (e.g. sequential-thinking) left the await pending forever, so the turn never ended and Stop did
+// nothing (the engine was blocked inside the unwinding-incapable await).
+export async function callMcpTool(
+  client: { callTool: (params: unknown, schema: unknown, opts: unknown) => Promise<any> },
+  name: string,
+  args: unknown,
+  signal: AbortSignal | undefined
+): Promise<ToolResult> {
+  try {
+    const res = await client.callTool(
+      { name, arguments: args ?? {} },
+      undefined, // default result schema
+      { signal, timeout: MCP_CALL_TIMEOUT_MS, maxTotalTimeout: MCP_CALL_TIMEOUT_MS }
+    )
+    const text = (res.content ?? [])
+      .map((c: any) => (c.type === 'text' ? c.text : `[${c.type}]`))
+      .join('\n')
+    return res.isError ? fail(text || 'MCP tool error') : ok(text || '(no output)')
+  } catch (e) {
+    if (signal?.aborted || (e as Error).name === 'AbortError') return fail(`MCP-Aufruf „${name}" abgebrochen.`)
+    return fail(`MCP call failed: ${(e as Error).message}`)
+  }
+}
 
 // MCP (Model Context Protocol) connector manager. Reads server definitions from
 // ~/.deepcode/mcp.json, connects over stdio / SSE / HTTP, and surfaces each
@@ -136,17 +168,9 @@ export class McpManager {
       parameters: mt.inputSchema ?? { type: 'object', properties: {} },
       permission: 'write', // remote effects are gated like writes
       summarize: () => `MCP ${server}: ${mt.name}`,
-      async execute(args) {
-        try {
-          const res = await client.callTool({ name: mt.name, arguments: args ?? {} })
-          const text = (res.content ?? [])
-            .map((c: any) => (c.type === 'text' ? c.text : `[${c.type}]`))
-            .join('\n')
-          return res.isError ? fail(text || 'MCP tool error') : ok(text || '(no output)')
-        } catch (e) {
-          return fail(`MCP call failed: ${(e as Error).message}`)
-        }
-      }
+      // pass ctx.signal so Stop/Escape interrupts the call, and rely on callMcpTool's hard timeout
+      // so a hung server can't strand the turn (the bug this fixes).
+      execute: (args, ctx) => callMcpTool(client, mt.name, args, ctx?.signal)
     }
   }
 

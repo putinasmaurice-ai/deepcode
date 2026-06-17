@@ -1,0 +1,26 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - generic [ref=e7]: D
+        - generic [ref=e8]:
+          - heading "DocReader" [level=1] [ref=e9]
+          - paragraph [ref=e10]: Dokumenten-Reader
+      - generic "Ihre Daten verlassen niemals Ihren Rechner" [ref=e11]:
+        - img [ref=e12]
+        - text: DSGVO-konform
+  - main [ref=e14]:
+    - generic [ref=e15]:
+      - generic [ref=e16]:
+        - heading "Dokument öffnen und lesen" [level=2] [ref=e17]
+        - paragraph [ref=e18]:
+          - text: Ziehen Sie eine Datei hierher oder klicken Sie zum Durchsuchen.
+          - text: PDF · Word · Excel · Markdown
+      - button "Datei hochladen – hier klicken oder Datei ziehen" [ref=e20] [cursor=pointer]:
+        - img [ref=e22]
+        - paragraph [ref=e24]: Datei hier ablegen oder durchsuchen
+        - paragraph [ref=e25]: PDF, DOCX, XLSX, MD – max. 20 MB
+  - contentinfo [ref=e26]:
+    - text: DocReader v1.0 · DSGVO-konform · Alle Verarbeitung lokal ·
+    - link "GitHub" [ref=e27] [cursor=pointer]:
+      - /url: https://github.com/maurice/dev-doc-reader

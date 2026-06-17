@@ -26,7 +26,7 @@ On first launch, open **Settings** and paste your DeepSeek API key + model.
 | --- | --- | --- |
 | **Plugin** | `~/.deepcode/plugins/<name>/` (`plugin.json` + skills/commands/agents/hooks/mcp) | Installable bundle of several capabilities. Toggle in the Plugins panel. |
 | **Skill** | `~/.deepcode/skills/<name>/SKILL.md` | A task playbook. The agent calls `use_skill` to load it when it matches. |
-| **MCP / Connector** | `~/.deepcode/mcp.json` | Connect external tools/data via Model Context Protocol; their tools become callable. |
+| **MCP / Connector** | `~/.deepcode/mcp.json` | Connect external tools/data via Model Context Protocol; their tools become callable. Every MCP call is **abort- + timeout-bounded** (Stop interrupts it; a hung server can't freeze a turn). |
 | **Subagent** | `~/.deepcode/agents/<name>.md` | A specialized assistant the agent delegates to via the `task` tool. |
 | **Hook** | `~/.deepcode/hooks.json` | Shell command run automatically on events (PreToolUse, PostToolUse, UserPromptSubmit, Stop). |
 | **Memory** | `~/.deepcode/memory/*.md` (+ `MEMORY.md` index) | Durable knowledge. **Semantically retrieved** (only the most relevant entries injected per turn, via local embeddings — scales past a flat index), **project-scoped** (a memory can apply to one project or globally), and **auto-distilled** on demand with `/remember`. |
