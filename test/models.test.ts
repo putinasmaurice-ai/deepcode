@@ -21,4 +21,10 @@ describe('contextLimit', () => {
     expect(contextLimit('claude-opus-4')).toBe(200_000)
     expect(contextLimit('gpt-4o')).toBe(128_000)
   })
+
+  it('knows the JetBrains Mellum windows (Mellum 2 = 128K, original 4b = 8K)', () => {
+    expect(contextLimit('local:mellum2')).toBe(131_072)
+    expect(contextLimit('local:JetBrains/Mellum2-12B-A2.5B-Thinking')).toBe(131_072)
+    expect(contextLimit('local:JetBrains/Mellum-4b-base')).toBe(8_192) // original ≠ Mellum 2
+  })
 })

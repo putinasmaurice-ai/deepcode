@@ -191,7 +191,9 @@ Per-command **approval allowlist** ("Immer erlauben" — exact command, scoped t
 model-aware (knows each model's real context window).
 
 Models: the configured DeepSeek model, any Ollama/LM Studio model via the `local:` prefix
-(free, offline), and any **DeepInfra** model via the `deepinfra:` prefix (OpenAI-compatible —
+(free, offline — installed Ollama models are auto-listed, plus **JetBrains Mellum 2**
+(`local:mellum2`, a 12B MoE "Thinking" code model with a 128K window) ships as a ready-to-pick
+suggestion), and any **DeepInfra** model via the `deepinfra:` prefix (OpenAI-compatible —
 e.g. `deepinfra:deepseek-ai/DeepSeek-V4-Flash`, configured under Settings → ☁️ DeepInfra).
 🔓 Uncensored toggle (local unaligned model).
 

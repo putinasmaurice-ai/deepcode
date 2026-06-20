@@ -14,3 +14,6 @@ release
 
 # Playwright-MCP scratch captures (page snapshots) — not source
 .playwright-mcp/
+
+# Personal portfolio screenshots (contain real session data) — never commit
+portfolio-shots/
