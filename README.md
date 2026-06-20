@@ -196,7 +196,9 @@ Models: the configured DeepSeek model, any Ollama/LM Studio model via the `local
 suggestion), any **DeepInfra** model via the `deepinfra:` prefix (OpenAI-compatible —
 e.g. `deepinfra:deepseek-ai/DeepSeek-V4-Flash`, configured under Settings → ☁️ DeepInfra), and
 **Xiaomi MiMo** via the `mimo:` prefix (`mimo:mimo-v2.5-pro` — OpenAI-compatible, free token plan,
-configured under Settings → 📱 Xiaomi MiMo). 🔓 Uncensored toggle (local unaligned model).
+configured under Settings → 📱 Xiaomi MiMo), and **Kilo Code's gateway** via the `kilo:` prefix
+(`kilo:kilo/auto` smart-routing or e.g. `kilo:anthropic/claude-sonnet-4` — OpenAI-compatible,
+configured under Settings → 🦘 Kilo Code). 🔓 Uncensored toggle (local unaligned model).
 
 **👁 Bild-Analyse — ONLINE/LOKAL:** DeepSeek can't see images, so when you attach one a
 **vision model describes it first** and DeepSeek works from that description. A one-click topbar

@@ -1287,7 +1287,9 @@ export function App(): JSX.Element {
                           ? '🧩 ' + m.slice('together:'.length)
                           : m.startsWith('mimo:')
                             ? '📱 ' + m.slice('mimo:'.length)
-                            : m}
+                            : m.startsWith('kilo:')
+                              ? '🦘 ' + m.slice('kilo:'.length)
+                              : m}
                   </option>
                 ))}
               </select>

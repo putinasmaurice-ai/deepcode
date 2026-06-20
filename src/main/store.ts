@@ -77,6 +77,14 @@ export function loadSettings(): AppSettings {
           /* leave whatever plaintext key may exist */
         }
       }
+      // Kilo Code key — same treatment.
+      if (raw._kiloKeyEnc && encryptionOk()) {
+        try {
+          merged.provider.kiloApiKey = safeStorage.decryptString(Buffer.from(raw._kiloKeyEnc, 'base64'))
+        } catch {
+          /* leave whatever plaintext key may exist */
+        }
+      }
       // Dev/test hook only: lets automated launches (Playwright/CI) supply a key when
       // safeStorage can't decrypt outside the interactive user session. Never set in
       // normal use.
@@ -100,10 +108,11 @@ export function saveSettings(settings: AppSettings): void {
   const oakey = settings.provider.openaiApiKey ?? ''
   const tkey = settings.provider.togetherApiKey ?? ''
   const mkey = settings.provider.mimoApiKey ?? ''
+  const kkey = settings.provider.kiloApiKey ?? ''
   // Persist keys encrypted; never write them in plaintext when encryption works.
   const onDisk: any = {
     ...settings,
-    provider: { ...settings.provider, apiKey: '', googleApiKey: '', deepinfraApiKey: '', openaiApiKey: '', togetherApiKey: '', mimoApiKey: '' }
+    provider: { ...settings.provider, apiKey: '', googleApiKey: '', deepinfraApiKey: '', openaiApiKey: '', togetherApiKey: '', mimoApiKey: '', kiloApiKey: '' }
   }
   // clamp maxTokens: a cleared field persists 0/NaN which the API rejects — coerce back to default.
   const mt = Number(onDisk.provider.maxTokens)
@@ -161,6 +170,15 @@ export function saveSettings(settings: AppSettings): void {
     }
   } else if (mkey) {
     onDisk.provider.mimoApiKey = mkey
+  }
+  if (kkey && encryptionOk()) {
+    try {
+      onDisk._kiloKeyEnc = safeStorage.encryptString(kkey).toString('base64')
+    } catch {
+      onDisk.provider.kiloApiKey = kkey
+    }
+  } else if (kkey) {
+    onDisk.provider.kiloApiKey = kkey
   }
   // atomic write (tmp + rename) so a crash/power-loss mid-write can't truncate settings.json
   // and silently wipe the three encrypted API keys (loadSettings would then overwrite with

@@ -32,4 +32,10 @@ describe('contextLimit', () => {
     expect(contextLimit('mimo:mimo-v2.5-pro')).toBe(128_000)
     expect(contextLimit('mimo:mimo-v2.5')).toBe(128_000)
   })
+
+  it('strips ANY routing prefix so a gateway-routed model gets the underlying window', () => {
+    expect(contextLimit('kilo:anthropic/claude-sonnet-4')).toBe(200_000) // claude window via prefix strip
+    expect(contextLimit('together:meta-llama/Llama-3.3-70B-Instruct-Turbo')).toBe(32_000)
+    expect(contextLimit('kilo:kilo/auto')).toBe(32_000) // unknown router id → conservative default
+  })
 })

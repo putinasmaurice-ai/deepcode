@@ -22,10 +22,11 @@ const TABLE: ModelInfo[] = [
 
 const DEFAULT_CONTEXT = 32_000
 
-// Best-effort context window for a model id. Strips the "local:" routing prefix.
+// Best-effort context window for a model id. Strips any routing prefix first so the underlying
+// model name is matched (e.g. `kilo:anthropic/claude-sonnet-4` → claude → 200K).
 export function contextLimit(model: string | undefined): number {
   if (!model) return DEFAULT_CONTEXT
-  const name = model.replace(/^local:/, '')
+  const name = model.replace(/^(local|google|deepinfra|openai|together|mimo|kilo):/, '')
   for (const { pattern, context } of TABLE) if (pattern.test(name)) return context
   return DEFAULT_CONTEXT
 }

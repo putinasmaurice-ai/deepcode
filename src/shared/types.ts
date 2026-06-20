@@ -256,6 +256,11 @@ export interface ProviderSettings {
   mimoBaseUrl: string
   mimoPricePerMillionInput?: number
   mimoPricePerMillionOutput?: number
+  // ---- Kilo Code gateway (OpenAI-compatible) — models prefixed "kilo:" route here ----
+  kiloApiKey: string
+  kiloBaseUrl: string
+  kiloPricePerMillionInput?: number
+  kiloPricePerMillionOutput?: number
 }
 
 export interface AppSettings {
@@ -341,7 +346,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
       'together:meta-llama/Llama-4-Scout-17B-16E-Instruct', // Vision + 10M Kontext (braucht ein dediziertes Together-Endpoint)
       'together:meta-llama/Llama-3.3-70B-Instruct-Turbo', // serverless auf Together sofort nutzbar
       'mimo:mimo-v2.5-pro', // Xiaomi MiMo (Token-Plan, kostenlose Credits)
-      'mimo:mimo-v2.5'
+      'mimo:mimo-v2.5',
+      'kilo:kilo/auto', // Kilo Code gateway — Smart-Routing (Modell-IDs im Kilo-Dashboard)
+      'kilo:anthropic/claude-sonnet-4'
     ],
     openaiApiKey: '',
     openaiBaseUrl: 'https://api.openai.com/v1',
@@ -359,7 +366,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
     mimoApiKey: '',
     mimoBaseUrl: 'https://token-plan-ams.xiaomimimo.com/v1',
     mimoPricePerMillionInput: 0, // Token-Plan: kostenlose Credits (editierbar, falls bezahlt)
-    mimoPricePerMillionOutput: 0
+    mimoPricePerMillionOutput: 0,
+    kiloApiKey: '',
+    kiloBaseUrl: 'https://api.kilo.ai/api/gateway',
+    kiloPricePerMillionInput: 0, // routet zu versch. Modellen — pro Modell setzen, falls bezahlt
+    kiloPricePerMillionOutput: 0
   },
   autoApprove: {
     read: true,

@@ -76,4 +76,10 @@ describe('costOf', () => {
     expect(costOf(p, usage, 'mimo:mimo-v2.5-pro', PEAK).cost).toBeCloseTo(expected, 6)
     expect(costOf(p, usage, 'mimo:mimo-v2.5-pro', OFFPEAK).cost).toBe(0) // default free plan, no off-peak
   })
+
+  it('prices kilo: models with the Kilo card (free default → 0, no off-peak)', () => {
+    const expected = (p.kiloPricePerMillionInput ?? 0) + (p.kiloPricePerMillionOutput ?? 0)
+    expect(costOf(p, usage, 'kilo:kilo/auto', PEAK).cost).toBeCloseTo(expected, 6)
+    expect(costOf(p, usage, 'kilo:anthropic/claude-sonnet-4', OFFPEAK).cost).toBe(0) // default free, no off-peak
+  })
 })

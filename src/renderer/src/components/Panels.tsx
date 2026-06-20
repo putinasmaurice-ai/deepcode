@@ -628,6 +628,53 @@ export function SettingsPanel({
         </div>
       </div>
 
+      <div className="card">
+        <h3>🦘 Kilo Code (Gateway — Gratis-Credits)</h3>
+        <p>
+          OpenAI-kompatibler Gateway zu vielen Modellen (Claude, GPT, Gemini …). Modelle mit Präfix{' '}
+          <code>kilo:</code> (z.B. <code>kilo:kilo/auto</code> für Smart-Routing oder{' '}
+          <code>kilo:anthropic/claude-sonnet-4</code>) werden hierhin geroutet. Key holen unter
+          {' '}<b>app.kilo.ai → API Keys</b>; die genauen Modell-IDs stehen in deinem Kilo-Dashboard.
+        </p>
+        <div className="field" style={{ marginTop: 12 }}>
+          <label>Kilo-Code-API-Key — verschlüsselt gespeichert</label>
+          <input
+            type="password"
+            value={p.kiloApiKey ?? ''}
+            placeholder="kilo-…"
+            onChange={(e) => updateProvider({ kiloApiKey: e.target.value })}
+          />
+        </div>
+        <div className="field">
+          <label>Kilo Base URL (OpenAI-kompatibel)</label>
+          <input
+            value={p.kiloBaseUrl ?? 'https://api.kilo.ai/api/gateway'}
+            onChange={(e) => updateProvider({ kiloBaseUrl: e.target.value })}
+            placeholder="https://api.kilo.ai/api/gateway"
+          />
+        </div>
+        <div className="row">
+          <div className="field">
+            <label>Kilo Preis Input ($/1M Tokens)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={p.kiloPricePerMillionInput ?? 0}
+              onChange={(e) => updateProvider({ kiloPricePerMillionInput: Number(e.target.value) })}
+            />
+          </div>
+          <div className="field">
+            <label>Kilo Preis Output ($/1M Tokens)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={p.kiloPricePerMillionOutput ?? 0}
+              onChange={(e) => updateProvider({ kiloPricePerMillionOutput: Number(e.target.value) })}
+            />
+          </div>
+        </div>
+      </div>
+
       <SecretsCard />
 
       <BackupCard />
