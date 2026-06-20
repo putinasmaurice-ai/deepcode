@@ -70,4 +70,10 @@ describe('costOf', () => {
     const expected = (p.googlePricePerMillionInput ?? 0) + (p.googlePricePerMillionOutput ?? 0)
     expect(costOf(p, usage, 'google:gemini-2.5-flash-lite', OFFPEAK).cost).toBeCloseTo(expected, 6)
   })
+
+  it('prices mimo: models with the MiMo card (free token plan → 0, never DeepSeek/off-peak)', () => {
+    const expected = (p.mimoPricePerMillionInput ?? 0) + (p.mimoPricePerMillionOutput ?? 0)
+    expect(costOf(p, usage, 'mimo:mimo-v2.5-pro', PEAK).cost).toBeCloseTo(expected, 6)
+    expect(costOf(p, usage, 'mimo:mimo-v2.5-pro', OFFPEAK).cost).toBe(0) // default free plan, no off-peak
+  })
 })

@@ -27,4 +27,9 @@ describe('contextLimit', () => {
     expect(contextLimit('local:JetBrains/Mellum2-12B-A2.5B-Thinking')).toBe(131_072)
     expect(contextLimit('local:JetBrains/Mellum-4b-base')).toBe(8_192) // original ≠ Mellum 2
   })
+
+  it('knows the Xiaomi MiMo window', () => {
+    expect(contextLimit('mimo:mimo-v2.5-pro')).toBe(128_000)
+    expect(contextLimit('mimo:mimo-v2.5')).toBe(128_000)
+  })
 })

@@ -251,6 +251,11 @@ export interface ProviderSettings {
   togetherBaseUrl: string
   togetherPricePerMillionInput?: number
   togetherPricePerMillionOutput?: number
+  // ---- Xiaomi MiMo (OpenAI-compatible) — models prefixed "mimo:" route here ----
+  mimoApiKey: string
+  mimoBaseUrl: string
+  mimoPricePerMillionInput?: number
+  mimoPricePerMillionOutput?: number
 }
 
 export interface AppSettings {
@@ -334,7 +339,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
       'deepinfra:openai/gpt-oss-120b',
       'deepinfra:Qwen/Qwen3-VL-235B-A22B-Instruct', // vision-language
       'together:meta-llama/Llama-4-Scout-17B-16E-Instruct', // Vision + 10M Kontext (braucht ein dediziertes Together-Endpoint)
-      'together:meta-llama/Llama-3.3-70B-Instruct-Turbo' // serverless auf Together sofort nutzbar
+      'together:meta-llama/Llama-3.3-70B-Instruct-Turbo', // serverless auf Together sofort nutzbar
+      'mimo:mimo-v2.5-pro', // Xiaomi MiMo (Token-Plan, kostenlose Credits)
+      'mimo:mimo-v2.5'
     ],
     openaiApiKey: '',
     openaiBaseUrl: 'https://api.openai.com/v1',
@@ -348,7 +355,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
     togetherApiKey: '',
     togetherBaseUrl: 'https://api.together.xyz/v1',
     togetherPricePerMillionInput: 0.18, // Llama-4-Scout (editierbar; je Modell unterschiedlich)
-    togetherPricePerMillionOutput: 0.59
+    togetherPricePerMillionOutput: 0.59,
+    mimoApiKey: '',
+    mimoBaseUrl: 'https://token-plan-ams.xiaomimimo.com/v1',
+    mimoPricePerMillionInput: 0, // Token-Plan: kostenlose Credits (editierbar, falls bezahlt)
+    mimoPricePerMillionOutput: 0
   },
   autoApprove: {
     read: true,

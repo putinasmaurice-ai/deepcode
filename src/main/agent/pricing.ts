@@ -13,7 +13,8 @@ export function costOf(provider: ProviderSettings, usage: RawUsage, model?: stri
     model?.startsWith('deepinfra:') ||
     model?.startsWith('google:') ||
     model?.startsWith('openai:') ||
-    model?.startsWith('together:')
+    model?.startsWith('together:') ||
+    model?.startsWith('mimo:')
   ) {
     const vIn = model.startsWith('google:')
       ? provider.googlePricePerMillionInput
@@ -21,14 +22,18 @@ export function costOf(provider: ProviderSettings, usage: RawUsage, model?: stri
         ? provider.openaiPricePerMillionInput
         : model.startsWith('together:')
           ? provider.togetherPricePerMillionInput
-          : provider.deepinfraPricePerMillionInput
+          : model.startsWith('mimo:')
+            ? provider.mimoPricePerMillionInput
+            : provider.deepinfraPricePerMillionInput
     const vOut = model.startsWith('google:')
       ? provider.googlePricePerMillionOutput
       : model.startsWith('openai:')
         ? provider.openaiPricePerMillionOutput
         : model.startsWith('together:')
           ? provider.togetherPricePerMillionOutput
-          : provider.deepinfraPricePerMillionOutput
+          : model.startsWith('mimo:')
+            ? provider.mimoPricePerMillionOutput
+            : provider.deepinfraPricePerMillionOutput
     const cost = (usage.promptTokens / 1_000_000) * (vIn ?? 0) + (usage.completionTokens / 1_000_000) * (vOut ?? 0)
     return { ...usage, cost }
   }

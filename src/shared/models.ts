@@ -13,6 +13,7 @@ const TABLE: ModelInfo[] = [
   { pattern: /qwen|qwq/i, context: 32_000 },
   { pattern: /mellum[-_\s]?2/i, context: 131_072 }, // JetBrains Mellum 2 (Thinking MoE): 128K
   { pattern: /mellum/i, context: 8_192 }, // JetBrains Mellum 4b (code completion): 8K
+  { pattern: /mimo/i, context: 128_000 }, // Xiaomi MiMo v2/v2.5 (estimate; conservative for the pill)
   { pattern: /llama3\.[12]|llama-3\.[12]/i, context: 128_000 },
   { pattern: /llama|mistral|mixtral|dolphin|gemma|phi/i, context: 32_000 },
   { pattern: /gpt-4o|gpt-4\.1|o[134]/i, context: 128_000 },

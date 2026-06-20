@@ -193,9 +193,10 @@ model-aware (knows each model's real context window).
 Models: the configured DeepSeek model, any Ollama/LM Studio model via the `local:` prefix
 (free, offline — installed Ollama models are auto-listed, plus **JetBrains Mellum 2**
 (`local:mellum2`, a 12B MoE "Thinking" code model with a 128K window) ships as a ready-to-pick
-suggestion), and any **DeepInfra** model via the `deepinfra:` prefix (OpenAI-compatible —
-e.g. `deepinfra:deepseek-ai/DeepSeek-V4-Flash`, configured under Settings → ☁️ DeepInfra).
-🔓 Uncensored toggle (local unaligned model).
+suggestion), any **DeepInfra** model via the `deepinfra:` prefix (OpenAI-compatible —
+e.g. `deepinfra:deepseek-ai/DeepSeek-V4-Flash`, configured under Settings → ☁️ DeepInfra), and
+**Xiaomi MiMo** via the `mimo:` prefix (`mimo:mimo-v2.5-pro` — OpenAI-compatible, free token plan,
+configured under Settings → 📱 Xiaomi MiMo). 🔓 Uncensored toggle (local unaligned model).
 
 **👁 Bild-Analyse — ONLINE/LOKAL:** DeepSeek can't see images, so when you attach one a
 **vision model describes it first** and DeepSeek works from that description. A one-click topbar
