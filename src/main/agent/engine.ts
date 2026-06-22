@@ -8,7 +8,7 @@ import { ToolContext } from './tools/types'
 import { buildSystemPrompt } from './prompt'
 import { ApprovalPolicy, isDangerousCommand, screenUnattendedCall } from './policy'
 import { isCommandApproved, approveCommand } from '../approvals'
-import { toApiMessages, toolResultMessage } from './api-messages'
+import { toApiMessages, toolResultMessage, toolArgErrorMessage } from './api-messages'
 import { costOf, estimateTokens } from './pricing'
 import { collectSkills, buildTools } from './toolset'
 import { newAssistantMessage, streamCallbacksFor } from './streaming'
@@ -966,9 +966,19 @@ export class AgentEngine {
         if (signal.aborted) break
         const res = await this.executeToolCall(call, tools, ctx, policy, emit, hooks, session.cwd, (s) => {
           lastFailedCmd = s(lastFailedCmd)
-        }, roundSpanId)
+        }, roundSpanId, result.finishReason)
         emit({ type: 'tool_result', callId: call.id, name: call.name, result: res })
         session.messages.push(toolResultMessage(call.id, call.name, res))
+      }
+      // A tool call truncated at the output-token limit (finish_reason=length WITH tool calls) is
+      // never auto-continued (that path is text-only); the model now gets an actionable tool result
+      // telling it to write in smaller chunks — tell the operator too, so they can raise Max tokens.
+      if (result.finishReason === 'length') {
+        emit({
+          type: 'status',
+          message:
+            'Tool-Aufruf am Token-Limit abgeschnitten — das Modell schreibt jetzt in kleineren Schritten weiter. Tipp: „Max tokens" in Settings erhöhen.'
+        })
       }
       // one write per round instead of per tool result (sessions get big)
       saveSessionSoon(session)
@@ -993,7 +1003,8 @@ export class AgentEngine {
     hooks: ReturnType<typeof loadHooks>,
     cwd: string,
     errMem: (update: (s: { program: string; errorHead: string } | null) => { program: string; errorHead: string } | null) => void,
-    roundSpanId?: string // trace: parent (round) span for this tool span
+    roundSpanId?: string, // trace: parent (round) span for this tool span
+    finishReason?: string // the round's finish_reason — 'length' means truncated (not malformed) args
   ): Promise<ToolResult> {
     const tool = tools.find((t) => t.name === call.name)
     if (!tool) {
@@ -1008,9 +1019,16 @@ export class AgentEngine {
     try {
       parsedArgs = call.arguments ? JSON.parse(call.arguments) : {}
     } catch {
+      // Distinguish "output cut off at the token limit" (finish_reason=length) from genuinely
+      // malformed JSON, and give the model a recovery strategy instead of echoing the huge blob.
+      const truncated = finishReason === 'length'
+      const argChars = (call.arguments || '').length
       const es = ctx.trace?.begin('tool', call.name, roundSpanId, call.name)
-      ctx.trace?.end(es, { status: 'error', error: `Invalid JSON arguments: ${call.arguments}` })
-      return { ok: false, content: `Invalid JSON arguments: ${call.arguments}` }
+      ctx.trace?.end(es, {
+        status: 'error',
+        error: truncated ? `Truncated tool args (finish_reason=length): ${call.name}` : `Invalid JSON arguments: ${call.name}`
+      })
+      return { ok: false, content: toolArgErrorMessage(call.name, argChars, truncated) }
     }
 
     // open a tool span; label it with the tool's own summary (never raw secrets/args). The

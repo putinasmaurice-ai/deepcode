@@ -90,6 +90,7 @@ describe('modelLabel — curated dropdown display names (exact casing)', () => {
     expect(modelLabel('openrouter:minimax/minimax-m3')).toBe('OR MiniMax M3') // camelCase MiniMax
     expect(modelLabel('local:huihui_ai/qwen2.5-abliterate:14b')).toBe('Lokal Qwen 2.5 uncensored') // lowercase uncensored
     expect(modelLabel('openrouter:moonshotai/kimi-k2.7-code')).toBe('OR Kimi 2.7 Code') // capital Code
+    expect(modelLabel('deepinfra:Qwen/Qwen3-VL-235B-A22B-Instruct')).toMatch(/Vision/) // flagged as a vision model, not a coder
   })
 
   it('falls back to a provider-icon + raw id for unknown models', () => {

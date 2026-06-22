@@ -194,34 +194,44 @@ export const readTool: Tool = {
 export const writeTool: Tool = {
   name: 'write_file',
   description:
-    'Create a new file or overwrite an existing one with the given content. Parent directories are created automatically.',
+    'Create a new file or overwrite an existing one with the given content. With mode:"append" the content is added to the END of the file instead of replacing it — use this to build a LARGE file across several smaller calls (a single huge write_file is truncated at the model output-token limit and fails). Parent directories are created automatically.',
   permission: 'write',
   parameters: {
     type: 'object',
     properties: {
       path: { type: 'string', description: 'File path to write.' },
-      content: { type: 'string', description: 'Full file content.' }
+      content: { type: 'string', description: 'The content to write (a part of the file in append mode).' },
+      mode: {
+        type: 'string',
+        enum: ['overwrite', 'append'],
+        description: 'overwrite (default) replaces the file; append adds to the end — split a large file across several append calls.'
+      }
     },
     required: ['path', 'content']
   },
-  summarize: (a) => `Write ${a.path}`,
+  summarize: (a) => `${a.mode === 'append' ? 'Append to' : 'Write'} ${a.path}`,
   async execute(args, ctx) {
     const p = resolvePath(ctx.cwd, args.path)
     ensureInside(p, ctx.cwd, ctx.confineToCwd)
-    const content = String(args.content ?? '')
-    if (content.length > 10_000_000)
+    const append = args.mode === 'append'
+    const part = String(args.content ?? '')
+    if (part.length > 10_000_000)
       return fail('Content too large (>10MB). Split it into multiple files.')
     const existed = existsSync(p)
     const before = existed ? readFileSync(p, 'utf8') : ''
     ctx.snapshot?.(p)
     mkdirSync(dirname(p), { recursive: true })
-    writeFileSync(p, content, 'utf8')
-    const lines = content.split('\n').length
-    const d = lineDiff(before, content)
-    return ok(`${existed ? 'Overwrote' : 'Created'} ${args.path} (${lines} lines).`, {
+    // Append re-writes the whole file (before + part) so the snapshot/diff/preview bookkeeping
+    // stays exact instead of going through an opaque O_APPEND that the rest of the app can't see.
+    const after = append ? before + part : part
+    writeFileSync(p, after, 'utf8')
+    const lines = after.split('\n').length
+    const d = lineDiff(before, after)
+    const verb = append ? (existed ? 'Appended to' : 'Created') : existed ? 'Overwrote' : 'Created'
+    return ok(`${verb} ${args.path} (${lines} lines total).`, {
       path: p,
       created: !existed,
-      content,
+      content: after,
       diff: d.diff,
       linesAdded: d.added,
       linesRemoved: d.removed

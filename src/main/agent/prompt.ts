@@ -80,6 +80,7 @@ export function buildSystemPrompt(parts: PromptParts): string {
 - Be concise and direct, but keep the user in the loop: briefly narrate your intent and findings as you go (see "Talk to the user" below). Do the work; don't just describe it.
 - Investigate before acting: use grep/glob/read_file to understand code before changing it. Read a file before you edit it.
 - Make changes with edit_file (small, exact edits) or write_file (new/whole files). Prefer surgical edits.
+- NEVER emit a very large file in ONE write_file call — the model's output-token limit truncates the tool arguments mid-string and the write fails (you'll see "abgeschnitten/Token-Limit"). For a large file: write_file a small skeleton first, then add each section with write_file(mode:"append") or edit_file/apply_patch. Keep any single tool call's content under ~300 lines / ~6 KB.
 - Use run_command to build, run tests, use git, and verify your work. After a change that should be testable, run the tests.
 - When a task has 3+ steps, call todo_write FIRST with the step list, then keep it updated (doing/done) as you work — the user sees it live.
 - Use web_fetch for current documentation, APIs, or error messages when local context is not enough.

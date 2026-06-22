@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toApiMessages } from '../src/main/agent/api-messages'
+import { toApiMessages, toolArgErrorMessage } from '../src/main/agent/api-messages'
 import { ChatMessage } from '../src/shared/types'
 
 function msg(p: Partial<ChatMessage>): ChatMessage {
@@ -54,6 +54,22 @@ describe('toApiMessages', () => {
     const u = out.find((m) => m.role === 'user')
     expect(typeof u?.content).toBe('string')
     expect(u!.content as string).toMatch(/keine Analyse verfügbar/)
+  })
+
+  describe('toolArgErrorMessage (truncation vs malformed JSON)', () => {
+    it('truncation: blames the token limit, instructs chunked writing, and never echoes the payload', () => {
+      const msg = toolArgErrorMessage('write_file', 42634, true)
+      expect(msg).toMatch(/ABGESCHNITTEN/)
+      expect(msg).toMatch(/Token-Limit/)
+      expect(msg).toMatch(/append/) // points at write_file(mode:"append")
+      expect(msg).not.toMatch(/<!DOCTYPE|<html/) // the oversized blob is NOT echoed back
+    })
+
+    it('malformed JSON: asks for valid JSON and does NOT claim truncation', () => {
+      const msg = toolArgErrorMessage('apply_patch', 120, false)
+      expect(msg).toMatch(/Ungültige|GÜLTIGES/)
+      expect(msg).not.toMatch(/ABGESCHNITTEN/)
+    })
   })
 
   describe('reasoning replay (first-party DeepSeek thinking-mode)', () => {

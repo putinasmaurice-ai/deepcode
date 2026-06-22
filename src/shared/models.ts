@@ -64,7 +64,7 @@ export const MODEL_DISPLAY: { id: string; label: string }[] = [
   { id: 'deepseek-reasoner', label: 'DeepSeek v4 Pro official' },
   { id: 'deepinfra:deepseek-ai/DeepSeek-V4-Flash', label: 'DI DeepSeek v4 Flash' },
   { id: 'deepinfra:openai/gpt-oss-120b', label: 'DI GPT 120b' },
-  { id: 'deepinfra:Qwen/Qwen3-VL-235B-A22B-Instruct', label: 'DI Qwen 3 235b' },
+  { id: 'deepinfra:Qwen/Qwen3-VL-235B-A22B-Instruct', label: 'DI Qwen3-VL 235B (Vision)' },
   { id: 'deepinfra:Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo', label: 'DI Qwen 3 480b' },
   { id: 'deepinfra:zai-org/GLM-5.2', label: 'DI GLM 5.2' },
   { id: 'deepinfra:google/gemma-4-31B-it', label: 'DI Gemma 4' },

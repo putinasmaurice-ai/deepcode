@@ -94,6 +94,29 @@ export function toApiMessages(system: string, messages: ChatMessage[], opts?: { 
   return out
 }
 
+// Error fed back to the model when a tool call's arguments can't be parsed. Crucially distinguishes
+// the two causes so the model self-corrects instead of looping: (a) truncated = the arguments were
+// CUT OFF at the output-token limit (finish_reason=length) — the file/output was too big for one
+// call, so it must write in smaller chunks; (b) otherwise the JSON is genuinely malformed. We never
+// echo the (often ~8 KB) truncated payload back — that only bloats the next prompt and nudges the
+// model to re-emit the same oversized call.
+export function toolArgErrorMessage(name: string, argChars: number, truncated: boolean): string {
+  if (truncated) {
+    return (
+      `Tool-Argumente von \`${name}\` wurden am Token-Limit ABGESCHNITTEN ` +
+      `(finish_reason=length, ${argChars} Zeichen, unvollständiges JSON) — NICHT fehlerhaft formatiert. ` +
+      `Die Ausgabe war zu groß für ein einziges Token-Fenster. Schreibe die Datei in MEHREREN, KLEINEN ` +
+      `Schritten: zuerst write_file mit einem Skelett/ersten Teil, dann jede weitere Sektion per ` +
+      `write_file(mode:"append") oder edit_file/apply_patch anhängen. Halte jeden Tool-Aufruf unter ~6 KB. ` +
+      `Sende NICHT denselben großen Inhalt erneut.`
+    )
+  }
+  return (
+    `Ungültige (nicht parsebare) JSON-Argumente für \`${name}\`. Sende GÜLTIGES, vollständiges JSON. ` +
+    `Bei großem Inhalt auf mehrere kleinere Tool-Aufrufe aufteilen (z. B. write_file(mode:"append")).`
+  )
+}
+
 // Stored form of a tool result (transcript side, capped).
 export function toolResultMessage(callId: string, name: string, res: ToolResult): ChatMessage {
   return {

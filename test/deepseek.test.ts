@@ -98,6 +98,47 @@ describe('DeepSeekClient.streamChat — SSE parsing', () => {
   })
 })
 
+describe('DeepSeekClient.streamChat — gpt-oss harmony / Hermes tool-call recovery', () => {
+  it('strips harmony control tokens from the tool NAME and ARGUMENTS (gpt-oss via OpenRouter)', async () => {
+    stubFetch([
+      ok([
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"apply_patch<|channel|>commentary","arguments":"<|constrain|>json<|message|>{\\"path\\":\\"x\\"}<|call|>"}}]}}]}\n\n',
+        'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
+        'data: [DONE]\n\n'
+      ])
+    ])
+    const res = await new DeepSeekClient(settings()).streamChat([{ role: 'user', content: 'x' }], [], {}, sig())
+    expect(res.toolCalls[0].name).toBe('apply_patch') // harmony suffix cut → matches the clean registry
+    expect(JSON.parse(res.toolCalls[0].arguments)).toEqual({ path: 'x' }) // wrappers stripped → parses
+  })
+
+  it('leaves already-valid arguments BYTE-IDENTICAL even when a string value contains "<|"', async () => {
+    stubFetch([
+      ok([
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"write_file","arguments":"{\\"content\\":\\"a<|b\\"}"}}]}}]}\n\n',
+        'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
+        'data: [DONE]\n\n'
+      ])
+    ])
+    const res = await new DeepSeekClient(settings()).streamChat([{ role: 'user', content: 'x' }], [], {}, sig())
+    expect(res.toolCalls[0].arguments).toBe('{"content":"a<|b"}') // parses cleanly → never mangled
+  })
+
+  it('recovers <tool_call> blocks emitted into CONTENT when no structured tool call arrives (Qwen3-VL)', async () => {
+    stubFetch([
+      ok([
+        'data: {"choices":[{"delta":{"content":"<tool_call>{\\"name\\":\\"read_file\\",\\"arguments\\":{\\"path\\":\\"a.ts\\"}}</tool_call>"}}]}\n\n',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+        'data: [DONE]\n\n'
+      ])
+    ])
+    const res = await new DeepSeekClient(settings()).streamChat([{ role: 'user', content: 'x' }], [], {}, sig())
+    expect(res.toolCalls).toHaveLength(1)
+    expect(res.toolCalls[0].name).toBe('read_file')
+    expect(JSON.parse(res.toolCalls[0].arguments)).toEqual({ path: 'a.ts' })
+  })
+})
+
 describe('DeepSeekClient.streamChat — OpenRouter routing', () => {
   it('requires an OpenRouter key for openrouter: models', async () => {
     await expect(

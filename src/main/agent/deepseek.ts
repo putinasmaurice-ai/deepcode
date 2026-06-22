@@ -122,6 +122,71 @@ function isReasonerModel(model: string, configuredReasoner: string): boolean {
   return /reason|qwq|deepseek-r1|(^|[:/])o[13](-|$)/i.test(model)
 }
 
+// gpt-oss / OpenAI "harmony" models emit channel control tokens (<|channel|>, <|message|>,
+// <|constrain|>, <|start|>, <|end|>, <|call|>, <|return|>) plus a "commentary to=functions.NAME"
+// routing prefix. OpenRouter sometimes leaks these into the streamed function NAME, so the tool
+// name arrives as e.g. "apply_patch<|channel|>commentary" and never matches the clean registry.
+// Cut at the first control token / whitespace and drop any "functions." routing prefix. A clean
+// name has none of these markers, so this is a no-op for every well-behaved provider.
+export function cleanToolName(raw: string): string {
+  let n = raw
+  const lt = n.indexOf('<|') // first harmony control token
+  if (lt !== -1) n = n.slice(0, lt)
+  n = n.split(/\s/)[0] // cut at first whitespace ("commentary to=functions.x")
+  const dot = n.lastIndexOf('functions.')
+  if (dot !== -1) n = n.slice(dot + 'functions.'.length)
+  return n.trim()
+}
+
+// Repair harmony-wrapped tool ARGUMENTS. Gated behind a parse-failure check: if the accumulated
+// string already parses as JSON it is returned byte-identical (so a legit argument that merely
+// contains "<|" inside a string is never mangled, and clean providers are untouched). Only when it
+// does NOT parse do we strip <|message|>/<|constrain|>/<|...|> wrappers and slice to the outermost
+// {...}. A TRUNCATED arg (large-file cutoff) has no closing brace, so this can't fabricate one — it
+// stays invalid and falls through to the engine's truncation-aware handler.
+export function cleanToolArgs(raw: string): string {
+  if (!raw) return raw
+  try {
+    JSON.parse(raw)
+    return raw // already valid — leave exactly as-is
+  } catch {
+    /* not valid JSON: try to repair harmony junk below */
+  }
+  let a = raw
+  const msg = a.indexOf('<|message|>')
+  if (msg !== -1) a = a.slice(msg + '<|message|>'.length)
+  a = a.replace(/<\|constrain\|>\s*json\s*/gi, '')
+  a = a.replace(/<\|[^>]*\|>/g, '') // strip any remaining harmony tokens
+  a = a.trim()
+  const s = a.indexOf('{')
+  const e = a.lastIndexOf('}')
+  if (s !== -1 && e !== -1 && e > s) a = a.slice(s, e + 1)
+  return a.trim()
+}
+
+// Fallback for models (e.g. Qwen3-VL served behind a Hermes parser, vLLM #29814) that emit tool
+// calls as <tool_call>{...}</tool_call> blocks INTO the content stream with tool_calls:null. We
+// only consult this when no structured tool calls arrived, so it never overrides a clean provider.
+export function parseHermesToolCalls(text: string): { id: string; name: string; arguments: string }[] {
+  const out: { id: string; name: string; arguments: string }[] = []
+  const re = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g
+  let m: RegExpExecArray | null
+  let i = 0
+  while ((m = re.exec(text)) !== null) {
+    try {
+      const obj = JSON.parse(m[1])
+      const name = obj.name ?? obj.function?.name
+      if (!name) continue
+      const argsRaw = obj.arguments ?? obj.function?.arguments ?? obj.parameters ?? {}
+      const argsStr = typeof argsRaw === 'string' ? argsRaw : JSON.stringify(argsRaw)
+      out.push({ id: `hermes_${i++}`, name: cleanToolName(String(name)), arguments: argsStr })
+    } catch {
+      /* skip an unparseable block */
+    }
+  }
+  return out
+}
+
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     const t = setTimeout(resolve, ms)
@@ -411,10 +476,10 @@ export class DeepSeekClient {
           const idx = tc.index ?? 0
           const cur = toolAcc.get(idx) ?? { id: '', name: '', arguments: '' }
           if (tc.id) cur.id = tc.id
-          if (tc.function?.name) cur.name = tc.function.name
+          if (tc.function?.name) cur.name = cleanToolName(tc.function.name)
           if (tc.function?.arguments) cur.arguments += tc.function.arguments
           toolAcc.set(idx, cur)
-          callbacks.onToolCallDelta?.(idx, tc.id, tc.function?.name, tc.function?.arguments ?? '')
+          callbacks.onToolCallDelta?.(idx, tc.id, tc.function?.name ? cleanToolName(tc.function.name) : undefined, tc.function?.arguments ?? '')
         }
       }
       if (choice.finish_reason) finishReason = choice.finish_reason
@@ -493,10 +558,17 @@ export class DeepSeekClient {
       throw new Error('Antwort-Stream vom Provider mit Fehler beendet (finish_reason=error) — meist Überlastung/Timeout. Erneut versuchen oder Modell wechseln.')
     }
 
-    const toolCalls = [...toolAcc.entries()]
+    let toolCalls = [...toolAcc.entries()]
       .sort((a, b) => a[0] - b[0])
-      .map(([, v]) => v)
+      .map(([, v]) => ({ ...v, arguments: cleanToolArgs(v.arguments) }))
       .filter((t) => t.name)
+
+    // No structured tool call but the model dumped <tool_call>…</tool_call> into the content
+    // (Hermes/XML-style serving, e.g. Qwen3-VL). Recover them so the agent doesn't silently stall.
+    if (toolCalls.length === 0 && content.includes('<tool_call>')) {
+      const recovered = parseHermesToolCalls(content)
+      if (recovered.length) toolCalls = recovered
+    }
 
     callbacks.onDone?.(finishReason)
     return { content, reasoning, toolCalls, finishReason, usage }
