@@ -1683,11 +1683,11 @@ kbd {
   object-fit: cover;
 }
 
-/* working indicator */
+/* working indicator + live step feed */
 .working {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 8px;
   padding: 10px 14px;
   margin-bottom: 18px;
   background: var(--bg-2);
@@ -1695,7 +1695,66 @@ kbd {
   border-radius: 10px;
   font-size: 13px;
   color: var(--text-dim);
-  max-width: 360px;
+  max-width: 440px;
+}
+.working-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* stalled: nothing has happened for a while — make it visually obvious and stop the cheerful bounce */
+.working.stalled {
+  border-color: var(--yellow, #e3b341);
+  background: rgba(227, 179, 65, 0.08);
+  color: var(--yellow, #e3b341);
+}
+.working.stalled .working-dots i {
+  animation: none;
+  opacity: 0.5;
+  background: var(--yellow, #e3b341);
+}
+.step-feed {
+  list-style: none;
+  margin: 0;
+  padding: 6px 0 0;
+  border-top: 1px solid var(--border-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 168px;
+  overflow-y: auto;
+}
+.step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.step-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.step-dur {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.step-running .step-name {
+  color: var(--text);
+}
+.step-running .step-dur {
+  color: var(--accent-3, #4da3ff);
+}
+.step-error .step-name,
+.step-error .step-dur {
+  color: var(--red, #f97583);
+}
+.step-note {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-style: italic;
 }
 .working-dots {
   display: inline-flex;

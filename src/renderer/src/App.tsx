@@ -14,7 +14,8 @@ export type AgentMode = 'interactive' | 'plan' | 'full'
 import { Composer } from './components/Composer'
 import { MessageView } from './components/MessageView'
 import { ProjectsPanel } from './components/ProjectsPanel'
-import { Welcome, TodoStrip, ContextPill, WorkingIndicator, basename, relTime } from './components/ChatExtras'
+import { Welcome, TodoStrip, ContextPill, basename, relTime } from './components/ChatExtras'
+import { LiveActivity } from './components/LiveActivity'
 import { contextLimit, SUGGESTED_LOCAL_MODELS, SUGGESTED_MODELS } from '../../shared/models'
 import { FirstRunModal } from './components/FirstRunModal'
 import { Sidebar, NAV } from './components/Sidebar'
@@ -1390,7 +1391,7 @@ export function App(): JSX.Element {
                     live={busy}
                   />
                 ))}
-                {busy && <WorkingIndicator status={status} />}
+                {busy && session && <LiveActivity sessionId={session.id} status={status} />}
                 {!busy && status && <div style={{ color: 'var(--text-faint)', fontSize: 12 }}>{status}</div>}
                 {!busy &&
                   transcript.length > 0 &&

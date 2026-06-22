@@ -26,6 +26,9 @@ export function streamCallbacksFor(msg: ChatMessage, emit: Emit): StreamCallback
     onContent: (d) => {
       msg.content += d
       emit({ type: 'content_delta', messageId: msg.id, delta: d })
-    }
+    },
+    // surface connect-retry / backoff notes during otherwise-silent stretches so the UI shows
+    // "working, retrying" instead of looking hung.
+    onStatus: (message) => emit({ type: 'status', message })
   }
 }

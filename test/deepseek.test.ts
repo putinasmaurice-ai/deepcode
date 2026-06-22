@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { DeepSeekClient } from '../src/main/agent/deepseek'
+import { DeepSeekClient, readWithTimeout } from '../src/main/agent/deepseek'
 import type { ProviderSettings } from '../src/shared/types'
 
 // Exercises the highest-failure-surface file (SSE parsing, retry/backoff, tool-strip self-heal,
@@ -112,11 +112,48 @@ describe('DeepSeekClient.streamChat — self-heal + retry', () => {
     expect(bodies[1].tools).toBeUndefined() // retry stripped them
   })
 
-  it('retries a retryable 503 then succeeds', async () => {
+  it('retries a retryable 503 then succeeds, and emits a visible retry status (not a silent hang)', async () => {
     stubFetch([err(503, 'busy'), ok(['data: {"choices":[{"delta":{"content":"done"}}]}\n\n', 'data: [DONE]\n\n'])])
-    const res = await new DeepSeekClient(settings()).streamChat([{ role: 'user', content: 'x' }], [], {}, sig())
+    const notes: string[] = []
+    const res = await new DeepSeekClient(settings()).streamChat(
+      [{ role: 'user', content: 'x' }],
+      [],
+      { onStatus: (m) => notes.push(m) },
+      sig()
+    )
     expect(res.content).toBe('done')
+    expect(notes.some((n) => /neuer Versuch/i.test(n))).toBe(true) // the silent backoff window is now legible
   }, 10000)
+})
+
+describe('readWithTimeout — stream idle watchdog (the "model hangs mid-task" guard)', () => {
+  const never = (): { read: () => Promise<never> } => ({ read: () => new Promise<never>(() => {}) })
+
+  it('rejects with TimeoutError when read() never resolves within the deadline', async () => {
+    await expect(readWithTimeout(never() as never, 20, new AbortController().signal)).rejects.toMatchObject({
+      name: 'TimeoutError'
+    })
+  })
+
+  it('resolves with the chunk when read() resolves before the deadline', async () => {
+    const reader = { read: async () => ({ done: false, value: new Uint8Array([1, 2]) }) }
+    await expect(readWithTimeout(reader as never, 1000, new AbortController().signal)).resolves.toMatchObject({
+      done: false
+    })
+  })
+
+  it('rejects with AbortError when the turn is stopped mid-read', async () => {
+    const ac = new AbortController()
+    const p = readWithTimeout(never() as never, 1000, ac.signal)
+    ac.abort()
+    await expect(p).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
+  it('rejects immediately if the signal is already aborted', async () => {
+    const ac = new AbortController()
+    ac.abort()
+    await expect(readWithTimeout(never() as never, 1000, ac.signal)).rejects.toMatchObject({ name: 'AbortError' })
+  })
 })
 
 describe('DeepSeekClient.streamChat — reasoner param stripping', () => {

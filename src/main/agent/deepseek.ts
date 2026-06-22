@@ -38,6 +38,9 @@ export interface StreamCallbacks {
   onContent?: (delta: string) => void
   onToolCallDelta?: (index: number, id: string | undefined, name: string | undefined, argsDelta: string) => void
   onDone?: (finishReason: string) => void
+  // a human-readable progress note during otherwise-silent stretches (connect retries, backoff)
+  // so the UI can show "working, not hung". Optional — existing `{}` callers are unaffected.
+  onStatus?: (message: string) => void
 }
 
 export interface RawUsage {
@@ -57,6 +60,53 @@ export interface StreamResult {
 
 const RETRYABLE = new Set([408, 409, 425, 429, 500, 502, 503, 504])
 const MAX_RETRIES = 3
+
+// Stream watchdogs — the LLM stream is the one unbounded `await` in a turn. A provider that
+// accepts the socket then sends nothing (local model still loading / OOM, reasoner stuck, a cloud
+// gateway holding the connection under load) would otherwise hang the turn forever. These are
+// generous so a slow-but-working model is never killed: reasoning/content deltas reset the idle
+// timer, and local gets a longer connect window because loading a big model is legitimately slow.
+const CONNECT_TIMEOUT_MS = 60_000 // response headers must arrive within this (cloud)
+const LOCAL_CONNECT_TIMEOUT_MS = 180_000 // local: allow time for the model to load into VRAM
+const STREAM_IDLE_TIMEOUT_MS = 120_000 // max gap with NO progress once the stream is open
+
+// the result of one reader.read() — derived structurally so we don't depend on the global
+// `ReadableStreamReadResult` name (absent from the node tsconfig lib).
+type ReadChunk = Awaited<ReturnType<ReadableStreamDefaultReader<Uint8Array>['read']>>
+
+// Race a single reader.read() against an idle deadline and the turn's abort signal, so a stalled
+// stream can never pend forever. Rejects 'TimeoutError' on idle, 'AbortError' on Stop. Exported
+// for unit testing the watchdog in isolation.
+export function readWithTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  ms: number,
+  signal: AbortSignal
+): Promise<ReadChunk> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'))
+      return
+    }
+    const timer = setTimeout(() => reject(new DOMException('Idle', 'TimeoutError')), ms)
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      reject(new DOMException('Aborted', 'AbortError'))
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    reader.read().then(
+      (r) => {
+        clearTimeout(timer)
+        signal.removeEventListener('abort', onAbort)
+        resolve(r)
+      },
+      (e) => {
+        clearTimeout(timer)
+        signal.removeEventListener('abort', onAbort)
+        reject(e)
+      }
+    )
+  })
+}
 
 function isReasonerModel(model: string, configuredReasoner: string): boolean {
   // explicit config wins; regex covers common reasoning-model families
@@ -201,6 +251,7 @@ export class DeepSeekClient {
     let toolsStripped = false
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+      const connectMs = isLocal ? LOCAL_CONNECT_TIMEOUT_MS : CONNECT_TIMEOUT_MS
       try {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' }
         if (!isLocal) headers.Authorization = `Bearer ${apiKey}`
@@ -208,18 +259,25 @@ export class DeepSeekClient {
           method: 'POST',
           headers,
           body: JSON.stringify(body),
-          signal
+          // connect/headers deadline merged with the turn signal: a provider that accepts the
+          // socket but never sends headers (local model loading, gateway stalled) times out and
+          // is retried, instead of hanging the turn forever.
+          signal: AbortSignal.any([signal, AbortSignal.timeout(connectMs)])
         })
       } catch (e) {
-        if ((e as Error).name === 'AbortError') throw e
-        lastErr = (e as Error).message
+        // the user pressed Stop → abort the whole turn (never retry)
+        if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+        // else: a connect-timeout (TimeoutError) or a transient network error → retry with backoff
+        const isTimeout = (e as Error).name === 'TimeoutError'
+        lastErr = isTimeout ? `Zeitüberschreitung beim Verbindungsaufbau nach ${Math.round(connectMs / 1000)}s` : (e as Error).message
         if (attempt < MAX_RETRIES) {
+          callbacks.onStatus?.(`Verbindung fehlgeschlagen — neuer Versuch in ${Math.round(backoff(attempt) / 1000)}s (${attempt + 1}/${MAX_RETRIES})…`)
           await sleep(backoff(attempt), signal)
           continue
         }
         if (isLocal) {
           throw new Error(
-            `Lokales Modell nicht erreichbar (${base}). Läuft Ollama/LM Studio? Starte es oder wechsle oben rechts das Modell.`
+            `Lokales Modell nicht erreichbar/bereit (${base}). Läuft Ollama/LM Studio und ist das Modell geladen? Starte es oder wechsle oben rechts das Modell.`
           )
         }
         throw new Error(`Netzwerkfehler zu DeepSeek: ${lastErr}`)
@@ -250,6 +308,7 @@ export class DeepSeekClient {
       }
       lastErr = `DeepSeek API error ${res.status}: ${text || res.statusText}`
       if (RETRYABLE.has(res.status) && attempt < MAX_RETRIES) {
+        callbacks.onStatus?.(`Server antwortete ${res.status} — neuer Versuch in ${Math.round(backoff(attempt) / 1000)}s (${attempt + 1}/${MAX_RETRIES})…`)
         await sleep(backoff(attempt), signal)
         res = null
         continue
@@ -267,6 +326,9 @@ export class DeepSeekClient {
     let finishReason = 'stop'
     let usage: RawUsage | undefined
     const toolAcc: Map<number, { id: string; name: string; arguments: string }> = new Map()
+    // last time the stream made REAL progress (a content/reasoning/tool delta). Drives the idle
+    // watchdog so a heartbeat-only stream (keep-alive bytes but no tokens) still self-terminates.
+    let lastProgressAt = Date.now()
 
     const handleData = (data: string): void => {
       if (data === '[DONE]' || !data) return
@@ -293,13 +355,16 @@ export class DeepSeekClient {
       const delta = choice.delta ?? {}
       if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
         reasoning += delta.reasoning_content
+        lastProgressAt = Date.now()
         callbacks.onReasoning?.(delta.reasoning_content)
       }
       if (typeof delta.content === 'string' && delta.content) {
         content += delta.content
+        lastProgressAt = Date.now()
         callbacks.onContent?.(delta.content)
       }
       if (Array.isArray(delta.tool_calls)) {
+        lastProgressAt = Date.now()
         for (const tc of delta.tool_calls) {
           const idx = tc.index ?? 0
           const cur = toolAcc.get(idx) ?? { id: '', name: '', arguments: '' }
@@ -327,8 +392,29 @@ export class DeepSeekClient {
     const MAX_STREAM_BYTES = 64 * 1024 * 1024 // total decoded payload ceiling
     const MAX_BUFFER_BYTES = 4 * 1024 * 1024 // undrained buffer (no-newline) ceiling
     let totalBytes = 0
+    // the FIRST token may legitimately take as long as a connect (a slow local model finishing
+    // prefill after it already flushed headers), so the pre-first-token reads get the generous
+    // connect budget; once real tokens flow we tighten to the idle timeout for mid-stream stalls.
+    const firstReadMs = Math.max(isLocal ? LOCAL_CONNECT_TIMEOUT_MS : CONNECT_TIMEOUT_MS, STREAM_IDLE_TIMEOUT_MS)
+    const idleMsg = `Antwort-Stream seit ${Math.round(STREAM_IDLE_TIMEOUT_MS / 1000)}s ohne Daten — abgebrochen. Das Modell hängt evtl.; wechsle das Modell oder versuche es erneut.`
     while (true) {
-      const { done, value } = await reader.read()
+      // "real progress" = at least one content/reasoning/tool token has arrived. Until then we're
+      // still waiting for the first token and must not apply the tight mid-stream idle guard.
+      const sawProgress = content.length > 0 || reasoning.length > 0 || toolAcc.size > 0
+      let chunk: ReadChunk
+      try {
+        // idle watchdog: catches a stream that opens then sends NOTHING (read() never resolves)
+        chunk = await readWithTimeout(reader, sawProgress ? STREAM_IDLE_TIMEOUT_MS : firstReadMs, signal)
+      } catch (e) {
+        if (signal.aborted) throw new DOMException('Aborted', 'AbortError') // user pressed Stop
+        try {
+          await reader.cancel()
+        } catch {
+          /* ignore */
+        }
+        throw new Error(idleMsg)
+      }
+      const { done, value } = chunk
       if (done) break
       totalBytes += value?.length ?? 0
       buffer += decoder.decode(value, { stream: true })
@@ -340,6 +426,17 @@ export class DeepSeekClient {
           /* ignore */
         }
         throw new Error('Antwort-Stream überschritt das Größenlimit — abgebrochen.')
+      }
+      // heartbeat-only stall: real tokens started, then bytes keep arriving (SSE keep-alives) but
+      // no further progress for too long. Only armed AFTER the first token (sawProgress) so a long
+      // silent prefill isn't mistaken for a hang.
+      if (sawProgress && Date.now() - lastProgressAt > STREAM_IDLE_TIMEOUT_MS) {
+        try {
+          await reader.cancel()
+        } catch {
+          /* ignore */
+        }
+        throw new Error(idleMsg)
       }
     }
     // Flush any incomplete multi-byte sequence and the final newline-less line.
