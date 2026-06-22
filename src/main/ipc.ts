@@ -565,6 +565,22 @@ export function registerIpc(win: BrowserWindow): void {
     }
     return true
   })
+  ipcMain.handle(IPC.clearSession, (_e, id: string) => {
+    // Empty the chat (messages + todos) but KEEP the session. Refuse mid-turn: clearing while a
+    // turn appends to the same array would race the turn's own end-of-turn saveSession (which
+    // re-persists the live object). applyLiveEdit({}) is a side-effect-free no-op probe — it
+    // returns non-null iff a turn is in flight for this session (do NOT cancel-then-clear).
+    if (engine.applyLiveEdit(id, {}) !== null) {
+      throw new Error('Diese Session arbeitet gerade — bitte erst stoppen, dann leeren.')
+    }
+    const s = getSession(id)
+    if (s) {
+      s.messages = []
+      s.todos = []
+      saveSession(s) // keeps id/title/titleManual/cwd/model; bumps updatedAt + refreshes the cache
+    }
+    return true
+  })
 
   // ---- agent turn ----
   ipcMain.handle(

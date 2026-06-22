@@ -15,6 +15,7 @@ const api: DeepCodeApi = {
     ipcRenderer.invoke(IPC.createSession, cwd, projectId),
   deleteSession: (id: string) => ipcRenderer.invoke(IPC.deleteSession, id),
   renameSession: (id: string, title: string) => ipcRenderer.invoke(IPC.renameSession, id, title),
+  clearSession: (id: string) => ipcRenderer.invoke(IPC.clearSession, id),
   exportSession: (id: string) => ipcRenderer.invoke(IPC.exportSession, id),
 
   // projects

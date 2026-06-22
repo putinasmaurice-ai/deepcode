@@ -708,6 +708,7 @@ export function App(): JSX.Element {
     setError('')
     setStatus('') // status is global text; clear it on switch (the opened session repopulates it)
     nearBottomRef.current = true
+    setShowJump(false) // reset the jump-to-bottom FAB on a chat switch (parity with clearChat)
     scrollDown()
   }
 
@@ -798,6 +799,44 @@ export function App(): JSX.Element {
     } finally {
       endRun(sid)
     }
+  }
+
+  // Clear the OPEN chat: empty its messages + todos but keep the session (title/cwd/model). Refused
+  // mid-turn (backend guard + busy gate). Resets every piece of current-chat UI state so nothing stale
+  // lingers over the emptied transcript.
+  async function clearChat(): Promise<void> {
+    if (!session || busy) return
+    const sid = session.id
+    if (
+      !window.confirm(
+        `Chat „${session.title || 'Untitled'}" wirklich leeren? Verlauf und Aufgaben werden gelöscht, die Session bleibt bestehen.`
+      )
+    )
+      return
+    try {
+      await api.clearSession(sid)
+    } catch (e) {
+      addToast(String(e), 'error') // surfaces the backend "arbeitet gerade" guard
+      return
+    }
+    setMessages([])
+    setToolState({})
+    setSessionUsage({ tokens: 0, cost: 0 })
+    setTodos([])
+    setStatus('')
+    setError('')
+    setDeferred(null)
+    setPendingSecret((prev) => {
+      if (prev) api.submitSecret(prev.callId, null).catch(() => {})
+      return null
+    })
+    setVotedArena(new Set())
+    setQueue((q) => q.filter((x) => x.sessionId !== sid)) // drop this chat's queued/steering sends
+    editTargetRef.current = null // stale edit-and-resend target
+    setComposerPrefill(null)
+    nearBottomRef.current = true
+    setShowJump(false) // hide the jump-to-bottom FAB; the emptied chat has nothing to jump to
+    setSession((s) => (s && s.id === sid ? { ...s, messages: [], todos: [] } : s))
   }
 
   async function send(text: string, attachments?: string[]): Promise<void> {
@@ -1284,6 +1323,14 @@ export function App(): JSX.Element {
                 title="Summarize older turns to free up context"
               >
                 Compact
+              </button>
+              <button
+                className="btn ghost sm"
+                onClick={clearChat}
+                disabled={busy}
+                title="Diesen Chat leeren (Verlauf + Aufgaben löschen, Session bleibt)"
+              >
+                🧹 Leeren
               </button>
               <select
                 className="model-select"

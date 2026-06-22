@@ -11,6 +11,7 @@ export const IPC = {
   createSession: 'sessions:create',
   deleteSession: 'sessions:delete',
   renameSession: 'sessions:rename',
+  clearSession: 'sessions:clear',
   exportSession: 'sessions:export',
 
   // projects

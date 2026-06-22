@@ -45,3 +45,19 @@ describe('Engine.steer (mid-turn steering)', () => {
     expect(queued(e, 'b')).toEqual(['for B'])
   })
 })
+
+describe('AgentEngine.applyLiveEdit — no-op liveness probe (clearSession refuses mid-turn via this)', () => {
+  it('returns null when no turn is live and non-null (the live session) when one is', () => {
+    const e = makeEngine()
+    expect(e.applyLiveEdit('s1', {})).toBeNull() // idle → safe to clear
+    live(e, 's1')
+    expect(e.applyLiveEdit('s1', {})).not.toBeNull() // a turn is in flight → clear must be refused
+  })
+
+  it('the empty patch mutates nothing (it is only a probe)', () => {
+    const e = makeEngine()
+    live(e, 's1')
+    const before = JSON.stringify(e.applyLiveEdit('s1', {}))
+    expect(JSON.stringify(e.applyLiveEdit('s1', {}))).toBe(before) // idempotent no-op
+  })
+})

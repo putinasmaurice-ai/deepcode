@@ -90,6 +90,8 @@ export interface DeepCodeApi {
   createSession(cwd?: string, projectId?: string): Promise<Session>
   deleteSession(id: string): Promise<boolean>
   renameSession(id: string, title: string): Promise<boolean>
+  // empty the chat's messages + todos but KEEP the session (id/title/cwd/model). Refused mid-turn.
+  clearSession(id: string): Promise<boolean>
   exportSession(id: string): Promise<string>
   changeCwd(id: string, cwd: string): Promise<Session>
   updateSessionModel(id: string, model: string): Promise<boolean>
