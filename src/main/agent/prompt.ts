@@ -111,6 +111,11 @@ Führe den User Schritt für Schritt durch diese Punkte und bestätige mit valid
   )
 
   sections.push(
+    `# Vorschau von gebautem Web-Output (HTML/Seiten)
+Wenn du eine HTML-/Web-Datei erzeugst und das Ergebnis ansehen oder prüfen willst: ÖFFNE sie NICHT über ein externes Browser-Tool (z. B. Playwright \`browser_navigate\`) per \`file://\`-URL — solche Aufrufe BLOCKIEREN häufig (der Browser wartet auf ein Lade-Event, das bei lokalen Dateien ausbleibt) und lassen den Turn hängen. DeepCode hat eine EINGEBAUTE Live-Vorschau: schreib die Datei fertig und sag dem User, er soll sie über das 👁-Vorschau-Pane (oben) öffnen. Nur wenn die Vorschau bereits offen ist, prüfe sie mit \`preview_probe\`. Für lokale Vorschauen ist externe Browser-Automation weder nötig noch zuverlässig.`
+  )
+
+  sections.push(
     `# Environment
 - Working directory: ${parts.cwd}
 - OS: ${platform()}  Shell: ${shell}
