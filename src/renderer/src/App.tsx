@@ -1313,7 +1313,9 @@ export function App(): JSX.Element {
                             ? '📱 ' + m.slice('mimo:'.length)
                             : m.startsWith('kilo:')
                               ? '🦘 ' + m.slice('kilo:'.length)
-                              : m}
+                              : m.startsWith('openrouter:')
+                                ? '🌐 ' + m.slice('openrouter:'.length)
+                                : m}
                   </option>
                 ))}
               </select>

@@ -264,6 +264,13 @@ export interface ProviderSettings {
   kiloBaseUrl: string
   kiloPricePerMillionInput?: number
   kiloPricePerMillionOutput?: number
+  // ---- OpenRouter aggregator (OpenAI-compatible) — models prefixed "openrouter:" route here.
+  // Cost comes from OpenRouter's own usage.cost (we request it), so the price fields are only a
+  // fallback. ----
+  openrouterApiKey: string
+  openrouterBaseUrl: string
+  openrouterPricePerMillionInput?: number
+  openrouterPricePerMillionOutput?: number
 }
 
 export interface AppSettings {
@@ -373,7 +380,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
     kiloApiKey: '',
     kiloBaseUrl: 'https://api.kilo.ai/api/gateway',
     kiloPricePerMillionInput: 0, // routet zu versch. Modellen — pro Modell setzen, falls bezahlt
-    kiloPricePerMillionOutput: 0
+    kiloPricePerMillionOutput: 0,
+    openrouterApiKey: '',
+    openrouterBaseUrl: 'https://openrouter.ai/api/v1',
+    openrouterPricePerMillionInput: 0, // Kosten kommen aus OpenRouters usage.cost; nur Fallback
+    openrouterPricePerMillionOutput: 0
   },
   autoApprove: {
     read: true,

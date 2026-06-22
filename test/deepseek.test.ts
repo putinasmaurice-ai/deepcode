@@ -98,6 +98,38 @@ describe('DeepSeekClient.streamChat — SSE parsing', () => {
   })
 })
 
+describe('DeepSeekClient.streamChat — OpenRouter routing', () => {
+  it('requires an OpenRouter key for openrouter: models', async () => {
+    await expect(
+      new DeepSeekClient(settings({ model: 'openrouter:xiaomi/mimo-v2.5-pro' })).streamChat(
+        [{ role: 'user', content: 'x' }],
+        [],
+        {},
+        sig()
+      )
+    ).rejects.toThrow(/OpenRouter/i)
+  })
+
+  it('routes to the OpenRouter base URL, asks for cost, and strips the prefix from the model id', async () => {
+    let calledUrl = ''
+    const bodies: Record<string, unknown>[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (u: string, init: { body: string }) => {
+        calledUrl = u
+        bodies.push(JSON.parse(init.body))
+        return ok(['data: {"choices":[{"delta":{"content":"ok"}}]}\n\n', 'data: [DONE]\n\n'])
+      })
+    )
+    await new DeepSeekClient(
+      settings({ model: 'openrouter:xiaomi/mimo-v2.5-pro', openrouterApiKey: 'sk-or-test', openrouterBaseUrl: 'https://openrouter.ai/api/v1' })
+    ).streamChat([{ role: 'user', content: 'x' }], [], {}, sig())
+    expect(calledUrl).toBe('https://openrouter.ai/api/v1/chat/completions')
+    expect(bodies[0].model).toBe('xiaomi/mimo-v2.5-pro') // prefix stripped
+    expect(bodies[0].usage).toEqual({ include: true }) // cost requested
+  })
+})
+
 describe('DeepSeekClient.streamChat — provider error mapping', () => {
   it('maps 402 to a credit message and 401/403 to a key message', async () => {
     stubFetch([err(402, 'Insufficient Balance')])

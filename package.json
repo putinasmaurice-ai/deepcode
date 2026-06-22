@@ -1,6 +1,6 @@
 {
   "name": "deepcode",
-  "version": "0.2.82",
+  "version": "0.2.83",
   "description": "DeepCode — an agentic coding desktop app powered by DeepSeek. A Claude-Code / Codex style assistant with Plugins, Skills, MCP, Subagents, Hooks, Memory, Automations and Slash Commands.",
   "main": "./out/main/index.js",
   "author": "Maurice",

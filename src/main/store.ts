@@ -85,6 +85,14 @@ export function loadSettings(): AppSettings {
           /* leave whatever plaintext key may exist */
         }
       }
+      // OpenRouter key — same treatment.
+      if (raw._openrouterKeyEnc && encryptionOk()) {
+        try {
+          merged.provider.openrouterApiKey = safeStorage.decryptString(Buffer.from(raw._openrouterKeyEnc, 'base64'))
+        } catch {
+          /* leave whatever plaintext key may exist */
+        }
+      }
       // Dev/test hook only: lets automated launches (Playwright/CI) supply a key when
       // safeStorage can't decrypt outside the interactive user session. Never set in
       // normal use.
@@ -109,10 +117,11 @@ export function saveSettings(settings: AppSettings): void {
   const tkey = settings.provider.togetherApiKey ?? ''
   const mkey = settings.provider.mimoApiKey ?? ''
   const kkey = settings.provider.kiloApiKey ?? ''
+  const orkey = settings.provider.openrouterApiKey ?? ''
   // Persist keys encrypted; never write them in plaintext when encryption works.
   const onDisk: any = {
     ...settings,
-    provider: { ...settings.provider, apiKey: '', googleApiKey: '', deepinfraApiKey: '', openaiApiKey: '', togetherApiKey: '', mimoApiKey: '', kiloApiKey: '' }
+    provider: { ...settings.provider, apiKey: '', googleApiKey: '', deepinfraApiKey: '', openaiApiKey: '', togetherApiKey: '', mimoApiKey: '', kiloApiKey: '', openrouterApiKey: '' }
   }
   // clamp maxTokens: a cleared field persists 0/NaN which the API rejects — coerce back to default.
   const mt = Number(onDisk.provider.maxTokens)
@@ -179,6 +188,15 @@ export function saveSettings(settings: AppSettings): void {
     }
   } else if (kkey) {
     onDisk.provider.kiloApiKey = kkey
+  }
+  if (orkey && encryptionOk()) {
+    try {
+      onDisk._openrouterKeyEnc = safeStorage.encryptString(orkey).toString('base64')
+    } catch {
+      onDisk.provider.openrouterApiKey = orkey
+    }
+  } else if (orkey) {
+    onDisk.provider.openrouterApiKey = orkey
   }
   // atomic write (tmp + rename) so a crash/power-loss mid-write can't truncate settings.json
   // and silently wipe the three encrypted API keys (loadSettings would then overwrite with

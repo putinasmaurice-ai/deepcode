@@ -160,6 +160,7 @@ export class DeepSeekClient {
     const isTogether = rawModel.startsWith('together:') // Together AI (OpenAI-compatible)
     const isMimo = rawModel.startsWith('mimo:') // Xiaomi MiMo (OpenAI-compatible)
     const isKilo = rawModel.startsWith('kilo:') // Kilo Code gateway (OpenAI-compatible)
+    const isOpenrouter = rawModel.startsWith('openrouter:') // OpenRouter aggregator (OpenAI-compatible)
     const prefix = isLocal
       ? 'local:'
       : isGoogle
@@ -174,7 +175,9 @@ export class DeepSeekClient {
                 ? 'mimo:'
                 : isKilo
                   ? 'kilo:'
-                  : ''
+                  : isOpenrouter
+                    ? 'openrouter:'
+                    : ''
     const model = prefix ? rawModel.slice(prefix.length) : rawModel
     const base = isLocal
       ? this.settings.localBaseUrl || 'http://localhost:11434/v1'
@@ -190,7 +193,9 @@ export class DeepSeekClient {
                 ? this.settings.mimoBaseUrl || 'https://token-plan-ams.xiaomimimo.com/v1'
                 : isKilo
                   ? this.settings.kiloBaseUrl || 'https://api.kilo.ai/api/gateway'
-                  : this.settings.baseUrl
+                  : isOpenrouter
+                    ? this.settings.openrouterBaseUrl || 'https://openrouter.ai/api/v1'
+                    : this.settings.baseUrl
     const apiKey = isGoogle
       ? this.settings.googleApiKey
       : isDeepinfra
@@ -203,7 +208,9 @@ export class DeepSeekClient {
               ? this.settings.mimoApiKey
               : isKilo
                 ? this.settings.kiloApiKey
-                : this.settings.apiKey
+                : isOpenrouter
+                  ? this.settings.openrouterApiKey
+                  : this.settings.apiKey
 
     if (isGoogle && (!this.settings.googleApiKey || !this.settings.googleApiKey.trim())) {
       throw new Error('Kein Google-AI-Studio-Key konfiguriert. Trage ihn in den Settings ein (für Bild-Analyse online).')
@@ -223,7 +230,10 @@ export class DeepSeekClient {
     if (isKilo && (!this.settings.kiloApiKey || !this.settings.kiloApiKey.trim())) {
       throw new Error('Kein Kilo-Code-API-Key konfiguriert. Trage ihn in den Settings ein (app.kilo.ai → API Keys).')
     }
-    if (!isLocal && !isGoogle && !isDeepinfra && !isOpenai && !isTogether && !isMimo && !isKilo && (!this.settings.apiKey || !this.settings.apiKey.trim())) {
+    if (isOpenrouter && (!this.settings.openrouterApiKey || !this.settings.openrouterApiKey.trim())) {
+      throw new Error('Kein OpenRouter-API-Key konfiguriert. Trage ihn in den Settings ein (openrouter.ai/keys).')
+    }
+    if (!isLocal && !isGoogle && !isDeepinfra && !isOpenai && !isTogether && !isMimo && !isKilo && !isOpenrouter && (!this.settings.apiKey || !this.settings.apiKey.trim())) {
       throw new Error('DeepSeek API key is not configured. Add it in Settings.')
     }
 
@@ -248,6 +258,9 @@ export class DeepSeekClient {
         body.tool_choice = 'auto'
       }
     }
+    // OpenRouter returns its own authoritative per-round cost in usage.cost when asked — request it
+    // so costOf() can trust it (exact, regardless of which underlying provider OR routed to).
+    if (isOpenrouter) body.usage = { include: true }
 
     // Establish the connection with retry/backoff. We only retry BEFORE streaming
     // begins — once bytes flow, retrying would duplicate output.
@@ -260,6 +273,11 @@ export class DeepSeekClient {
       try {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' }
         if (!isLocal) headers.Authorization = `Bearer ${apiKey}`
+        // OpenRouter attribution headers (optional, recommended; no secrets)
+        if (isOpenrouter) {
+          headers['HTTP-Referer'] = 'https://github.com/MauricePutinas/deepcode'
+          headers['X-Title'] = 'DeepCode'
+        }
         res = await fetch(url, {
           method: 'POST',
           headers,
@@ -347,7 +365,8 @@ export class DeepSeekClient {
       // `data: null` keep-alive line can't throw and abort the whole turn.
       if (!json || typeof json !== 'object') return
       if (json.usage) {
-        const est = json.usage.estimated_cost
+        // DeepInfra reports the round's cost as estimated_cost; OpenRouter as cost (with usage.include)
+        const est = json.usage.estimated_cost ?? json.usage.cost
         usage = {
           promptTokens: json.usage.prompt_tokens ?? 0,
           completionTokens: json.usage.completion_tokens ?? 0,

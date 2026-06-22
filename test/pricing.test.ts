@@ -137,6 +137,18 @@ describe('costOf — corrected DeepInfra per-model pricing + provider-reported c
     expect(costOf({ ...p, model: 'my-custom-llm' }, M, 'my-custom-llm', PEAK).cost).toBeGreaterThan(0)
   })
 
+  it('trusts OpenRouter\'s reported cost (usage.cost) and falls back to the table otherwise', () => {
+    // OpenRouter returns its own cost → trusted exactly, table ignored
+    expect(costOf(p, { ...M, reportedCost: 0.0072 }, 'openrouter:x-ai/grok-4.1-fast', PEAK).cost).toBe(0.0072)
+    // no reported cost + a known slug → fallback table (MiMo via OR ~$0.435/$0.87)
+    expect(costOf(p, M, 'openrouter:xiaomi/mimo-v2.5-pro', PEAK).cost).toBeCloseTo(0.435 + 0.87, 6)
+    // no reported cost + unknown slug → flat openrouter fallback (default 0), never DeepSeek rates / off-peak
+    expect(costOf(p, M, 'openrouter:some/unknown', OFFPEAK).cost).toBeCloseTo(
+      (p.openrouterPricePerMillionInput ?? 0) + (p.openrouterPricePerMillionOutput ?? 0),
+      6
+    )
+  })
+
   it('does NOT apply the DeepSeek off-peak discount to a configured non-DeepSeek primary', () => {
     const custom = { ...p, model: 'my-custom-llm' }
     const peak = costOf(custom, M, 'my-custom-llm', PEAK).cost

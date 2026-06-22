@@ -24,7 +24,7 @@ const LEDGER = join(PATHS.root, 'ledger.json')
 // settings secrets: encrypted blobs live at top level (_apiKeyEnc, _googleKeyEnc, …); plaintext
 // fallbacks (when encryption is unavailable) live in provider.{apiKey,googleApiKey,…}.
 const SECRET_KEY = /Enc$/
-const SECRET_NAMES = new Set(['apiKey', 'googleApiKey', 'deepinfraApiKey', 'openaiApiKey', 'togetherApiKey', 'mimoApiKey', 'kiloApiKey'])
+const SECRET_NAMES = new Set(['apiKey', 'googleApiKey', 'deepinfraApiKey', 'openaiApiKey', 'togetherApiKey', 'mimoApiKey', 'kiloApiKey', 'openrouterApiKey'])
 
 function stripSecrets(obj: unknown): unknown {
   if (Array.isArray(obj)) return obj.map(stripSecrets)

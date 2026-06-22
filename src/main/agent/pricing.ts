@@ -26,7 +26,14 @@ const ANTHROPIC_PRICES: Record<string, Rates> = {
   'anthropic/claude-sonnet-4': { in: 3.0, cached: 0.3, out: 15.0 }
 }
 
-const VENDOR_PREFIXES = ['deepinfra:', 'google:', 'openai:', 'together:', 'mimo:', 'kilo:']
+// OpenRouter per-model FALLBACK rates (USD per 1M), keyed on the id after "openrouter:" (lowercased).
+// Normally unused: OpenRouter returns its own usage.cost (we request it) which costOf trusts. This
+// only kicks in if that cost is ever missing. Cheapest standard route as of 2026-06.
+const OPENROUTER_PRICES: Record<string, Rates> = {
+  'xiaomi/mimo-v2.5-pro': { in: 0.435, out: 0.87 }
+}
+
+const VENDOR_PREFIXES = ['deepinfra:', 'google:', 'openai:', 'together:', 'mimo:', 'kilo:', 'openrouter:']
 
 // fresh + cached prompt split (cached is a SUBSET of prompt tokens — subtract it, never add) plus
 // output, all per 1M. cachedRate clamps to the input rate, so a model without a cache discount is a
@@ -56,6 +63,14 @@ function vendorRates(provider: ProviderSettings, model: string): Rates {
       ANTHROPIC_PRICES[under] ?? {
         in: provider.kiloPricePerMillionInput ?? 0,
         out: provider.kiloPricePerMillionOutput ?? 0
+      }
+    )
+  }
+  if (model.startsWith('openrouter:')) {
+    return (
+      OPENROUTER_PRICES[model.slice('openrouter:'.length).toLowerCase()] ?? {
+        in: provider.openrouterPricePerMillionInput ?? 0,
+        out: provider.openrouterPricePerMillionOutput ?? 0
       }
     )
   }

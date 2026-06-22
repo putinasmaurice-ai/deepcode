@@ -675,6 +675,54 @@ export function SettingsPanel({
         </div>
       </div>
 
+      <div className="card">
+        <h3>🌐 OpenRouter (Aggregator — viele Anbieter, ein Key)</h3>
+        <p>
+          OpenAI-kompatibler Zugang zu hunderten Modellen. Modelle mit Präfix <code>openrouter:</code>{' '}
+          (z.B. <code>openrouter:xiaomi/mimo-v2.5-pro</code> — dasselbe MiMo, aber deutlich günstiger als
+          über DeepInfra) werden hierhin geroutet. Die Kosten kommen direkt von OpenRouter
+          (<code>usage.cost</code>), stimmen also exakt mit deiner OpenRouter-Abrechnung überein. Key holen
+          unter <b>openrouter.ai/keys</b>.
+        </p>
+        <div className="field" style={{ marginTop: 12 }}>
+          <label>OpenRouter-API-Key — verschlüsselt gespeichert</label>
+          <input
+            type="password"
+            value={p.openrouterApiKey ?? ''}
+            placeholder="sk-or-…"
+            onChange={(e) => updateProvider({ openrouterApiKey: e.target.value })}
+          />
+        </div>
+        <div className="field">
+          <label>OpenRouter Base URL (OpenAI-kompatibel)</label>
+          <input
+            value={p.openrouterBaseUrl ?? 'https://openrouter.ai/api/v1'}
+            onChange={(e) => updateProvider({ openrouterBaseUrl: e.target.value })}
+            placeholder="https://openrouter.ai/api/v1"
+          />
+        </div>
+        <div className="row">
+          <div className="field">
+            <label>OpenRouter Preis Input ($/1M, nur Fallback)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={p.openrouterPricePerMillionInput ?? 0}
+              onChange={(e) => updateProvider({ openrouterPricePerMillionInput: Number(e.target.value) })}
+            />
+          </div>
+          <div className="field">
+            <label>OpenRouter Preis Output ($/1M, nur Fallback)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={p.openrouterPricePerMillionOutput ?? 0}
+              onChange={(e) => updateProvider({ openrouterPricePerMillionOutput: Number(e.target.value) })}
+            />
+          </div>
+        </div>
+      </div>
+
       <SecretsCard />
 
       <BackupCard />
