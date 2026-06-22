@@ -150,6 +150,10 @@ describe('costOf — corrected DeepInfra per-model pricing + provider-reported c
     expect(costOf(p, M, 'openrouter:xiaomi/mimo-v2.5-pro', PEAK).cost).toBeCloseTo(0.435 + 0.87, 6)
     expect(costOf(p, M, 'openrouter:x-ai/grok-4.1-fast', PEAK).cost).toBeCloseTo(0.2 + 0.5, 6)
     expect(costOf(p, M, 'openrouter:google/gemini-2.5-flash-lite', PEAK).cost).toBeCloseTo(0.1 + 0.4, 6)
+    // flagships (verified rates)
+    expect(costOf(p, M, 'openrouter:x-ai/grok-4.3', PEAK).cost).toBeCloseTo(1.25 + 2.5, 6)
+    expect(costOf(p, M, 'openrouter:minimax/minimax-m3', PEAK).cost).toBeCloseTo(0.3 + 1.2, 6)
+    expect(costOf(p, M, 'openrouter:moonshotai/kimi-k2.7-code', PEAK).cost).toBeCloseTo(0.612 + 3.069, 6)
     // unknown slug → flat openrouter fallback (default 0), never DeepSeek rates / off-peak
     expect(costOf(p, M, 'openrouter:some/unknown', OFFPEAK).cost).toBeCloseTo(
       (p.openrouterPricePerMillionInput ?? 0) + (p.openrouterPricePerMillionOutput ?? 0),

@@ -37,7 +37,12 @@ const OPENROUTER_PRICES: Record<string, Rates> = {
   'deepseek/deepseek-v4-flash': { in: 0.09, out: 0.18 },
   'qwen/qwen3-coder-flash': { in: 0.3, cached: 0.06, out: 1.5 }, // stable base (not the live 35%-off promo)
   'openai/gpt-oss-20b': { in: 0.029, out: 0.14 },
-  'openai/gpt-oss-120b': { in: 0.039, out: 0.18 }
+  'openai/gpt-oss-120b': { in: 0.039, out: 0.18 },
+  // flagships (verified vs the OpenRouter API 2026-06). grok-4.3 lists a higher tier above 200k
+  // total tokens; the live usage.cost (trusted first) reflects it — this base rate is fallback only.
+  'x-ai/grok-4.3': { in: 1.25, cached: 0.2, out: 2.5 },
+  'minimax/minimax-m3': { in: 0.3, cached: 0.06, out: 1.2 },
+  'moonshotai/kimi-k2.7-code': { in: 0.612, cached: 0.1296, out: 3.069 }
   // openai/gpt-oss-120b:free intentionally absent → free routes report cost 0 (honored below)
 }
 

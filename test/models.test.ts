@@ -67,4 +67,11 @@ describe('contextLimit', () => {
     expect(contextLimit('openrouter:openai/gpt-oss-120b:free')).toBe(131_072)
     expect(contextLimit('openrouter:qwen/qwen3-235b-a22b-2507')).toBe(262_144)
   })
+
+  it('knows the OpenRouter flagship windows (Grok 4.3 = 1M ≠ 4.1-Fast 2M, MiniMax M3 = 1M ≠ M2)', () => {
+    expect(contextLimit('openrouter:x-ai/grok-4.3')).toBe(1_000_000)
+    expect(contextLimit('openrouter:x-ai/grok-4.1-fast')).toBe(2_000_000) // still 2M
+    expect(contextLimit('openrouter:minimax/minimax-m3')).toBe(1_048_576)
+    expect(contextLimit('openrouter:moonshotai/kimi-k2.7-code')).toBe(262_144)
+  })
 })

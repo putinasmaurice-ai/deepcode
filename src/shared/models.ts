@@ -24,8 +24,10 @@ const TABLE: ModelInfo[] = [
   { pattern: /gemma[-_\s]?4/i, context: 262_144 }, // Google Gemma 4: 256K
   { pattern: /gemma[-_\s]?3/i, context: 128_000 }, // Google Gemma 3: 128K
   { pattern: /kimi/i, context: 262_144 }, // Moonshot Kimi K2.x: 256K
-  { pattern: /grok/i, context: 2_000_000 }, // xAI Grok 4.x (Fast): up to 2M
+  { pattern: /grok-4\.3/i, context: 1_000_000 }, // xAI Grok 4.3: 1M (verified)
+  { pattern: /grok/i, context: 2_000_000 }, // xAI Grok 4.1 Fast: up to 2M
   { pattern: /gpt-oss/i, context: 131_072 }, // OpenAI gpt-oss 20b/120b: 131K
+  { pattern: /minimax[-_\s]?m3/i, context: 1_048_576 }, // MiniMax M3: 1M (verified)
   { pattern: /minimax/i, context: 204_800 }, // MiniMax M2: ~205K
   { pattern: /gemini/i, context: 1_000_000 }, // Google Gemini 2.x (Flash/Pro): ~1M
   { pattern: /llama3\.[12]|llama-3\.[12]/i, context: 128_000 },
@@ -68,5 +70,9 @@ export const SUGGESTED_MODELS: string[] = [
   'openrouter:qwen/qwen3-coder-flash', // Qwen3-Coder Flash — 1M, autonomous coding ~$0.20/$0.98
   'openrouter:x-ai/grok-4.1-fast', // Grok 4.1 Fast — 2M context, strong agentic tool-calling ~$0.20/$0.50
   'openrouter:google/gemini-2.5-flash-lite', // Gemini 2.5 Flash Lite — fast all-rounder + vision, 1M ~$0.10/$0.40
+  // --- OpenRouter flagships (max capability; pricier) — verified against the OpenRouter API ---
+  'openrouter:x-ai/grok-4.3', // Grok 4.3 — xAI reasoning flagship, 1M, ~$1.25/$2.50 (cached $0.20)
+  'openrouter:minimax/minimax-m3', // MiniMax M3 — top agentic/MCP open-weight, 1M, ~$0.30/$1.20
+  'openrouter:moonshotai/kimi-k2.7-code', // Kimi K2.7 Code — long-horizon coding flagship, 256K, ~$0.61/$3.07
   'kilo:kilo/auto' // Kilo Code gateway — smart routing
 ]
