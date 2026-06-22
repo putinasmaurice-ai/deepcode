@@ -45,4 +45,9 @@ describe('contextLimit', () => {
     expect(contextLimit('deepinfra:zai-org/GLM-4.6')).toBe(200_000)
     expect(contextLimit('deepinfra:zai-org/GLM-4.5')).toBe(128_000) // not the 1M GLM-5 line
   })
+
+  it('knows the Google Gemma windows (Gemma 4 = 256K, Gemma 3 = 128K)', () => {
+    expect(contextLimit('deepinfra:google/gemma-4-31B-it')).toBe(262_144)
+    expect(contextLimit('deepinfra:google/gemma-3-27b-it')).toBe(128_000)
+  })
 })

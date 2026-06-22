@@ -17,6 +17,8 @@ const TABLE: ModelInfo[] = [
   { pattern: /glm[-_\s]?5/i, context: 1_000_000 }, // Z.ai GLM-5 / 5.1 / 5.2: up to 1M
   { pattern: /glm[-_\s]?4\.6/i, context: 200_000 }, // GLM-4.6: 200K
   { pattern: /glm/i, context: 128_000 }, // other GLM (4.5 etc.)
+  { pattern: /gemma[-_\s]?4/i, context: 262_144 }, // Google Gemma 4: 256K
+  { pattern: /gemma[-_\s]?3/i, context: 128_000 }, // Google Gemma 3: 128K
   { pattern: /llama3\.[12]|llama-3\.[12]/i, context: 128_000 },
   { pattern: /llama|mistral|mixtral|dolphin|gemma|phi/i, context: 32_000 },
   { pattern: /gpt-4o|gpt-4\.1|o[134]/i, context: 128_000 },
@@ -45,6 +47,7 @@ export const SUGGESTED_LOCAL_MODELS: string[] = ['local:mellum2']
 // extraModels list — so a freshly added model shows up without editing settings by hand.
 export const SUGGESTED_MODELS: string[] = [
   'deepinfra:zai-org/GLM-5.2', // Z.ai GLM-5.2 — 1M context, agentic/coding flagship (via DeepInfra)
+  'deepinfra:google/gemma-4-31B-it', // Google Gemma 4 31B — dense, 256K context, multimodal
   'mimo:mimo-v2.5-pro', // Xiaomi MiMo (token plan)
   'kilo:kilo/auto' // Kilo Code gateway — smart routing
 ]
