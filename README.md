@@ -197,8 +197,9 @@ suggestion), any **DeepInfra** model via the `deepinfra:` prefix (OpenAI-compati
 e.g. **`deepinfra:zai-org/GLM-5.2`** (Z.ai's 1M-context flagship) or
 **`deepinfra:google/gemma-4-31B-it`** (Gemma 4, 256K, multimodal) — both ready-to-pick — or
 `deepinfra:deepseek-ai/DeepSeek-V4-Flash`, configured under Settings → ☁️ DeepInfra), and
-**Xiaomi MiMo** via the `mimo:` prefix (`mimo:mimo-v2.5-pro` — OpenAI-compatible, free token plan,
-configured under Settings → 📱 Xiaomi MiMo), and **Kilo Code's gateway** via the `kilo:` prefix
+**Xiaomi MiMo** — either via **DeepInfra** (`deepinfra:XiaomiMiMo/MiMo-V2.5-Pro`, uses your DeepInfra
+key — the ready-to-pick default) or via Xiaomi's own free token-plan endpoint with the `mimo:` prefix
+(Settings → 📱 Xiaomi MiMo), and **Kilo Code's gateway** via the `kilo:` prefix
 (`kilo:kilo/auto` smart-routing or e.g. `kilo:anthropic/claude-sonnet-4` — OpenAI-compatible,
 configured under Settings → 🦘 Kilo Code). 🔓 Uncensored toggle (local unaligned model).
 

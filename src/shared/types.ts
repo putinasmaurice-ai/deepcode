@@ -345,8 +345,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
       'deepinfra:Qwen/Qwen3-VL-235B-A22B-Instruct', // vision-language
       'together:meta-llama/Llama-4-Scout-17B-16E-Instruct', // Vision + 10M Kontext (braucht ein dediziertes Together-Endpoint)
       'together:meta-llama/Llama-3.3-70B-Instruct-Turbo', // serverless auf Together sofort nutzbar
-      'mimo:mimo-v2.5-pro', // Xiaomi MiMo (Token-Plan, kostenlose Credits)
-      'mimo:mimo-v2.5',
+      'deepinfra:XiaomiMiMo/MiMo-V2.5-Pro', // Xiaomi MiMo via DeepInfra (nutzt den DeepInfra-Key)
+      'deepinfra:XiaomiMiMo/MiMo-V2.5', // (Xiaomis eigener Gratis-Token-Plan ginge alternativ per mimo:-Präfix)
       'kilo:kilo/auto', // Kilo Code gateway — Smart-Routing (Modell-IDs im Kilo-Dashboard)
       'kilo:anthropic/claude-sonnet-4'
     ],

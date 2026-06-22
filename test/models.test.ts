@@ -28,9 +28,10 @@ describe('contextLimit', () => {
     expect(contextLimit('local:JetBrains/Mellum-4b-base')).toBe(8_192) // original ≠ Mellum 2
   })
 
-  it('knows the Xiaomi MiMo window', () => {
+  it('knows the Xiaomi MiMo window (mimo: token-plan AND deepinfra: route)', () => {
     expect(contextLimit('mimo:mimo-v2.5-pro')).toBe(128_000)
     expect(contextLimit('mimo:mimo-v2.5')).toBe(128_000)
+    expect(contextLimit('deepinfra:XiaomiMiMo/MiMo-V2.5-Pro')).toBe(128_000)
   })
 
   it('strips ANY routing prefix so a gateway-routed model gets the underlying window', () => {

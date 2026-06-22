@@ -48,6 +48,6 @@ export const SUGGESTED_LOCAL_MODELS: string[] = ['local:mellum2']
 export const SUGGESTED_MODELS: string[] = [
   'deepinfra:zai-org/GLM-5.2', // Z.ai GLM-5.2 — 1M context, agentic/coding flagship (via DeepInfra)
   'deepinfra:google/gemma-4-31B-it', // Google Gemma 4 31B — dense, 256K context, multimodal
-  'mimo:mimo-v2.5-pro', // Xiaomi MiMo (token plan)
+  'deepinfra:XiaomiMiMo/MiMo-V2.5-Pro', // Xiaomi MiMo V2.5 Pro (MoE, omnimodal) — via DeepInfra (uses your DeepInfra key; the mimo: prefix is Xiaomi's own free token-plan endpoint)
   'kilo:kilo/auto' // Kilo Code gateway — smart routing
 ]
