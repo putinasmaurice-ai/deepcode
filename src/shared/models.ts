@@ -59,8 +59,7 @@ export const SUGGESTED_MODELS: string[] = [
   'deepinfra:Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo', // Qwen3-Coder 480B — agentic coding (256K), ~Claude Sonnet
   'deepinfra:moonshotai/Kimi-K2.6', // Kimi K2.6 — agentic, native function-calling, 256K
   'deepinfra:google/gemma-4-31B-it', // Google Gemma 4 31B — dense, 256K context, multimodal
-  'deepinfra:XiaomiMiMo/MiMo-V2.5-Pro', // Xiaomi MiMo V2.5 Pro (MoE, omnimodal) — via DeepInfra (uses your DeepInfra key; the mimo: prefix is Xiaomi's own free token-plan endpoint)
-  'openrouter:xiaomi/mimo-v2.5-pro', // SAME MiMo, far cheaper via OpenRouter (Xiaomi first-party ~$0.44/$0.87 vs DeepInfra ~$1/$3) — needs OpenRouter key
+  'openrouter:xiaomi/mimo-v2.5-pro', // Xiaomi MiMo V2.5 Pro via OpenRouter — far cheaper than DeepInfra (~$0.44/$0.87) — needs OpenRouter key
   // --- OpenRouter value picks (tool-calling confirmed; need an OpenRouter key) ---
   'openrouter:openai/gpt-oss-120b:free', // FREE, native tool-calling, 131K — smart zero-cost default (rate-limited)
   'openrouter:openai/gpt-oss-20b', // cheapest capable workhorse ~$0.03/$0.14, tools, 131K
@@ -68,5 +67,6 @@ export const SUGGESTED_MODELS: string[] = [
   'openrouter:z-ai/glm-4.7-flash', // GLM 4.7 Flash — cheapest agentic coder ~$0.06/$0.40, 203K
   'openrouter:qwen/qwen3-coder-flash', // Qwen3-Coder Flash — 1M, autonomous coding ~$0.20/$0.98
   'openrouter:x-ai/grok-4.1-fast', // Grok 4.1 Fast — 2M context, strong agentic tool-calling ~$0.20/$0.50
+  'openrouter:google/gemini-2.5-flash-lite', // Gemini 2.5 Flash Lite — fast all-rounder + vision, 1M ~$0.10/$0.40
   'kilo:kilo/auto' // Kilo Code gateway — smart routing
 ]

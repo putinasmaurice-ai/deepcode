@@ -95,9 +95,15 @@ describe('costOf — corrected DeepInfra per-model pricing + provider-reported c
     expect(c.cost).not.toBeCloseTo(0.8, 2)
   })
 
-  it('prices Kimi-K2.6 and MiMo by their real (higher) rates', () => {
+  it('prices Kimi-K2.6 by its real (higher) rate', () => {
     expect(costOf(p, M, 'deepinfra:moonshotai/Kimi-K2.6', PEAK).cost).toBeCloseTo(0.75 + 3.5, 6)
-    expect(costOf(p, M, 'deepinfra:XiaomiMiMo/MiMo-V2.5-Pro', PEAK).cost).toBeCloseTo(1.0 + 3.0, 6)
+  })
+
+  it('no longer has a DeepInfra MiMo rate (route removed) → flat deepinfra fallback', () => {
+    expect(costOf(p, M, 'deepinfra:XiaomiMiMo/MiMo-V2.5-Pro', PEAK).cost).toBeCloseTo(
+      (p.deepinfraPricePerMillionInput ?? 0) + (p.deepinfraPricePerMillionOutput ?? 0),
+      6
+    )
   })
 
   it('gemma-4 has NO cache discount: cached tokens cost the same as fresh', () => {
@@ -137,16 +143,26 @@ describe('costOf — corrected DeepInfra per-model pricing + provider-reported c
     expect(costOf({ ...p, model: 'my-custom-llm' }, M, 'my-custom-llm', PEAK).cost).toBeGreaterThan(0)
   })
 
-  it('trusts OpenRouter\'s reported cost (usage.cost) and falls back to the table otherwise', () => {
+  it('trusts OpenRouter\'s reported cost (usage.cost) and falls back to ACCURATE per-model rates otherwise', () => {
     // OpenRouter returns its own cost → trusted exactly, table ignored
     expect(costOf(p, { ...M, reportedCost: 0.0072 }, 'openrouter:x-ai/grok-4.1-fast', PEAK).cost).toBe(0.0072)
-    // no reported cost + a known slug → fallback table (MiMo via OR ~$0.435/$0.87)
+    // no reported cost + a known slug → accurate per-model fallback (never a wrong $0)
     expect(costOf(p, M, 'openrouter:xiaomi/mimo-v2.5-pro', PEAK).cost).toBeCloseTo(0.435 + 0.87, 6)
-    // no reported cost + unknown slug → flat openrouter fallback (default 0), never DeepSeek rates / off-peak
+    expect(costOf(p, M, 'openrouter:x-ai/grok-4.1-fast', PEAK).cost).toBeCloseTo(0.2 + 0.5, 6)
+    expect(costOf(p, M, 'openrouter:google/gemini-2.5-flash-lite', PEAK).cost).toBeCloseTo(0.1 + 0.4, 6)
+    // unknown slug → flat openrouter fallback (default 0), never DeepSeek rates / off-peak
     expect(costOf(p, M, 'openrouter:some/unknown', OFFPEAK).cost).toBeCloseTo(
       (p.openrouterPricePerMillionInput ?? 0) + (p.openrouterPricePerMillionOutput ?? 0),
       6
     )
+  })
+
+  it('honors a reported $0 on a :free route as authoritative, even when a flat openrouter rate is set', () => {
+    const paid = { ...p, openrouterPricePerMillionInput: 5, openrouterPricePerMillionOutput: 5 }
+    // :free + reported 0 → real $0 (NOT the flat 5/5)
+    expect(costOf(paid, { ...M, reportedCost: 0 }, 'openrouter:openai/gpt-oss-120b:free', PEAK).cost).toBe(0)
+    // a non-free route with reported 0 is not trusted → flat fallback
+    expect(costOf(paid, { ...M, reportedCost: 0 }, 'openrouter:some/paid', PEAK).cost).toBeCloseTo(5 + 5, 6)
   })
 
   it('does NOT apply the DeepSeek off-peak discount to a configured non-DeepSeek primary', () => {

@@ -15,8 +15,7 @@ const DEEPINFRA_PRICES: Record<string, Rates> = {
   'qwen/qwen3-coder-480b-a35b-instruct-turbo': { in: 0.3, cached: 0.1, out: 1.0 },
   'moonshotai/kimi-k2.6': { in: 0.75, cached: 0.15, out: 3.5 },
   'google/gemma-4-31b-it': { in: 0.13, out: 0.38 },
-  'xiaomimimo/mimo-v2.5-pro': { in: 1.0, cached: 0.2, out: 3.0 },
-  'xiaomimimo/mimo-v2.5': { in: 1.0, cached: 0.2, out: 3.0 },
+  // MiMo is no longer offered via DeepInfra (it runs cheaper via openrouter:xiaomi/mimo-v2.5-pro).
   'deepseek-ai/deepseek-v3': { in: 0.32, out: 0.89 }
 }
 
@@ -27,10 +26,19 @@ const ANTHROPIC_PRICES: Record<string, Rates> = {
 }
 
 // OpenRouter per-model FALLBACK rates (USD per 1M), keyed on the id after "openrouter:" (lowercased).
-// Normally unused: OpenRouter returns its own usage.cost (we request it) which costOf trusts. This
-// only kicks in if that cost is ever missing. Cheapest standard route as of 2026-06.
+// Normally UNUSED: OpenRouter returns its own usage.cost (we request it) which costOf trusts — so the
+// chat figure matches the real bill exactly. These are STABLE (non-promo) standard rates that only
+// kick in if usage.cost is ever missing, so the displayed cost is never a wrong $0. As of 2026-06.
 const OPENROUTER_PRICES: Record<string, Rates> = {
-  'xiaomi/mimo-v2.5-pro': { in: 0.435, out: 0.87 }
+  'xiaomi/mimo-v2.5-pro': { in: 0.435, out: 0.87 },
+  'x-ai/grok-4.1-fast': { in: 0.2, cached: 0.05, out: 0.5 },
+  'google/gemini-2.5-flash-lite': { in: 0.1, out: 0.4 },
+  'z-ai/glm-4.7-flash': { in: 0.06, out: 0.4 },
+  'deepseek/deepseek-v4-flash': { in: 0.09, out: 0.18 },
+  'qwen/qwen3-coder-flash': { in: 0.3, cached: 0.06, out: 1.5 }, // stable base (not the live 35%-off promo)
+  'openai/gpt-oss-20b': { in: 0.029, out: 0.14 },
+  'openai/gpt-oss-120b': { in: 0.039, out: 0.18 }
+  // openai/gpt-oss-120b:free intentionally absent → free routes report cost 0 (honored below)
 }
 
 const VENDOR_PREFIXES = ['deepinfra:', 'google:', 'openai:', 'together:', 'mimo:', 'kilo:', 'openrouter:']
@@ -85,9 +93,14 @@ function vendorRates(provider: ProviderSettings, model: string): Rates {
 // (3) prefixed vendors via per-model/flat rates; (4) DeepSeek/configured card (reasoner + cache +
 // off-peak). An unknown id is NOT silently billed at DeepSeek rates.
 export function costOf(provider: ProviderSettings, usage: RawUsage, model?: string, at: number = Date.now()): TokenUsage {
-  // (1) provider-authoritative cost (DeepInfra usage.estimated_cost) — matches the real invoice
-  // exactly regardless of table staleness. Only trusted when > 0; else fall through to local calc.
-  if (typeof usage.reportedCost === 'number' && isFinite(usage.reportedCost) && usage.reportedCost > 0) {
+  // (1) provider-authoritative cost (DeepInfra estimated_cost / OpenRouter usage.cost) — matches the
+  // real invoice exactly regardless of table staleness. Trusted when > 0, AND a reported 0 on a
+  // ":free" route is honored as a real $0 (so a free model always shows free, whatever the table says).
+  if (
+    typeof usage.reportedCost === 'number' &&
+    isFinite(usage.reportedCost) &&
+    (usage.reportedCost > 0 || (usage.reportedCost === 0 && !!model && model.endsWith(':free')))
+  ) {
     return { ...usage, cost: usage.reportedCost }
   }
 
