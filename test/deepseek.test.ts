@@ -82,6 +82,20 @@ describe('DeepSeekClient.streamChat — SSE parsing', () => {
     const res = await new DeepSeekClient(settings()).streamChat([{ role: 'user', content: 'x' }], [], {}, sig())
     expect(res.content).toBe('ok')
   })
+
+  it('reads DeepInfra-shaped usage: prompt_tokens_details.cached_tokens + estimated_cost', async () => {
+    stubFetch([
+      ok([
+        'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120,"prompt_tokens_details":{"cached_tokens":40},"estimated_cost":0.000123}}\n\n',
+        'data: [DONE]\n\n'
+      ])
+    ])
+    // the parse is provider-independent; use the default (keyless) route to exercise it
+    const res = await new DeepSeekClient(settings()).streamChat([{ role: 'user', content: 'x' }], [], {}, sig())
+    expect(res.usage?.cachedPromptTokens).toBe(40) // OpenAI-compatible cached field (not DeepSeek's)
+    expect(res.usage?.reportedCost).toBeCloseTo(0.000123, 9) // provider's own authoritative cost
+  })
 })
 
 describe('DeepSeekClient.streamChat — provider error mapping', () => {

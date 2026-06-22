@@ -47,7 +47,12 @@ export interface RawUsage {
   promptTokens: number
   completionTokens: number
   totalTokens: number
-  cachedPromptTokens?: number // prompt_cache_hit_tokens (billed cheaper)
+  // cached prompt portion (billed cheaper): DeepSeek reports prompt_cache_hit_tokens; OpenAI-style
+  // providers (DeepInfra) report prompt_tokens_details.cached_tokens — we accept either.
+  cachedPromptTokens?: number
+  // the provider's OWN authoritative $ for this round (DeepInfra returns usage.estimated_cost) —
+  // when present we trust it over our local rate table so the chat matches the real invoice.
+  reportedCost?: number
 }
 
 export interface StreamResult {
@@ -342,12 +347,16 @@ export class DeepSeekClient {
       // `data: null` keep-alive line can't throw and abort the whole turn.
       if (!json || typeof json !== 'object') return
       if (json.usage) {
+        const est = json.usage.estimated_cost
         usage = {
           promptTokens: json.usage.prompt_tokens ?? 0,
           completionTokens: json.usage.completion_tokens ?? 0,
           totalTokens: json.usage.total_tokens ?? 0,
-          // DeepSeek reports the cached portion of the prompt separately
-          cachedPromptTokens: json.usage.prompt_cache_hit_tokens ?? 0
+          // DeepSeek: prompt_cache_hit_tokens (top-level). DeepInfra & other OpenAI-compatible
+          // providers: prompt_tokens_details.cached_tokens. Accept whichever is present.
+          cachedPromptTokens: json.usage.prompt_cache_hit_tokens ?? json.usage.prompt_tokens_details?.cached_tokens ?? 0,
+          // DeepInfra returns its own per-round cost; trust it downstream over our local table
+          reportedCost: typeof est === 'number' && isFinite(est) ? est : undefined
         }
       }
       const choice = json.choices?.[0]

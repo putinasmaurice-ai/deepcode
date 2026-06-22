@@ -77,9 +77,70 @@ describe('costOf', () => {
     expect(costOf(p, usage, 'mimo:mimo-v2.5-pro', OFFPEAK).cost).toBe(0) // default free plan, no off-peak
   })
 
-  it('prices kilo: models with the Kilo card (free default → 0, no off-peak)', () => {
-    const expected = (p.kiloPricePerMillionInput ?? 0) + (p.kiloPricePerMillionOutput ?? 0)
-    expect(costOf(p, usage, 'kilo:kilo/auto', PEAK).cost).toBeCloseTo(expected, 6)
-    expect(costOf(p, usage, 'kilo:anthropic/claude-sonnet-4', OFFPEAK).cost).toBe(0) // default free, no off-peak
+  it('prices kilo: by the underlying routed model — paid routes are not recorded as $0', () => {
+    // kilo/auto routes to an unknown model → flat kilo default (free)
+    const flat = (p.kiloPricePerMillionInput ?? 0) + (p.kiloPricePerMillionOutput ?? 0)
+    expect(costOf(p, usage, 'kilo:kilo/auto', PEAK).cost).toBeCloseTo(flat, 6)
+    // a named Claude route is priced by Anthropic rates, NOT silently $0; no off-peak
+    expect(costOf(p, usage, 'kilo:anthropic/claude-sonnet-4', OFFPEAK).cost).toBeGreaterThan(0)
+  })
+})
+
+describe('costOf — corrected DeepInfra per-model pricing + provider-reported cost', () => {
+  const M = { promptTokens: 1_000_000, completionTokens: 1_000_000, totalTokens: 2_000_000 }
+
+  it('prices GLM-5.2 from the per-model table ($1 in + $4 out = $5), not the old flat $0.80', () => {
+    const c = costOf(p, M, 'deepinfra:zai-org/GLM-5.2', PEAK)
+    expect(c.cost).toBeCloseTo(5.0, 6)
+    expect(c.cost).not.toBeCloseTo(0.8, 2)
+  })
+
+  it('prices Kimi-K2.6 and MiMo by their real (higher) rates', () => {
+    expect(costOf(p, M, 'deepinfra:moonshotai/Kimi-K2.6', PEAK).cost).toBeCloseTo(0.75 + 3.5, 6)
+    expect(costOf(p, M, 'deepinfra:XiaomiMiMo/MiMo-V2.5-Pro', PEAK).cost).toBeCloseTo(1.0 + 3.0, 6)
+  })
+
+  it('gemma-4 has NO cache discount: cached tokens cost the same as fresh', () => {
+    const fresh = costOf(p, M, 'deepinfra:google/gemma-4-31B-it', PEAK).cost
+    const cached = costOf(p, { ...M, cachedPromptTokens: M.promptTokens }, 'deepinfra:google/gemma-4-31B-it', PEAK).cost
+    expect(fresh).toBeCloseTo(0.13 + 0.38, 6)
+    expect(cached).toBeCloseTo(fresh, 6)
+  })
+
+  it('applies the cheaper cached rate for a model that publishes one (GLM-5.2)', () => {
+    const fresh = costOf(p, M, 'deepinfra:zai-org/GLM-5.2', PEAK).cost
+    const cached = costOf(p, { ...M, cachedPromptTokens: M.promptTokens }, 'deepinfra:zai-org/GLM-5.2', PEAK).cost
+    expect(cached).toBeLessThan(fresh)
+    expect(cached).toBeCloseTo(0.18 + 4.0, 6) // cached input $0.18 + output $4
+  })
+
+  it('an unknown deepinfra model falls back to the flat vendor rate', () => {
+    expect(costOf(p, M, 'deepinfra:some/unknown', PEAK).cost).toBeCloseTo(
+      (p.deepinfraPricePerMillionInput ?? 0) + (p.deepinfraPricePerMillionOutput ?? 0),
+      6
+    )
+  })
+
+  it('TRUSTS the provider-reported cost (DeepInfra estimated_cost) over the local table', () => {
+    expect(costOf(p, { ...M, reportedCost: 0.1234 }, 'deepinfra:zai-org/GLM-5.2', PEAK).cost).toBe(0.1234)
+  })
+
+  it('ignores a non-positive reported cost and falls back to the table', () => {
+    expect(costOf(p, { ...M, reportedCost: 0 }, 'deepinfra:zai-org/GLM-5.2', PEAK).cost).toBeCloseTo(5.0, 6)
+  })
+
+  it('does NOT bill an unknown non-DeepSeek bare model at DeepSeek rates (unpriced = 0)', () => {
+    expect(costOf(p, M, 'some-random-model', PEAK).cost).toBe(0)
+  })
+
+  it('still prices the configured primary model even if it is not a deepseek id', () => {
+    expect(costOf({ ...p, model: 'my-custom-llm' }, M, 'my-custom-llm', PEAK).cost).toBeGreaterThan(0)
+  })
+
+  it('does NOT apply the DeepSeek off-peak discount to a configured non-DeepSeek primary', () => {
+    const custom = { ...p, model: 'my-custom-llm' }
+    const peak = costOf(custom, M, 'my-custom-llm', PEAK).cost
+    const off = costOf(custom, M, 'my-custom-llm', OFFPEAK).cost
+    expect(off).toBeCloseTo(peak, 6) // off-peak is DeepSeek-only; a custom endpoint must not be discounted
   })
 })
