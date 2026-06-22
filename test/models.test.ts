@@ -109,6 +109,6 @@ describe('modelLabel — curated dropdown display names (exact casing)', () => {
     expect(new Set(labels).size).toBe(labels.length) // no duplicate labels
     expect(labels[0]).toBe('DeepSeek v4 Flash official')
     expect(labels[labels.length - 1]).toBe('Kilo/Auto')
-    expect(MODEL_DISPLAY).toHaveLength(26)
+    expect(MODEL_DISPLAY).toHaveLength(25) // grok-4.1-fast removed (deprecated on OpenRouter → 404)
   })
 })

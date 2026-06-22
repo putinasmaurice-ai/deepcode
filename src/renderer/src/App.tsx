@@ -199,8 +199,8 @@ export function App(): JSX.Element {
       const pending = deltaBufRef.current
       deltaBufRef.current = new Map()
       if (!pending.size) return
-      setMessages((m) =>
-        m.map((x) => {
+      setMessages((m) => {
+        const updated = m.map((x) => {
           const d = pending.get(x.id)
           if (!d) return x
           return {
@@ -209,7 +209,17 @@ export function App(): JSX.Element {
             reasoning: d.reasoning ? (x.reasoning ?? '') + d.reasoning : x.reasoning
           }
         })
-      )
+        // deltas whose message_start we never saw (switched INTO a running chat) — materialize them
+        // as assistant messages so the live stream is visible instead of silently dropped.
+        const known = new Set(m.map((x) => x.id))
+        const extras: ChatMessage[] = []
+        for (const [id, d] of pending) {
+          if (!known.has(id)) {
+            extras.push({ id, role: 'assistant', content: d.content, reasoning: d.reasoning || undefined, createdAt: Date.now() })
+          }
+        }
+        return extras.length ? [...updated, ...extras] : updated
+      })
       scrollDown()
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -555,7 +565,12 @@ export function App(): JSX.Element {
       case 'message_done':
         // the server copy is authoritative — drop any unflushed deltas for it
         deltaBufRef.current.delete(e.message.id)
-        setMessages((m) => m.map((x) => (x.id === e.message.id ? e.message : x)))
+        // replace if present, else APPEND — when the user switched INTO this chat mid-turn the
+        // message_start was missed (dropped as a background event), so the finished message isn't
+        // in the transcript yet; appending makes it appear instead of vanishing until a reload.
+        setMessages((m) =>
+          m.some((x) => x.id === e.message.id) ? m.map((x) => (x.id === e.message.id ? e.message : x)) : [...m, e.message]
+        )
         scrollDown()
         break
       case 'tool_pending':
@@ -686,6 +701,7 @@ export function App(): JSX.Element {
   async function openSession(id: string): Promise<void> {
     const s = (await api.getSession(id)) as Session | null
     if (!s) return
+    deltaBufRef.current = new Map() // drop the previous chat's un-flushed streaming deltas
     setDeferred(null) // a pending off-peak send belongs to the session it was queued in
     // a secret prompt belongs to the session that opened it — drop it (and settle main) on
     // switch so session A's prompt can't render under session B's composer (cross-session bleed).

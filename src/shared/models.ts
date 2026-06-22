@@ -76,7 +76,6 @@ export const MODEL_DISPLAY: { id: string; label: string }[] = [
   { id: 'openrouter:deepseek/deepseek-v4-flash', label: 'OR DeepSeek v4 Flash' },
   { id: 'openrouter:z-ai/glm-4.7-flash', label: 'OR GLM 4.7' },
   { id: 'openrouter:google/gemini-2.5-flash-lite', label: 'OR Gemini 2.5 Flash' },
-  { id: 'openrouter:x-ai/grok-4.1-fast', label: 'OR Grok 4.1' },
   { id: 'openrouter:x-ai/grok-4.3', label: 'OR Grok 4.3' },
   { id: 'openrouter:minimax/minimax-m3', label: 'OR MiniMax M3' },
   { id: 'openrouter:qwen/qwen3-coder-flash', label: 'OR Qwen 3 Coder' },
@@ -127,7 +126,6 @@ export const SUGGESTED_MODELS: string[] = [
   'openrouter:deepseek/deepseek-v4-flash', // V4 Flash — 1M context, cheap output ~$0.09/$0.18, agentic
   'openrouter:z-ai/glm-4.7-flash', // GLM 4.7 Flash — cheapest agentic coder ~$0.06/$0.40, 203K
   'openrouter:qwen/qwen3-coder-flash', // Qwen3-Coder Flash — 1M, autonomous coding ~$0.20/$0.98
-  'openrouter:x-ai/grok-4.1-fast', // Grok 4.1 Fast — 2M context, strong agentic tool-calling ~$0.20/$0.50
   'openrouter:google/gemini-2.5-flash-lite', // Gemini 2.5 Flash Lite — fast all-rounder + vision, 1M ~$0.10/$0.40
   // --- OpenRouter flagships (max capability; pricier) — verified against the OpenRouter API ---
   'openrouter:x-ai/grok-4.3', // Grok 4.3 — xAI reasoning flagship, 1M, ~$1.25/$2.50 (cached $0.20)

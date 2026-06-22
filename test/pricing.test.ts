@@ -145,10 +145,9 @@ describe('costOf — corrected DeepInfra per-model pricing + provider-reported c
 
   it('trusts OpenRouter\'s reported cost (usage.cost) and falls back to ACCURATE per-model rates otherwise', () => {
     // OpenRouter returns its own cost → trusted exactly, table ignored
-    expect(costOf(p, { ...M, reportedCost: 0.0072 }, 'openrouter:x-ai/grok-4.1-fast', PEAK).cost).toBe(0.0072)
+    expect(costOf(p, { ...M, reportedCost: 0.0072 }, 'openrouter:x-ai/grok-4.3', PEAK).cost).toBe(0.0072)
     // no reported cost + a known slug → accurate per-model fallback (never a wrong $0)
     expect(costOf(p, M, 'openrouter:xiaomi/mimo-v2.5-pro', PEAK).cost).toBeCloseTo(0.435 + 0.87, 6)
-    expect(costOf(p, M, 'openrouter:x-ai/grok-4.1-fast', PEAK).cost).toBeCloseTo(0.2 + 0.5, 6)
     expect(costOf(p, M, 'openrouter:google/gemini-2.5-flash-lite', PEAK).cost).toBeCloseTo(0.1 + 0.4, 6)
     // flagships (verified rates)
     expect(costOf(p, M, 'openrouter:x-ai/grok-4.3', PEAK).cost).toBeCloseTo(1.25 + 2.5, 6)

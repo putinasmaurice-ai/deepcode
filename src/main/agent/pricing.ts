@@ -31,7 +31,6 @@ const ANTHROPIC_PRICES: Record<string, Rates> = {
 // kick in if usage.cost is ever missing, so the displayed cost is never a wrong $0. As of 2026-06.
 const OPENROUTER_PRICES: Record<string, Rates> = {
   'xiaomi/mimo-v2.5-pro': { in: 0.435, out: 0.87 },
-  'x-ai/grok-4.1-fast': { in: 0.2, cached: 0.05, out: 0.5 },
   'google/gemini-2.5-flash-lite': { in: 0.1, out: 0.4 },
   'z-ai/glm-4.7-flash': { in: 0.06, out: 0.4 },
   'deepseek/deepseek-v4-flash': { in: 0.09, out: 0.18 },
