@@ -1,6 +1,6 @@
 import { ProviderSettings, Session, TokenUsage } from '@shared/types'
 import { RawUsage } from './deepseek'
-import { offPeakStatus } from '@shared/offpeak'
+import { offPeakStatus, offPeakEligible } from '@shared/offpeak'
 
 type Rates = { in: number; cached?: number; out: number }
 
@@ -143,11 +143,10 @@ export function costOf(provider: ProviderSettings, usage: RawUsage, model?: stri
     (cached / 1_000_000) * cachedPrice +
     (usage.completionTokens / 1_000_000) * outPrice
   // DeepSeek discounts the off-peak window (chat ~-50%, reasoner ~-75%); apply it to the RECORDED
-  // cost too, else the ledger/budget overstate spend 2-4x. ONLY for genuine DeepSeek ids — a
-  // configured non-DeepSeek primary (custom OpenAI-compatible endpoint) doesn't honor that window.
-  const isDeepSeek = !model || /deepseek/i.test(model)
+  // cost too, else the ledger/budget overstate spend 2-4x. ONLY for the first-party DeepSeek route
+  // (offPeakEligible) — a configured non-DeepSeek primary or a hosted DeepSeek doesn't honor it.
   const off = offPeakStatus(new Date(at))
-  if (off.active && isDeepSeek) cost *= 1 - (isReasoner ? off.reasonerDiscount : off.chatDiscount)
+  if (off.active && offPeakEligible(model)) cost *= 1 - (isReasoner ? off.reasonerDiscount : off.chatDiscount)
   return { ...usage, cost }
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { TurnForecast } from '../../../shared/api'
-import { offPeakStatus } from '../../../shared/offpeak'
+import { offPeakStatus, offPeakEligible } from '../../../shared/offpeak'
 
 const api = window.deepcode
 
@@ -20,11 +20,13 @@ function fmtCountdown(mins: number): string {
 // history and nudges toward the DeepSeek off-peak discount window. Sits above the composer.
 export function CrystalBall({
   sessionId,
+  model,
   busy,
   deferOffPeak,
   onToggleDefer
 }: {
   sessionId: string | null
+  model?: string // active model id — off-peak only shows for the first-party DeepSeek route
   busy: boolean
   deferOffPeak: boolean
   onToggleDefer: () => void
@@ -65,24 +67,26 @@ export function CrystalBall({
         </span>
       )}
       <span className="crystal-spacer" />
-      {op.active ? (
-        <span className="crystal-offpeak on" title="DeepSeek Off-Peak-Rabatt ist gerade aktiv">
-          🌙 Off-Peak −{Math.round(op.reasonerDiscount * 100)}% aktiv · noch {fmtCountdown(op.minutesUntilChange)}
-        </span>
-      ) : (
-        <>
-          <span className="crystal-offpeak" title="DeepSeek senkt die Preise im Off-Peak-Fenster (UTC 16:30–00:30)">
-            🌙 −{Math.round(op.reasonerDiscount * 100)}% in {fmtCountdown(op.minutesUntilChange)}
+      {/* off-peak is a DeepSeek first-party perk — only show it when the active model actually qualifies */}
+      {offPeakEligible(model) &&
+        (op.active ? (
+          <span className="crystal-offpeak on" title="DeepSeek Off-Peak-Rabatt ist gerade aktiv">
+            🌙 Off-Peak −{Math.round(op.reasonerDiscount * 100)}% aktiv · noch {fmtCountdown(op.minutesUntilChange)}
           </span>
-          <button
-            className={'btn ghost sm' + (deferOffPeak ? ' on' : '')}
-            onClick={onToggleDefer}
-            title="Die nächste Nachricht erst senden, wenn das günstige Off-Peak-Fenster offen ist (App muss offen bleiben)"
-          >
-            ⏳ im Off-Peak
-          </button>
-        </>
-      )}
+        ) : (
+          <>
+            <span className="crystal-offpeak" title="DeepSeek senkt die Preise im Off-Peak-Fenster (UTC 16:30–00:30)">
+              🌙 −{Math.round(op.reasonerDiscount * 100)}% in {fmtCountdown(op.minutesUntilChange)}
+            </span>
+            <button
+              className={'btn ghost sm' + (deferOffPeak ? ' on' : '')}
+              onClick={onToggleDefer}
+              title="Die nächste Nachricht erst senden, wenn das günstige Off-Peak-Fenster offen ist (App muss offen bleiben)"
+            >
+              ⏳ im Off-Peak
+            </button>
+          </>
+        ))}
     </div>
   )
 }

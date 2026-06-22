@@ -37,7 +37,7 @@ const NightShiftPanel = lazy(() => import('./components/NightShiftPanel').then((
 const MissionPanel = lazy(() => import('./components/MissionPanel').then((m) => ({ default: m.MissionPanel })))
 const UsagePanel = lazy(() => import('./components/UsagePanel').then((m) => ({ default: m.UsagePanel })))
 const TimeMachinePanel = lazy(() => import('./components/timemachine/TimeMachinePanel').then((m) => ({ default: m.TimeMachinePanel })))
-import { inOffPeak } from '../../shared/offpeak'
+import { inOffPeak, offPeakEligible } from '../../shared/offpeak'
 import {
   SettingsPanel,
   SkillsPanel,
@@ -874,8 +874,10 @@ export function App(): JSX.Element {
       }
     }
     // 🔮 off-peak defer: hold a fresh send until the discount window opens. Same H8
-    // snapshot-and-clear so the held edit target can't leak into a later normal send.
-    if (deferOffPeak && !inOffPeak()) {
+    // snapshot-and-clear so the held edit target can't leak into a later normal send. Only for the
+    // first-party DeepSeek route — a non-eligible model (DeepInfra/OpenRouter/…) gets no discount,
+    // so never hold its send (guards a stale deferOffPeak toggle after a model switch).
+    if (deferOffPeak && offPeakEligible(session.model || settings?.provider.model) && !inOffPeak()) {
       const editId = editTargetRef.current
       editTargetRef.current = null
       setDeferred({ text, attachments, sessionId: session.id, editId })
@@ -1546,6 +1548,7 @@ export function App(): JSX.Element {
             )}
             <CrystalBall
               sessionId={session?.id ?? null}
+              model={session?.model || settings.provider.model}
               busy={busy}
               deferOffPeak={deferOffPeak}
               onToggleDefer={toggleDefer}

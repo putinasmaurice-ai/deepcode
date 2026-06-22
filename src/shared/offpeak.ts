@@ -30,3 +30,14 @@ export function offPeakStatus(now: Date = new Date()): OffPeakStatus {
 export function inOffPeak(now: Date = new Date()): boolean {
   return offPeakStatus(now).active
 }
+
+// The off-peak discount is DeepSeek's FIRST-PARTY pricing perk: it applies ONLY to the bare DeepSeek
+// route (no provider prefix). A prefixed model — deepinfra:/openrouter:/mimo:/google:/… — is billed
+// by THAT vendor and never gets the discount, even a DeepSeek model HOSTED elsewhere
+// (e.g. openrouter:deepseek/…). Single source of truth for both the cost calc and the UI banner.
+const VENDOR_PREFIX_RE = /^(local|google|deepinfra|openai|together|mimo|kilo|openrouter):/i
+export function offPeakEligible(model: string | undefined): boolean {
+  if (!model) return true // the default route is the first-party DeepSeek API
+  if (VENDOR_PREFIX_RE.test(model)) return false
+  return /deepseek/i.test(model)
+}
