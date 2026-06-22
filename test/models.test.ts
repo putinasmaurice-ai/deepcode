@@ -51,4 +51,9 @@ describe('contextLimit', () => {
     expect(contextLimit('deepinfra:google/gemma-4-31B-it')).toBe(262_144)
     expect(contextLimit('deepinfra:google/gemma-3-27b-it')).toBe(128_000)
   })
+
+  it('knows Qwen3-Coder (256K) and Kimi K2.x (256K) windows', () => {
+    expect(contextLimit('deepinfra:Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo')).toBe(256_000)
+    expect(contextLimit('deepinfra:moonshotai/Kimi-K2.6')).toBe(262_144)
+  })
 })

@@ -19,6 +19,7 @@ const TABLE: ModelInfo[] = [
   { pattern: /glm/i, context: 128_000 }, // other GLM (4.5 etc.)
   { pattern: /gemma[-_\s]?4/i, context: 262_144 }, // Google Gemma 4: 256K
   { pattern: /gemma[-_\s]?3/i, context: 128_000 }, // Google Gemma 3: 128K
+  { pattern: /kimi/i, context: 262_144 }, // Moonshot Kimi K2.x: 256K
   { pattern: /llama3\.[12]|llama-3\.[12]/i, context: 128_000 },
   { pattern: /llama|mistral|mixtral|dolphin|gemma|phi/i, context: 32_000 },
   { pattern: /gpt-4o|gpt-4\.1|o[134]/i, context: 128_000 },
@@ -47,6 +48,8 @@ export const SUGGESTED_LOCAL_MODELS: string[] = ['local:mellum2']
 // extraModels list — so a freshly added model shows up without editing settings by hand.
 export const SUGGESTED_MODELS: string[] = [
   'deepinfra:zai-org/GLM-5.2', // Z.ai GLM-5.2 — 1M context, agentic/coding flagship (via DeepInfra)
+  'deepinfra:Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo', // Qwen3-Coder 480B — agentic coding (256K), ~Claude Sonnet
+  'deepinfra:moonshotai/Kimi-K2.6', // Kimi K2.6 — agentic, native function-calling, 256K
   'deepinfra:google/gemma-4-31B-it', // Google Gemma 4 31B — dense, 256K context, multimodal
   'deepinfra:XiaomiMiMo/MiMo-V2.5-Pro', // Xiaomi MiMo V2.5 Pro (MoE, omnimodal) — via DeepInfra (uses your DeepInfra key; the mimo: prefix is Xiaomi's own free token-plan endpoint)
   'kilo:kilo/auto' // Kilo Code gateway — smart routing

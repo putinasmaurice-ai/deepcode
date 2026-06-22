@@ -194,8 +194,9 @@ Models: the configured DeepSeek model, any Ollama/LM Studio model via the `local
 (free, offline — installed Ollama models are auto-listed, plus **JetBrains Mellum 2**
 (`local:mellum2`, a 12B MoE "Thinking" code model with a 128K window) ships as a ready-to-pick
 suggestion), any **DeepInfra** model via the `deepinfra:` prefix (OpenAI-compatible —
-e.g. **`deepinfra:zai-org/GLM-5.2`** (Z.ai's 1M-context flagship) or
-**`deepinfra:google/gemma-4-31B-it`** (Gemma 4, 256K, multimodal) — both ready-to-pick — or
+ready-to-pick suggestions include **`deepinfra:zai-org/GLM-5.2`** (1M context),
+**`deepinfra:Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo`** (agentic coding), **`deepinfra:moonshotai/Kimi-K2.6`**
+(agentic, function-calling), **`deepinfra:google/gemma-4-31B-it`** (multimodal) and
 `deepinfra:deepseek-ai/DeepSeek-V4-Flash`, configured under Settings → ☁️ DeepInfra), and
 **Xiaomi MiMo** — either via **DeepInfra** (`deepinfra:XiaomiMiMo/MiMo-V2.5-Pro`, uses your DeepInfra
 key — the ready-to-pick default) or via Xiaomi's own free token-plan endpoint with the `mimo:` prefix
