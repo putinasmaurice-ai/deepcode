@@ -920,6 +920,15 @@ export class AgentEngine {
             message:
               'Response was cut off at the max-tokens limit. Increase "Max tokens" in Settings for longer answers.'
           })
+        } else if (result.finishReason === 'content_filter') {
+          emit({ type: 'status', message: 'Antwort wurde vom Inhalts-Filter des Providers gestoppt.' })
+        } else if (!assistantMsg.content.trim() && !assistantMsg.reasoning?.trim()) {
+          // empty answer + no action that the stream-error guards didn't already throw on: a
+          // provider hiccup — tell the user instead of ending the turn silently with a blank bubble.
+          emit({
+            type: 'status',
+            message: 'Das Modell hat eine leere Antwort ohne Aktion geliefert — evtl. ein Provider-Problem. Bitte erneut versuchen oder das Modell wechseln.'
+          })
         }
         return // no tools -> pass complete
       }

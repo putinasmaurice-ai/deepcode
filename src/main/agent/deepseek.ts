@@ -364,6 +364,17 @@ export class DeepSeekClient {
       // JSON.parse("null") succeeds and returns null; guard before field access so a
       // `data: null` keep-alive line can't throw and abort the whole turn.
       if (!json || typeof json !== 'object') return
+      // OpenRouter (and other gateways) deliver an upstream/provider error MID-STREAM as a data
+      // chunk — HTTP is already 200 — e.g. {"error":{"message":"…","code":429,…}}, usually with
+      // choices[0].finish_reason="error". The `if (!choice) return` below would silently DROP it,
+      // ending the turn empty with no reason. Throw instead so the real cause surfaces. Guard on a
+      // truthy error (so a non-fatal `error: null` is ignored).
+      if (json.error) {
+        const e = json.error
+        const msg = typeof e === 'string' ? e : e.message || 'unbekannter Provider-Fehler'
+        const code = typeof e === 'object' ? (e.metadata?.provider_code ?? e.code ?? e.type) : undefined
+        throw new Error(`Provider-Fehler im Antwort-Stream${code ? ` (${code})` : ''}: ${msg}`)
+      }
       if (json.usage) {
         // DeepInfra reports the round's cost as estimated_cost; OpenRouter as cost (with usage.include)
         const est = json.usage.estimated_cost ?? json.usage.cost
@@ -472,6 +483,12 @@ export class DeepSeekClient {
     drainLines()
     const tail = buffer.trim()
     if (tail.startsWith('data:')) handleData(tail.slice(5).trim())
+
+    // The provider signalled an error via finish_reason without a top-level {"error":…} object —
+    // don't return a half/empty result as if it were a clean answer; surface it as a real error.
+    if (finishReason === 'error') {
+      throw new Error('Antwort-Stream vom Provider mit Fehler beendet (finish_reason=error) — meist Überlastung/Timeout. Erneut versuchen oder Modell wechseln.')
+    }
 
     const toolCalls = [...toolAcc.entries()]
       .sort((a, b) => a[0] - b[0])

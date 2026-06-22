@@ -130,6 +130,45 @@ describe('DeepSeekClient.streamChat — OpenRouter routing', () => {
   })
 })
 
+describe('DeepSeekClient.streamChat — mid-stream provider errors must NOT abort silently', () => {
+  it('surfaces a mid-stream {"error":...} chunk (OpenRouter) instead of resolving empty', async () => {
+    stubFetch([
+      ok([
+        'data: {"choices":[{"delta":{"content":"Ich baue dir jetzt…"}}]}\n\n',
+        'data: {"error":{"message":"upstream provider overloaded","code":502,"metadata":{"provider_code":"upstream_502"}},"choices":[{"index":0,"delta":{},"finish_reason":"error"}]}\n\n'
+      ])
+    ])
+    await expect(
+      new DeepSeekClient(settings({ model: 'openrouter:xiaomi/mimo-v2.5-pro', openrouterApiKey: 'sk-or-x' })).streamChat(
+        [{ role: 'user', content: 'x' }],
+        [],
+        {},
+        sig()
+      )
+    ).rejects.toThrow(/Provider-Fehler.*overloaded/)
+  })
+
+  it('throws when the FIRST chunk is an error object (no choices) — the worst-case silent path', async () => {
+    stubFetch([ok(['data: {"error":{"message":"rate limited","code":429}}\n\n', 'data: [DONE]\n\n'])])
+    await expect(new DeepSeekClient(settings()).streamChat([{ role: 'user', content: 'x' }], [], {}, sig())).rejects.toThrow(
+      /Provider-Fehler.*rate limited/
+    )
+  })
+
+  it('throws on finish_reason="error" even without a top-level error object', async () => {
+    stubFetch([ok(['data: {"choices":[{"delta":{"content":"hi"},"finish_reason":"error"}]}\n\n', 'data: [DONE]\n\n'])])
+    await expect(new DeepSeekClient(settings()).streamChat([{ role: 'user', content: 'x' }], [], {}, sig())).rejects.toThrow(
+      /finish_reason=error/
+    )
+  })
+
+  it('does NOT throw on a non-fatal error:null and still streams normally', async () => {
+    stubFetch([ok(['data: {"error":null,"choices":[{"delta":{"content":"ok"}}]}\n\n', 'data: [DONE]\n\n'])])
+    const res = await new DeepSeekClient(settings()).streamChat([{ role: 'user', content: 'x' }], [], {}, sig())
+    expect(res.content).toBe('ok')
+  })
+})
+
 describe('DeepSeekClient.streamChat — provider error mapping', () => {
   it('maps 402 to a credit message and 401/403 to a key message', async () => {
     stubFetch([err(402, 'Insufficient Balance')])
