@@ -684,7 +684,14 @@ export class AgentEngine {
         )
         tr.end(roundSpan, { status: 'ok' })
         if (!feedback) break
-        session.messages.push({ id: randomUUID(), role: 'user', content: feedback, createdAt: Date.now() })
+        // tag the auto-generated quality feedback so the UI shows it as an automatic review, not a
+        // human "You" message (the model still receives the full text — see toApiMessages).
+        const autoKind = feedback.startsWith('Selbst-Review:')
+          ? 'self-review'
+          : feedback.startsWith('Der Verify-Befehl')
+            ? 'verify-fix'
+            : 'prove'
+        session.messages.push({ id: randomUUID(), role: 'user', content: feedback, createdAt: Date.now(), auto: autoKind })
         saveSessionSoon(session)
       }
 

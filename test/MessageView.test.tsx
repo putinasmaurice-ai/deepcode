@@ -33,3 +33,37 @@ describe('MessageView tool-call status — interrupted turn must not show "runni
     expect(screen.getByText(/done/)).toBeInTheDocument()
   })
 })
+
+const userMsg = (over: Record<string, unknown> = {}) =>
+  ({ id: 'u1', role: 'user', content: 'hallo', createdAt: Date.UTC(2026, 0, 1, 13, 5), ...over }) as any
+
+describe('MessageView — automatic self-review is not shown as a human "You" message', () => {
+  it('labels an auto self-review and suppresses the edit/automate affordances', () => {
+    render(<MessageView message={userMsg({ auto: 'self-review' })} toolState={{}} onApprove={() => {}} onEdit={() => {}} onAutomate={() => {}} />)
+    expect(screen.getByText(/Automatischer Selbst-Review/)).toBeInTheDocument()
+    expect(screen.queryByText('You')).toBeNull()
+    expect(screen.queryByTitle(/Bearbeiten & neu senden/)).toBeNull() // no ✏️ on an engine message
+    expect(screen.queryByTitle(/als Automation/)).toBeNull() // no ⏰
+  })
+
+  it('a normal user message still shows "You" + the edit affordance', () => {
+    render(<MessageView message={userMsg()} toolState={{}} onApprove={() => {}} onEdit={() => {}} />)
+    expect(screen.getByText('You')).toBeInTheDocument()
+    expect(screen.getByTitle(/Bearbeiten & neu senden/)).toBeInTheDocument()
+  })
+
+  it('labels the other auto kinds (verify-fix / prove / compaction)', () => {
+    const { rerender } = render(<MessageView message={userMsg({ auto: 'verify-fix' })} toolState={{}} onApprove={() => {}} />)
+    expect(screen.getByText(/Auto-Fix nach Verify/)).toBeInTheDocument()
+    rerender(<MessageView message={userMsg({ auto: 'compaction' })} toolState={{}} onApprove={() => {}} />)
+    expect(screen.getByText(/Kontext verdichtet/)).toBeInTheDocument()
+  })
+})
+
+describe('MessageView — per-message timestamp', () => {
+  it('renders an HH:MM timestamp under a user message', () => {
+    render(<MessageView message={userMsg()} toolState={{}} onApprove={() => {}} />)
+    // timezone-independent: assert SOME HH:MM time node renders (exact value is locale/TZ-dependent)
+    expect(screen.getByText(/^\d{1,2}:\d{2}$/)).toBeInTheDocument()
+  })
+})

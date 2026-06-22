@@ -35,6 +35,10 @@ export interface ChatMessage {
   createdAt: number
   reasoning?: string // deepseek-reasoner chain-of-thought
   hidden?: boolean // not shown in transcript (e.g. injected context)
+  // engine-INJECTED user message (the automatic quality loop): self-review / verify-fix / prove,
+  // or a compaction summary. Rendered in the chat as an automatic note, NOT as a human "You"
+  // bubble. Still sent to the model verbatim (toApiMessages ignores this UI flag).
+  auto?: 'self-review' | 'verify-fix' | 'prove' | 'compaction'
   error?: boolean
   usage?: TokenUsage // token usage for this assistant turn
   finishReason?: string // 'stop' | 'length' | 'tool_calls' | ...

@@ -4,6 +4,23 @@ import type { ToolState } from '../App'
 import hljs from '../highlight'
 import { renderMarkdown } from '../markdown'
 
+// Labels for engine-INJECTED (automatic) messages so they read as a review, not a human turn.
+const AUTO_LABEL: Record<string, string> = {
+  'self-review': '🔍 Automatischer Selbst-Review',
+  'verify-fix': '🔧 Auto-Fix nach Verify',
+  prove: '🧪 Test-Nachweis',
+  compaction: '🗜️ Kontext verdichtet'
+}
+
+// Small absolute HH:MM timestamp (German locale) shown under each message; full date in the tooltip.
+function MessageTime({ ts }: { ts: number }): JSX.Element {
+  return (
+    <div className="msg-time" title={new Date(ts).toLocaleString('de-DE')}>
+      {new Date(ts).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+    </div>
+  )
+}
+
 // Highlight code blocks + inject per-block copy buttons after the streamed
 // content settles (debounced — re-highlighting on every delta would be wasteful).
 function useCodeEnhancer(ref: React.RefObject<HTMLDivElement>, content: string): void {
@@ -64,27 +81,34 @@ function MessageViewImpl({
     // Collapse the verbose <attached-context> block (from attached files/folders).
     const m = message.content.match(/^<attached-context>[\s\S]*?<\/attached-context>\s*([\s\S]*)$/)
     const visible = m ? m[1] : message.content
+    const auto = message.auto // engine-injected (self-review/verify/prove/compaction) — not a human turn
     return (
-      <div className="msg user">
+      <div className={'msg user' + (auto ? ' auto-review' : '')}>
         <div className="role">
-          You
-          {onEdit && !message.id.startsWith('local-') && (
-            <span
-              className="copy-btn"
-              title="Bearbeiten & neu senden (Verlauf ab hier wird ersetzt)"
-              onClick={() => onEdit(message.id, visible)}
-            >
-              ✏️
-            </span>
-          )}
-          {onAutomate && (
-            <span
-              className="copy-btn"
-              title="Diesen Prompt als Automation (Routine) speichern"
-              onClick={() => onAutomate(visible)}
-            >
-              ⏰
-            </span>
+          {auto ? (
+            AUTO_LABEL[auto] ?? '🔍 Automatische Prüfung'
+          ) : (
+            <>
+              You
+              {onEdit && !message.id.startsWith('local-') && (
+                <span
+                  className="copy-btn"
+                  title="Bearbeiten & neu senden (Verlauf ab hier wird ersetzt)"
+                  onClick={() => onEdit(message.id, visible)}
+                >
+                  ✏️
+                </span>
+              )}
+              {onAutomate && (
+                <span
+                  className="copy-btn"
+                  title="Diesen Prompt als Automation (Routine) speichern"
+                  onClick={() => onAutomate(visible)}
+                >
+                  ⏰
+                </span>
+              )}
+            </>
           )}
         </div>
         {m && <div className="attach-note">📎 Anhänge im Kontext</div>}
@@ -96,6 +120,7 @@ function MessageViewImpl({
           </div>
         ) : null}
         <div className="bubble">{visible || (message.images?.length ? '👁 Bild analysieren' : '(nur Anhänge)')}</div>
+        <MessageTime ts={message.createdAt} />
       </div>
     )
   }
@@ -146,6 +171,7 @@ function MessageViewImpl({
           {` · ${message.usage.promptTokens.toLocaleString()} in / ${message.usage.completionTokens.toLocaleString()} out`}
         </div>
       )}
+      <MessageTime ts={message.createdAt} />
     </div>
   )
 }

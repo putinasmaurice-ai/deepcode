@@ -74,7 +74,7 @@ export async function compactSession(
     role: 'user',
     content: `<conversation-summary>\n${summary}\n</conversation-summary>`,
     createdAt: Date.now(),
-    hidden: false
+    auto: 'compaction' // muted "context compacted" note in the UI; still sent to the model
   }
   session.messages = [synthetic, ...recent]
   saveSession(session)

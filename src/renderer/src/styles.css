@@ -868,6 +868,13 @@ button {
   margin-top: 6px;
   font-family: var(--mono);
 }
+/* per-message timestamp (HH:MM, German locale) */
+.msg-time {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 4px;
+  font-family: var(--mono);
+}
 .trunc {
   font-size: 12px;
   color: var(--yellow);
@@ -1314,6 +1321,16 @@ kbd {
 }
 .msg.second-opinion .role {
   color: var(--accent-2);
+}
+/* engine-injected automatic review (self-review / verify-fix / prove / compaction) — muted, dashed,
+   visibly NOT a human "You" message */
+.msg.user.auto-review .bubble {
+  background: transparent;
+  border: 1px dashed var(--border);
+  opacity: 0.72;
+}
+.msg.user.auto-review .role {
+  color: var(--text-faint);
 }
 
 /* attachment preview popover */

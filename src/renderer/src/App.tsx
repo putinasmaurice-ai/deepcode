@@ -924,7 +924,7 @@ export function App(): JSX.Element {
 
   async function regenerate(): Promise<void> {
     if (!session || busy) return
-    const lastUser = [...messages].reverse().find((m) => m.role === 'user' && !m.id.startsWith('local-'))
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user' && !m.id.startsWith('local-') && !m.auto)
     if (!lastUser) return
     // drop the old answer locally; keep the user message visible
     setMessages((m) => {
