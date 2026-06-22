@@ -38,4 +38,11 @@ describe('contextLimit', () => {
     expect(contextLimit('together:meta-llama/Llama-3.3-70B-Instruct-Turbo')).toBe(32_000)
     expect(contextLimit('kilo:kilo/auto')).toBe(32_000) // unknown router id → conservative default
   })
+
+  it('knows the Z.ai GLM windows (GLM-5.x = 1M, 4.6 = 200K)', () => {
+    expect(contextLimit('deepinfra:zai-org/GLM-5.2')).toBe(1_000_000)
+    expect(contextLimit('deepinfra:zai-org/GLM-5')).toBe(1_000_000)
+    expect(contextLimit('deepinfra:zai-org/GLM-4.6')).toBe(200_000)
+    expect(contextLimit('deepinfra:zai-org/GLM-4.5')).toBe(128_000) // not the 1M GLM-5 line
+  })
 })

@@ -14,6 +14,9 @@ const TABLE: ModelInfo[] = [
   { pattern: /mellum[-_\s]?2/i, context: 131_072 }, // JetBrains Mellum 2 (Thinking MoE): 128K
   { pattern: /mellum/i, context: 8_192 }, // JetBrains Mellum 4b (code completion): 8K
   { pattern: /mimo/i, context: 128_000 }, // Xiaomi MiMo v2/v2.5 (estimate; conservative for the pill)
+  { pattern: /glm[-_\s]?5/i, context: 1_000_000 }, // Z.ai GLM-5 / 5.1 / 5.2: up to 1M
+  { pattern: /glm[-_\s]?4\.6/i, context: 200_000 }, // GLM-4.6: 200K
+  { pattern: /glm/i, context: 128_000 }, // other GLM (4.5 etc.)
   { pattern: /llama3\.[12]|llama-3\.[12]/i, context: 128_000 },
   { pattern: /llama|mistral|mixtral|dolphin|gemma|phi/i, context: 32_000 },
   { pattern: /gpt-4o|gpt-4\.1|o[134]/i, context: 128_000 },
@@ -36,3 +39,12 @@ export function contextLimit(model: string | undefined): number {
 // e.g. `ollama pull hf.co/JetBrains/Mellum2-12B-A2.5B-Thinking-GGUF-Q4_K_M` (or your own tag named
 // `mellum2`) — JetBrains' Mellum 2 is a 12B MoE "Thinking" code model with a 128K window.
 export const SUGGESTED_LOCAL_MODELS: string[] = ['local:mellum2']
+
+// Curated CLOUD models surfaced as ready-to-pick options in the model dropdown (the matching
+// provider key must be set in Settings). Always visible, regardless of the user's saved
+// extraModels list — so a freshly added model shows up without editing settings by hand.
+export const SUGGESTED_MODELS: string[] = [
+  'deepinfra:zai-org/GLM-5.2', // Z.ai GLM-5.2 — 1M context, agentic/coding flagship (via DeepInfra)
+  'mimo:mimo-v2.5-pro', // Xiaomi MiMo (token plan)
+  'kilo:kilo/auto' // Kilo Code gateway — smart routing
+]
