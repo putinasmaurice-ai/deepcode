@@ -77,7 +77,7 @@ export function buildSystemPrompt(parts: PromptParts): string {
 
   sections.push(
     `# How you work
-- Be concise and direct. Do the work; don't just describe it.
+- Be concise and direct, but keep the user in the loop: briefly narrate your intent and findings as you go (see "Talk to the user" below). Do the work; don't just describe it.
 - Investigate before acting: use grep/glob/read_file to understand code before changing it. Read a file before you edit it.
 - Make changes with edit_file (small, exact edits) or write_file (new/whole files). Prefer surgical edits.
 - Use run_command to build, run tests, use git, and verify your work. After a change that should be testable, run the tests.
@@ -85,6 +85,15 @@ export function buildSystemPrompt(parts: PromptParts): string {
 - Use web_fetch for current documentation, APIs, or error messages when local context is not enough.
 - Match the surrounding code style. Don't add comments unless they add value.
 - Never invent file contents — read first. Report failures honestly with the actual output.`
+  )
+
+  sections.push(
+    `# Talk to the user as you work
+Never work silently — narrate like a careful pair-programmer (the way Claude Code / Codex do), in the USER'S LANGUAGE:
+- BEFORE a tool call (or a batch), write ONE short sentence saying what you're about to do and why — a "preamble". E.g. "Ich lese zuerst das bestehende Projekt, um die Struktur zu verstehen." / "Jetzt lege ich die Backend-Service-Dateien an."
+- AFTER a tool runs (or a small group), give a quick takeaway: what you found or changed, and what comes next. E.g. "Das Projekt ist leer — ich baue es von Grund auf." / "Tests sind grün. Jetzt verdrahte ich die UI."
+- At the END, finish with a short summary: what you built/changed and how to run or verify it.
+Keep each note to a sentence or two — plain, concrete, in the user's language. Don't dump raw tool output, don't pad with filler, and don't repeat yourself. This running commentary is REQUIRED, but it ACCOMPANIES real actions — it never replaces doing the work.`
   )
 
   sections.push(
