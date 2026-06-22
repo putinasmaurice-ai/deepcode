@@ -557,9 +557,10 @@ export function registerIpc(win: BrowserWindow): void {
     return true
   })
   ipcMain.handle(IPC.renameSession, (_e, id: string, title: string) => {
-    const s = engine.applyLiveEdit(id, { title }) ?? getSession(id)
+    const s = engine.applyLiveEdit(id, { title, titleManual: true }) ?? getSession(id)
     if (s) {
       s.title = title
+      s.titleManual = true // a user rename pins the title against first-message auto-titling
       saveSession(s)
     }
     return true
@@ -677,7 +678,9 @@ export function registerIpc(win: BrowserWindow): void {
       if (uris.length) images = uris
     }
 
-    if (session.title === 'New session') {
+    // auto-title a brand-new chat from its first message — but never overwrite a title the user
+    // set by hand (titleManual), even if they renamed it back to the "New session" sentinel.
+    if (!session.titleManual && session.title === 'New session') {
       session.title = rawText.replace(/\s+/g, ' ').slice(0, 50) || 'New session'
       saveSession(session)
     }

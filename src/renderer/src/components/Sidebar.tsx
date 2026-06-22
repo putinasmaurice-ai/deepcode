@@ -1,6 +1,6 @@
 import type { AppSettings, ProjectDef, Session } from '../../../shared/types'
 import type { View } from '../App'
-import { basename, relTime } from './ChatExtras'
+import { SessionRow } from './SessionRow'
 
 // Primary destinations stay visible; management panels collapse under
 // "Erweitert" so the chat list keeps breathing room.
@@ -189,62 +189,19 @@ export function Sidebar(p: SidebarProps): JSX.Element {
               s.cwd.toLowerCase().includes(p.sessionFilter.toLowerCase())
           )
           .map((s) => (
-            <div
+            <SessionRow
               key={s.id}
-              className={'session-item' + (p.activeSessionId === s.id ? ' active' : '')}
-              role="button"
-              tabIndex={p.renamingId === s.id ? -1 : 0}
-              onClick={() => p.onOpenSession(s.id)}
-              onDoubleClick={() => p.onStartRename(s.id, s.title || '')}
-              onKeyDown={(e) => {
-                if (p.renamingId === s.id) return // the rename input handles its own keys
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  p.onOpenSession(s.id)
-                } else if (e.key === 'F2') {
-                  e.preventDefault()
-                  p.onStartRename(s.id, s.title || '')
-                } else if (e.key === 'Delete') {
-                  e.preventDefault()
-                  p.onDeleteSession(s.id)
-                }
-              }}
-              title={s.cwd + ' (Doppelklick / F2: umbenennen)'}
-            >
-              {p.renamingId === s.id ? (
-                <input
-                  className="rename-input"
-                  value={p.renameText}
-                  autoFocus
-                  onChange={(e) => p.onRenameText(e.target.value)}
-                  onBlur={p.onCommitRename}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') p.onCommitRename()
-                    if (e.key === 'Escape') p.onCancelRename()
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              ) : (
-                <div style={{ minWidth: 0, overflow: 'hidden' }}>
-                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.title || 'Untitled'}</div>
-                  <div className="session-meta">
-                    {basename(s.cwd)} · {relTime(s.updatedAt)}
-                  </div>
-                </div>
-              )}
-              <button
-                type="button"
-                className="x"
-                aria-label={`Chat „${s.title || 'Untitled'}" löschen`}
-                onClick={(ev) => {
-                  ev.stopPropagation()
-                  p.onDeleteSession(s.id)
-                }}
-                onKeyDown={(ev) => ev.stopPropagation()}
-              >
-                ✕
-              </button>
-            </div>
+              session={s}
+              active={p.activeSessionId === s.id}
+              renaming={p.renamingId === s.id}
+              renameText={p.renameText}
+              onRenameText={p.onRenameText}
+              onOpen={p.onOpenSession}
+              onDelete={p.onDeleteSession}
+              onStartRename={p.onStartRename}
+              onCommitRename={p.onCommitRename}
+              onCancelRename={p.onCancelRename}
+            />
           ))}
       </div>
     </aside>

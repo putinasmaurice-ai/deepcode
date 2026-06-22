@@ -166,6 +166,9 @@ export interface TodoItem {
 export interface Session {
   id: string
   title: string
+  // true once the user manually renamed the chat — protects the title from the first-message
+  // auto-titling (so renaming a fresh chat, or back to "New session", is never clobbered).
+  titleManual?: boolean
   cwd: string
   createdAt: number
   updatedAt: number
