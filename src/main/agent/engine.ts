@@ -82,6 +82,8 @@ export class AgentEngine {
   // model) mutate the SAME object the turn will save — otherwise the turn's saveSession
   // overwrites the edit (last-writer-wins).
   private liveSessions = new Map<string, Session>()
+  // per-session queue of mid-turn steering messages (injected at the next runSteps step boundary)
+  private steerQueue = new Map<string, string[]>()
   // Lets the chat agent run a saved workflow by id-or-name and read back per-node results.
   // Wired by the IPC layer (which owns workflow store + executor deps); absent → the
   // run_workflow tool is simply not exposed to the agent.
@@ -132,6 +134,18 @@ export class AgentEngine {
     if (!s) return null
     Object.assign(s, patch)
     return s
+  }
+
+  // Mid-turn steering: text the user sends WHILE a turn is running. If a turn is in flight for this
+  // session it's queued and injected as a user message at the next step boundary in runSteps — so
+  // the agent course-corrects within the current turn instead of waiting for it to finish. Returns
+  // true when accepted into a running turn; false if nothing is running (caller sends it normally).
+  steer(id: string, text: string): boolean {
+    if (!text.trim() || !this.liveSessions.has(id)) return false
+    const q = this.steerQueue.get(id) ?? []
+    q.push(text.trim())
+    this.steerQueue.set(id, q)
+    return true
   }
 
   approve(callId: string, approved: boolean, remember?: boolean): void {
@@ -701,6 +715,7 @@ export class AgentEngine {
       trace?.finish(turnStatus)
       this.aborters.delete(session.id)
       this.liveSessions.delete(session.id)
+      this.steerQueue.delete(session.id) // drop any un-consumed steering (turn is over)
       flushSession(session) // guaranteed end-of-turn persist (drains any debounced intra-turn writes)
     }
   }
@@ -808,6 +823,28 @@ export class AgentEngine {
 
     for (let step = 0; step < MAX_STEPS; step++) {
       if (signal.aborted) break
+
+      // Mid-turn steering: messages the user sent while this turn was running are injected here —
+      // BEFORE the next LLM round — as user messages, so the agent course-corrects at this step
+      // instead of after the whole turn. (Renderer already showed them optimistically.)
+      const steers = this.steerQueue.get(session.id)
+      if (steers && steers.length) {
+        this.steerQueue.set(session.id, [])
+        const injectedIds: string[] = []
+        for (const t of steers) {
+          const id = randomUUID()
+          session.messages.push({ id, role: 'user', content: t, createdAt: Date.now() })
+          injectedIds.push(id)
+        }
+        // reconcile the renderer's optimistic 'local-' messages with the real ids (like a normal
+        // send). Emit in REVERSE: the renderer always reconciles the LAST local- user message, so
+        // the last-injected id must land first for multiple steers to map in the right order.
+        for (let i = injectedIds.length - 1; i >= 0; i--) {
+          emit({ type: 'user_message', sessionId: session.id, id: injectedIds[i] })
+        }
+        emit({ type: 'status', message: '⏩ Deine Eingabe wurde übernommen.' })
+        saveSessionSoon(session)
+      }
 
       const assistantMsg = newAssistantMessage()
       emit({ type: 'message_start', message: assistantMsg })

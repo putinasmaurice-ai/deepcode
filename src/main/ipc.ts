@@ -871,6 +871,8 @@ export function registerIpc(win: BrowserWindow): void {
     chatWfAborters.get(sessionId)?.abort()
     return true
   })
+  // mid-turn steering: feed a user message into the RUNNING turn (true) instead of a new turn (false)
+  ipcMain.handle(IPC.steerTurn, (_e, sessionId: string, text: string) => engine.steer(sessionId, text))
   ipcMain.handle(IPC.approveTool, (_e, callId: string, approved: boolean, remember?: boolean) => {
     engine.approve(callId, approved, remember)
     return true

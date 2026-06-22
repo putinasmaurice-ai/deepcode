@@ -38,6 +38,7 @@ export const IPC = {
   // agent turn
   sendMessage: 'agent:send',
   cancelTurn: 'agent:cancel',
+  steerTurn: 'agent:steer',
   approveTool: 'agent:approveTool',
   submitSecret: 'agent:submitSecret',
   agentEvent: 'agent:event', // main -> renderer push channel

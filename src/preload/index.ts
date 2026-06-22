@@ -61,6 +61,7 @@ const api: DeepCodeApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC.getAppInfo),
   checkUpdates: () => ipcRenderer.invoke(IPC.checkUpdates),
   cancelTurn: (sessionId: string) => ipcRenderer.invoke(IPC.cancelTurn, sessionId),
+  steerTurn: (sessionId: string, text: string) => ipcRenderer.invoke(IPC.steerTurn, sessionId, text),
   approveTool: (callId: string, approved: boolean, remember?: boolean) =>
     ipcRenderer.invoke(IPC.approveTool, callId, approved, remember),
   submitSecret: (callId: string, value: string | null) =>

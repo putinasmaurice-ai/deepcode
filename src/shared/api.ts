@@ -123,6 +123,9 @@ export interface DeepCodeApi {
     attachments?: string[]
   ): Promise<boolean>
   cancelTurn(sessionId: string): Promise<boolean>
+  // mid-turn steering: inject text into the RUNNING turn. Resolves true if a turn was live and
+  // accepted it (the agent adjusts at its next step); false if nothing was running (send normally).
+  steerTurn(sessionId: string, text: string): Promise<boolean>
   approveTool(callId: string, approved: boolean, remember?: boolean): Promise<boolean>
   // securely submit a value the agent requested via a secret_request event. The value goes
   // renderer→main→setSecret only — it is never re-emitted to the renderer/LLM. Resolves with the

@@ -801,15 +801,37 @@ export function App(): JSX.Element {
 
   async function send(text: string, attachments?: string[]): Promise<void> {
     if (!session) return
-    // mid-turn steering: queue messages typed while the agent is working.
-    // Snapshot + clear the edit target NOW (H8): leaving it set would make the next
-    // normal send wrongly truncate from this stale edit point. The queued item carries it.
     if (busy) {
       const editId = editTargetRef.current
-      editTargetRef.current = null
-      setQueue((q) => [...q, { sessionId: session.id, text, attachments, editId }])
-      addToast('In Warteschlange — wird nach diesem Turn gesendet.')
-      return
+      // Mid-turn steering: a plain text message (no attachments, not an edit-and-resend) is fed
+      // straight into the RUNNING turn so the agent course-corrects at its next step instead of
+      // waiting for the turn to end. Attachments (vision/upload pipeline) and edit-and-resend need
+      // a full send, so those still queue.
+      if (!attachments?.length && !editId && text.trim()) {
+        const accepted = await api.steerTurn(session.id, text)
+        if (accepted) {
+          const steerMsg: ChatMessage = {
+            id: 'local-' + Date.now(),
+            role: 'user',
+            content: text,
+            createdAt: Date.now()
+          }
+          setMessages((m) => [...m, steerMsg])
+          addToast('⏩ In den laufenden Turn eingespeist.')
+          nearBottomRef.current = true
+          scrollDown()
+          return
+        }
+        // accepted === false: the turn ended between the busy check and the IPC — fall through and
+        // send it as a normal new turn below.
+      } else {
+        // Snapshot + clear the edit target NOW (H8): leaving it set would make the next
+        // normal send wrongly truncate from this stale edit point. The queued item carries it.
+        editTargetRef.current = null
+        setQueue((q) => [...q, { sessionId: session.id, text, attachments, editId }])
+        addToast('In Warteschlange — wird nach diesem Turn gesendet.')
+        return
+      }
     }
     // 🔮 off-peak defer: hold a fresh send until the discount window opens. Same H8
     // snapshot-and-clear so the held edit target can't leak into a later normal send.
