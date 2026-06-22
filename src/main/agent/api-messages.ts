@@ -15,7 +15,13 @@ import { ApiMessage } from './deepseek'
 const RECENT_TOOL_TURNS = 3
 const RECENT_TOOL_CAP = 30_000
 
-export function toApiMessages(system: string, messages: ChatMessage[]): ApiMessage[] {
+// opts.replayReasoning: re-send the assistant's reasoning_content on turns that carried tool_calls.
+// First-party DeepSeek V3.2/V4 thinking-mode REQUIRES this (400 without it); everywhere else it's
+// off (hosted deepseek via gateways ignores it, and opaque-reasoning models — grok/gemini — would
+// need their verbatim reasoning_details, which we don't store). Position rule: only on tool-call
+// turns; a plain final-answer turn keeps reasoning stripped (matches the legacy-R1 "no reasoning in
+// input" contract too).
+export function toApiMessages(system: string, messages: ChatMessage[], opts?: { replayReasoning?: boolean }): ApiMessage[] {
   const out: ApiMessage[] = [{ role: 'system', content: system }]
   const respondedIds = new Set(
     messages.filter((m) => m.role === 'tool' && m.toolCallId).map((m) => m.toolCallId as string)
@@ -59,6 +65,9 @@ export function toApiMessages(system: string, messages: ChatMessage[]): ApiMessa
           function: { name: tc.name, arguments: tc.arguments }
         }))
         if (!m.content) msg.content = null
+        // first-party DeepSeek thinking-mode: the reasoning that preceded this tool_calls block must
+        // be replayed verbatim, or the API 400s ("reasoning_content … must be passed back").
+        if (opts?.replayReasoning && m.reasoning) msg.reasoning_content = m.reasoning
       }
       out.push(msg)
       // backfill any tool_calls that never got a response

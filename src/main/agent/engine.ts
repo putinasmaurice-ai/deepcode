@@ -43,6 +43,15 @@ export type { ApprovalPolicy } from './policy'
 const MAX_STEPS = 60
 const MAX_QUALITY_ROUNDS = 4 // initial pass + self-review + 2 verify fixes
 const SWARM_MAX_WORKERS = 6 // parallel swarm workers (runPool caps in-flight at 8 regardless)
+const MAX_AUTO_CONTINUE = 2 // auto-resume a max-tokens-truncated text answer at most this often per turn
+
+// First-party DeepSeek route (bare model id, no vendor prefix → api.deepseek.com). Its V3.2/V4
+// thinking-mode REQUIRES reasoning_content replayed on tool-call turns (400 otherwise); hosted
+// deepseek via deepinfra:/openrouter: ignores it, so reasoning replay is enabled ONLY on this route.
+function firstPartyDeepSeek(model: string | undefined): boolean {
+  if (!model) return true
+  return !/^(local|google|deepinfra|openai|together|mimo|kilo|openrouter):/i.test(model) && /deepseek/i.test(model)
+}
 const SWARM_MAX_MS = 30 * 60_000 // absolute wall-clock ceiling for a whole swarm run
 // swarm workers are pure code-editors in an isolated worktree (no deps installed, orchestrator
 // commits) → only read/edit/search tools; NO shell/git/jobs/web/task/preview/mcp.
@@ -827,6 +836,7 @@ export class AgentEngine {
     const cap = this.settings.maxCostPerTurn
     // error memory: remember "failed command → working follow-up" pairs
     let lastFailedCmd: { program: string; errorHead: string } | null = null
+    let autoContinues = 0 // how many times we've auto-resumed a max-tokens-truncated answer this turn
 
     for (let step = 0; step < MAX_STEPS; step++) {
       if (signal.aborted) break
@@ -859,7 +869,7 @@ export class AgentEngine {
       let result: Awaited<ReturnType<typeof this.client.streamChat>>
       try {
         result = await this.client.streamChat(
-          toApiMessages(system, session.messages),
+          toApiMessages(system, session.messages, { replayReasoning: firstPartyDeepSeek(stepModel) }),
           apiTools,
           streamCallbacksFor(assistantMsg, emit),
           signal,
@@ -915,6 +925,25 @@ export class AgentEngine {
 
       if (!assistantMsg.toolCalls.length) {
         if (result.finishReason === 'length') {
+          // auto-resume a truncated text answer (capped) so it finishes on its own instead of
+          // stopping mid-sentence. The nudge is hidden (not a visible "You" message); the model's
+          // continuation arrives as the next assistant turn.
+          if (autoContinues < MAX_AUTO_CONTINUE) {
+            autoContinues++
+            emit({
+              type: 'status',
+              message: `Antwort am Token-Limit abgeschnitten — setze automatisch fort (${autoContinues}/${MAX_AUTO_CONTINUE})…`
+            })
+            session.messages.push({
+              id: randomUUID(),
+              role: 'user',
+              content: 'Fahre exakt dort fort, wo du aufgehört hast — nichts wiederholen, direkt weiterschreiben.',
+              createdAt: Date.now(),
+              hidden: true
+            })
+            saveSessionSoon(session)
+            continue
+          }
           emit({
             type: 'status',
             message:

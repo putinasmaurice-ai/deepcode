@@ -55,4 +55,34 @@ describe('toApiMessages', () => {
     expect(typeof u?.content).toBe('string')
     expect(u!.content as string).toMatch(/keine Analyse verfügbar/)
   })
+
+  describe('reasoning replay (first-party DeepSeek thinking-mode)', () => {
+    const toolTurn = msg({
+      role: 'assistant',
+      content: '',
+      reasoning: 'Ich überlege, welche Datei…',
+      toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{}' }]
+    })
+    const finalTurn = msg({ role: 'assistant', content: 'Fertig.', reasoning: 'kurzer Gedanke' })
+    const hist = [toolTurn, msg({ role: 'tool', toolCallId: 'c1', toolName: 'read_file', content: 'ok' }), finalTurn]
+
+    it('replays reasoning_content ONLY on tool-call turns when enabled', () => {
+      const out = toApiMessages('S', hist, { replayReasoning: true })
+      const assts = out.filter((m) => m.role === 'assistant')
+      expect(assts[0].reasoning_content).toBe('Ich überlege, welche Datei…') // the tool-call turn → replayed
+      expect(assts[1].reasoning_content).toBeUndefined() // the plain final answer → stripped (R1-safe)
+    })
+
+    it('never sets reasoning_content when replay is off (default — DeepInfra/OpenRouter/etc.)', () => {
+      const out = toApiMessages('S', hist) // no opts
+      for (const m of out) expect(m.reasoning_content).toBeUndefined()
+    })
+
+    it('is a no-op for a tool-call turn that carries no reasoning', () => {
+      const out = toApiMessages('S', [msg({ role: 'assistant', content: '', toolCalls: [{ id: 'c2', name: 'x', arguments: '{}' }] })], {
+        replayReasoning: true
+      })
+      expect(out.find((m) => m.role === 'assistant')?.reasoning_content).toBeUndefined()
+    })
+  })
 })

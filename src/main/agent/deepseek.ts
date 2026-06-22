@@ -31,6 +31,9 @@ export interface ApiMessage {
   }[]
   tool_call_id?: string
   name?: string
+  // replayed chain-of-thought on an assistant tool-call turn — REQUIRED by first-party DeepSeek
+  // V3.2/V4 thinking-mode (400 without it); only set on that route (see toApiMessages replayReasoning).
+  reasoning_content?: string
 }
 
 export interface StreamCallbacks {
