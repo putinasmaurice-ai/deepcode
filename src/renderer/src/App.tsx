@@ -16,7 +16,7 @@ import { MessageView } from './components/MessageView'
 import { ProjectsPanel } from './components/ProjectsPanel'
 import { Welcome, TodoStrip, ContextPill, basename, relTime } from './components/ChatExtras'
 import { LiveActivity } from './components/LiveActivity'
-import { contextLimit, SUGGESTED_LOCAL_MODELS, SUGGESTED_MODELS } from '../../shared/models'
+import { contextLimit, SUGGESTED_LOCAL_MODELS, SUGGESTED_MODELS, modelLabel, modelOrder } from '../../shared/models'
 import { FirstRunModal } from './components/FirstRunModal'
 import { Sidebar, NAV } from './components/Sidebar'
 import { CommandPalette, PaletteItem } from './components/CommandPalette'
@@ -1301,23 +1301,15 @@ export function App(): JSX.Element {
                     ...SUGGESTED_LOCAL_MODELS,
                     ...localModels.map((m) => 'local:' + m)
                   ])
-                ).map((m) => (
-                  <option key={m} value={m}>
-                    {m.startsWith('local:')
-                      ? '💻 ' + m.slice('local:'.length)
-                      : m.startsWith('deepinfra:')
-                        ? '☁️ ' + m.slice('deepinfra:'.length)
-                        : m.startsWith('together:')
-                          ? '🧩 ' + m.slice('together:'.length)
-                          : m.startsWith('mimo:')
-                            ? '📱 ' + m.slice('mimo:'.length)
-                            : m.startsWith('kilo:')
-                              ? '🦘 ' + m.slice('kilo:'.length)
-                              : m.startsWith('openrouter:')
-                                ? '🌐 ' + m.slice('openrouter:'.length)
-                                : m}
-                  </option>
-                ))}
+                )
+                  // curated friendly labels + order (MODEL_DISPLAY); unknown models keep insertion
+                  // order after the curated ones (Array.sort is stable). value stays the real id.
+                  .sort((a, b) => modelOrder(a) - modelOrder(b))
+                  .map((m) => (
+                    <option key={m} value={m}>
+                      {modelLabel(m)}
+                    </option>
+                  ))}
               </select>
               <button
                 className={'btn ghost sm uncensored-btn' + (uncensoredActive ? ' on' : '')}

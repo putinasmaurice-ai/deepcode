@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { contextLimit } from '../src/shared/models'
+import { contextLimit, modelLabel, modelOrder, MODEL_DISPLAY } from '../src/shared/models'
 
 describe('contextLimit', () => {
   it('knows DeepSeek = 64K', () => {
@@ -73,5 +73,42 @@ describe('contextLimit', () => {
     expect(contextLimit('openrouter:x-ai/grok-4.1-fast')).toBe(2_000_000) // still 2M
     expect(contextLimit('openrouter:minimax/minimax-m3')).toBe(1_048_576)
     expect(contextLimit('openrouter:moonshotai/kimi-k2.7-code')).toBe(262_144)
+  })
+})
+
+describe('modelLabel — curated dropdown display names (exact casing)', () => {
+  it('resolves same-named models on different providers distinctly (no collision)', () => {
+    expect(modelLabel('deepinfra:deepseek-ai/DeepSeek-V4-Flash')).toBe('DI DeepSeek v4 Flash')
+    expect(modelLabel('openrouter:deepseek/deepseek-v4-flash')).toBe('OR DeepSeek v4 Flash')
+    expect(modelLabel('deepinfra:openai/gpt-oss-120b')).toBe('DI GPT 120b')
+    expect(modelLabel('openrouter:openai/gpt-oss-120b:free')).toBe('OR GPT 120b')
+  })
+
+  it('preserves the exact casing the user specified', () => {
+    expect(modelLabel('deepseek-chat')).toBe('DeepSeek v4 Flash official') // lowercase v + official
+    expect(modelLabel('openrouter:xiaomi/mimo-v2.5-pro')).toBe('OR Mimo 2.5 Pro') // "Mimo", trimmed
+    expect(modelLabel('openrouter:minimax/minimax-m3')).toBe('OR MiniMax M3') // camelCase MiniMax
+    expect(modelLabel('local:huihui_ai/qwen2.5-abliterate:14b')).toBe('Lokal Qwen 2.5 uncensored') // lowercase uncensored
+    expect(modelLabel('openrouter:moonshotai/kimi-k2.7-code')).toBe('OR Kimi 2.7 Code') // capital Code
+  })
+
+  it('falls back to a provider-icon + raw id for unknown models', () => {
+    expect(modelLabel('deepinfra:some/unknown-model')).toBe('☁️ some/unknown-model')
+    expect(modelLabel('local:whatever:7b')).toBe('💻 whatever:7b')
+    expect(modelLabel('totally-unknown')).toBe('totally-unknown')
+  })
+
+  it('orders curated models in the user-specified sequence, unknowns last (stable)', () => {
+    const shuffled = ['kilo:kilo/auto', 'zzz-unknown', 'deepseek-chat', 'openrouter:x-ai/grok-4.3', 'deepinfra:zai-org/GLM-5.2']
+    const sorted = [...shuffled].sort((a, b) => modelOrder(a) - modelOrder(b))
+    expect(sorted).toEqual(['deepseek-chat', 'deepinfra:zai-org/GLM-5.2', 'openrouter:x-ai/grok-4.3', 'kilo:kilo/auto', 'zzz-unknown'])
+  })
+
+  it('every curated label is unique and the list starts/ends as specified', () => {
+    const labels = MODEL_DISPLAY.map((m) => m.label)
+    expect(new Set(labels).size).toBe(labels.length) // no duplicate labels
+    expect(labels[0]).toBe('DeepSeek v4 Flash official')
+    expect(labels[labels.length - 1]).toBe('Kilo/Auto')
+    expect(MODEL_DISPLAY).toHaveLength(26)
   })
 })

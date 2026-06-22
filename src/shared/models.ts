@@ -56,6 +56,65 @@ export const SUGGESTED_LOCAL_MODELS: string[] = ['local:mellum2']
 // Curated CLOUD models surfaced as ready-to-pick options in the model dropdown (the matching
 // provider key must be set in Settings). Always visible, regardless of the user's saved
 // extraModels list — so a freshly added model shows up without editing settings by hand.
+// Friendly dropdown display names + ORDER. Keyed by the full prefixed model id. The dropdown shows
+// known models in THIS order with these exact labels; any other model falls back to a provider-icon
+// + raw id and is appended afterwards. Labels only affect display — the stored model id is unchanged.
+export const MODEL_DISPLAY: { id: string; label: string }[] = [
+  { id: 'deepseek-chat', label: 'DeepSeek v4 Flash official' },
+  { id: 'deepseek-reasoner', label: 'DeepSeek v4 Pro official' },
+  { id: 'deepinfra:deepseek-ai/DeepSeek-V4-Flash', label: 'DI DeepSeek v4 Flash' },
+  { id: 'deepinfra:openai/gpt-oss-120b', label: 'DI GPT 120b' },
+  { id: 'deepinfra:Qwen/Qwen3-VL-235B-A22B-Instruct', label: 'DI Qwen 3 235b' },
+  { id: 'deepinfra:Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo', label: 'DI Qwen 3 480b' },
+  { id: 'deepinfra:zai-org/GLM-5.2', label: 'DI GLM 5.2' },
+  { id: 'deepinfra:google/gemma-4-31B-it', label: 'DI Gemma 4' },
+  { id: 'deepinfra:moonshotai/Kimi-K2.6', label: 'DI Kimi 2.6' },
+  { id: 'openrouter:moonshotai/kimi-k2.7-code', label: 'OR Kimi 2.7 Code' },
+  { id: 'openrouter:openai/gpt-oss-120b:free', label: 'OR GPT 120b' },
+  { id: 'openrouter:openai/gpt-oss-20b', label: 'OR GPT 20b' },
+  { id: 'openrouter:xiaomi/mimo-v2.5-pro', label: 'OR Mimo 2.5 Pro' },
+  { id: 'openrouter:deepseek/deepseek-v4-flash', label: 'OR DeepSeek v4 Flash' },
+  { id: 'openrouter:z-ai/glm-4.7-flash', label: 'OR GLM 4.7' },
+  { id: 'openrouter:google/gemini-2.5-flash-lite', label: 'OR Gemini 2.5 Flash' },
+  { id: 'openrouter:x-ai/grok-4.1-fast', label: 'OR Grok 4.1' },
+  { id: 'openrouter:x-ai/grok-4.3', label: 'OR Grok 4.3' },
+  { id: 'openrouter:minimax/minimax-m3', label: 'OR MiniMax M3' },
+  { id: 'openrouter:qwen/qwen3-coder-flash', label: 'OR Qwen 3 Coder' },
+  { id: 'local:qwen3-coder:30b', label: 'Lokal Qwen 3 Coder' },
+  { id: 'local:qwen2.5vl:7b', label: 'Lokal Qwen 2.5 7b' },
+  { id: 'local:huihui_ai/qwen2.5-abliterate:14b', label: 'Lokal Qwen 2.5 uncensored' },
+  { id: 'local:dolphin3:latest', label: 'Lokal Dolphin 3 uncensored' },
+  { id: 'local:mellum2', label: 'Lokal Mellum 2' },
+  { id: 'kilo:kilo/auto', label: 'Kilo/Auto' }
+]
+
+const LABEL_BY_ID = new Map(MODEL_DISPLAY.map((m) => [m.id, m.label]))
+const ORDER_BY_ID = new Map(MODEL_DISPLAY.map((m, i) => [m.id, i]))
+
+// Fallback label for a model NOT in MODEL_DISPLAY: provider-icon + the id minus its routing prefix.
+function iconLabel(id: string): string {
+  const p: [string, string][] = [
+    ['local:', '💻 '],
+    ['deepinfra:', '☁️ '],
+    ['together:', '🧩 '],
+    ['mimo:', '📱 '],
+    ['kilo:', '🦘 '],
+    ['openrouter:', '🌐 ']
+  ]
+  for (const [prefix, icon] of p) if (id.startsWith(prefix)) return icon + id.slice(prefix.length)
+  return id
+}
+
+// Dropdown label for a model id: the curated friendly name, else the icon + raw id.
+export function modelLabel(id: string): string {
+  return LABEL_BY_ID.get(id) ?? iconLabel(id)
+}
+
+// Sort key: curated models keep MODEL_DISPLAY order; everything else sorts after (stable).
+export function modelOrder(id: string): number {
+  return ORDER_BY_ID.get(id) ?? Number.MAX_SAFE_INTEGER
+}
+
 export const SUGGESTED_MODELS: string[] = [
   'deepinfra:zai-org/GLM-5.2', // Z.ai GLM-5.2 — 1M context, agentic/coding flagship (via DeepInfra)
   'deepinfra:Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo', // Qwen3-Coder 480B — agentic coding (256K), ~Claude Sonnet
